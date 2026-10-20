@@ -1,7 +1,7 @@
 # Roadmap
 
 1. Capture fronts: describe the batch, preview, find prints, confirm, one detail pass, masters, bags
-2. Backs: turn over in place, pair by mirrored position, 300 ppi backs
+2. Backs: turn each print over in place; each back takes its front's region; 300 ppi; review when a back's preview size differs much from its front's
 3. Batch summary: A4 sheet on the H3_ET_2850, label on the PT-E550W
 4. Work queue in lofigui, scan button, display renditions
 5. Transcribe backs into claims

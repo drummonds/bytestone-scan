@@ -1,6 +1,6 @@
 # 001 — Capture the fronts of a batch (#1)
 
-**Status:** proposed
+**Status:** agreed
 
 ## Why
 
@@ -56,11 +56,18 @@ Averaging is the mean of each block, rounded to the nearest count.
 
 | Preview shows | Regions |
 |---|---|
-| one print | one, the print plus 3 mm each side, clipped to the bed |
+| one print | one, the print plus 3 mm each side |
+| a print against the edge of the bed | no margin on that side; the region stops at the bed's edge |
 | several prints at least 5 mm apart | one each, numbered top to bottom then left to right |
 | two prints closer than 5 mm | one region for both; the operator splits it at confirm |
-| a mark smaller than 20 × 20 mm | ignored |
+| a mark smaller than 20 × 20 mm | ignored; the smallest prints are about 25 mm |
+| a print not square to the bed (skewed over 1°) or not rectangular (fills under 97% of its rectangle) | its region as usual, flagged for review at confirm |
 | no print | none; the batch stops at confirm |
+
+The skew and fill thresholds are first guesses, to be tuned on real batches.
+Prints are usually laid against the bed's edges, so the first real batch
+also checks that the 4990 images right up to the edge and doesn't cut off
+the print's own border.
 
 The lid is white and so are many print borders, so detection is weakest
 there; black card behind the prints makes it reliable.
