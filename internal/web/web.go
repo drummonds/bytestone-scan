@@ -13,7 +13,6 @@ import (
 	"image/png"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -111,13 +110,31 @@ func (a *App) Handler() http.Handler {
 		}
 		render(w, "Batch "+b.ID, content)
 	})
-	mux.HandleFunc("GET /batches/{id}/prints.png", func(w http.ResponseWriter, r *http.Request) {
+	servePNG := func(w http.ResponseWriter, r *http.Request, draw func(b *batch.Batch) (image.Image, error)) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		http.ServeFile(w, r, filepath.Join(b.Dir(), "prints.png"))
+		img, err := draw(b)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "no-store") // redrawn after every adjustment
+		png.Encode(w, img)
+	}
+	mux.HandleFunc("GET /batches/{id}/prints.png", func(w http.ResponseWriter, r *http.Request) {
+		servePNG(w, r, (*batch.Batch).Annotated)
+	})
+	mux.HandleFunc("GET /batches/{id}/regions/{n}", func(w http.ResponseWriter, r *http.Request) {
+		n, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("n"), ".png"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		servePNG(w, r, func(b *batch.Batch) (image.Image, error) { return b.CloseUp(n - 1) })
 	})
 
 	mux.HandleFunc("GET /photos/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +176,7 @@ func (a *App) batchLink(_ *http.Request, run wf.RunRecord, _ []wf.StepResult, _ 
 // operator can do there; busy reports that a step is running.
 func (a *App) batchPage(r *http.Request, b *batch.Batch) (string, bool) {
 	c := lofigui.NewContext()
-	busy := a.state(r, c, b)
+	busy, waiting := a.state(r, c, b)
 	c.HTML(fmt.Sprintf(`<h1 class="title">Batch %s</h1>
 <p class="subtitle">%s</p>
 <table class="table"><tbody>
@@ -192,6 +209,11 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) (string, bool) {
 	c.HTML(t.String())
 	c.HTML(fmt.Sprintf(`<figure><img src="batches/%s/prints.png" alt="The bed, with the prints found">
 <figcaption class="help">Preview, 75 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, html.EscapeString(b.ID)))
+	if waiting == "confirm" && !busy {
+		for i, p := range prints {
+			c.HTML(regionEditor(b, i, p))
+		}
+	}
 	return c.Buffer(), busy
 }
 

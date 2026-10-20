@@ -18,6 +18,7 @@ import (
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 )
@@ -99,7 +100,7 @@ func TestBatchRunsToBags(t *testing.T) {
 	if rec.Status != wf.StatusWaiting {
 		t.Fatalf("first tick: %s, want waiting at confirm", rec.Status)
 	}
-	for _, f := range []string{"preview.png", "prints.png", "prints.yaml"} {
+	for _, f := range []string{"preview.png", "prints.yaml"} {
 		if _, err := os.Stat(filepath.Join(b.Dir(), f)); err != nil {
 			t.Errorf("after the first tick: %v", err)
 		}
@@ -143,8 +144,8 @@ func TestBatchRunsToBags(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bag %s front.tif: %v", id, err)
 		}
-		// region = print + 1.5 mm each side, at 600 ppi
-		wantW := int((p.X1 - p.X0 + 3) / 25.4 * 600)
+		// region = print + 0.5 mm each side, at 600 ppi
+		wantW := int((p.X1 - p.X0 + 1) / 25.4 * 600)
 		if got := img.Bounds().Dx(); got < wantW-4 || got > wantW+4 {
 			t.Errorf("bag %s master is %d px wide, want about %d", id, got, wantW)
 		}
@@ -369,5 +370,70 @@ func TestRedoRefusals(t *testing.T) {
 	err := b.Redo(context.Background(), wf.NewRunner(store, nil), "detail pass", 0)
 	if err == nil || !strings.Contains(err.Error(), "final") {
 		t.Errorf("redo once bagged: %v, want a refusal", err)
+	}
+}
+
+func TestAdjustARegionBeforeConfirming(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	store := wf.NewMemStore()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+
+	prints, _, _ := b.Found()
+	before := prints[0].Region
+	if err := b.Adjust(0, find.Right, 3); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Adjust(0, find.Top, -0.5); err != nil {
+		t.Fatal(err)
+	}
+	prints, _, _ = b.Found()
+	if got := prints[0].Region; got.X1 != before.X1+3 || got.Y0 != before.Y0+0.5 || got.X0 != before.X0 {
+		t.Errorf("region %+v after the moves, from %+v", got, before)
+	}
+	if bed := b.Bed(); bed.X1 < 215 || bed.Y1 < 297 {
+		t.Errorf("bed %+v", bed)
+	}
+
+	b.Confirm()
+	run(t, b, store, scanner)
+	photo, _, _ := FindPhoto(root, 0)
+	if photo.Front.Region != prints[0].Region {
+		t.Errorf("master covers %+v, want the adjusted %+v", photo.Front.Region, prints[0].Region)
+	}
+	if err := b.Adjust(0, find.Right, 0.5); err == nil {
+		t.Error("adjusted a region after confirming")
+	}
+}
+
+func TestCloseUpsAndTheAnnotatedPreview(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	b := describe(t, root)
+	run(t, b, wf.NewMemStore(), scanner)
+	if img, err := b.Annotated(); err != nil || img.Bounds().Dx() != 637 {
+		t.Errorf("annotated preview: %v, %v", img, err)
+	}
+	img, err := b.CloseUp(0)
+	if err != nil || img.Bounds().Dx() < 300 {
+		t.Errorf("close-up: %v, %v; want one enlarged to at least 300 px", img.Bounds(), err)
+	}
+	if _, err := b.CloseUp(1); err == nil {
+		t.Error("close-up of a print that is not there")
+	}
+}
+
+func TestAdjustRefusals(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 0, Y0: 0, X1: 60, Y1: 50, Value: 20000}}}
+	store := wf.NewMemStore()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	if err := b.Adjust(1, find.Right, 0.5); err == nil {
+		t.Error("adjusted a region that is not there")
+	}
+	if err := b.Adjust(0, find.Left, 0.5); err == nil {
+		t.Error("moved an edge past the bed")
 	}
 }

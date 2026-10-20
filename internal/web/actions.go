@@ -7,6 +7,7 @@ import (
 	"html"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"git.bytestone.uk/hum3/lofigui"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
@@ -163,20 +165,65 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 	act("accept", func(r *http.Request, b *batch.Batch) error { return b.Accept() })
 	act("retry", func(r *http.Request, b *batch.Batch) error { return nil })
+
+	// Adjusting a region needs no scanner, only that no step is running on
+	// the batch.
+	mux.HandleFunc("POST /batches/{id}/adjust", func(w http.ResponseWriter, r *http.Request) {
+		b, err := batch.Open(a.Staging, r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if a.running() == b.ID {
+			fail(w, fmt.Errorf("%w: wait for batch %s's step to finish", errBusy, b.ID), http.StatusConflict)
+			return
+		}
+		n, edge, by, err := parseMove(r.FormValue("move"))
+		if err == nil {
+			err = b.Adjust(n-1, edge, by)
+		}
+		if err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, fmt.Sprintf("/batches/%s#print-%d", b.ID, n), http.StatusSeeOther)
+	})
+}
+
+// parseMove reads an arrow's "<print> <edge> <mm>", mm outwards when positive.
+func parseMove(s string) (int, find.Edge, float64, error) {
+	f := strings.Fields(s)
+	if len(f) != 3 {
+		return 0, 0, 0, fmt.Errorf("bad move %q", s)
+	}
+	n, err := strconv.Atoi(f[0])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("bad move %q", s)
+	}
+	edge, err := find.ParseEdge(f[1])
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	by, err := strconv.ParseFloat(f[2], 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("bad move %q", s)
+	}
+	return n, edge, by, nil
 }
 
 // state writes where the batch's workflow stands and the operator's
-// choices there, reporting whether a step is running.
-func (a *App) state(r *http.Request, c *lofigui.Context, b *batch.Batch) bool {
+// choices there, reporting whether a step is running and the step the
+// batch is waiting at, if any.
+func (a *App) state(r *http.Request, c *lofigui.Context, b *batch.Batch) (bool, string) {
 	if busy, since := a.busyWith(b.ID); busy {
 		c.HTML(fmt.Sprintf(`<div class="notification is-info">Working: the scanner has been busy for %s. This page refreshes itself.</div>`,
 			time.Since(since).Round(time.Second)))
-		return true
+		return true, ""
 	}
 	run, err := a.Store.FindRunByKey(r.Context(), batch.Workflow, b.ID)
 	if err != nil || run == nil {
 		c.HTML(`<div class="notification">Not started.</div>`)
-		return false
+		return false, ""
 	}
 	steps, _ := a.Store.ListSteps(r.Context(), run.ID)
 	waiting := ""
@@ -208,5 +255,8 @@ func (a *App) state(r *http.Request, c *lofigui.Context, b *batch.Batch) bool {
 		c.HTML(`<div class="notification">` + html.EscapeString(string(run.Status)) + `</div>` +
 			`<div class="buttons">` + button("retry", "Carry on", "") + `</div>`)
 	}
-	return false
+	if run.Status != wf.StatusWaiting {
+		waiting = ""
+	}
+	return false, waiting
 }

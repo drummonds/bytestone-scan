@@ -100,6 +100,7 @@ type Side struct {
 // found is prints.yaml: the prints found on the preview and, once
 // confirmed, their photo ids.
 type found struct {
+	Bed    find.Rect    `yaml:"bed"` // the whole bed, as the preview covers it
 	Prints []find.Print `yaml:"prints"`
 	IDs    []pid.ID     `yaml:"ids,omitempty"`
 }
@@ -160,6 +161,34 @@ func (b *Batch) Confirm() error {
 		return fmt.Errorf("batch %s: no prints were found on the bed", b.ID)
 	}
 	return os.WriteFile(b.path("confirmed"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+// Bed is the bed the preview covers, in mm; zero before the preview.
+func (b *Batch) Bed() find.Rect {
+	var f found
+	readYAML(b.path("prints.yaml"), &f)
+	return f.Bed
+}
+
+// Adjust moves one edge of print n's region by mm, outwards when mm is
+// positive. Regions can be adjusted only until they are confirmed.
+func (b *Batch) Adjust(n int, e find.Edge, mm float64) error {
+	if _, err := os.Stat(b.path("confirmed")); err == nil {
+		return fmt.Errorf("batch %s: the prints are confirmed; go back to the prints to adjust them", b.ID)
+	}
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return fmt.Errorf("batch %s: no prints to adjust yet: %w", b.ID, err)
+	}
+	if n < 0 || n >= len(f.Prints) {
+		return fmt.Errorf("batch %s has no print %d", b.ID, n+1)
+	}
+	r, err := f.Prints[n].Region.Move(e, mm, f.Bed)
+	if err != nil {
+		return fmt.Errorf("print %d: %w", n+1, err)
+	}
+	f.Prints[n].Region = r
+	return writeYAML(b.path("prints.yaml"), f)
 }
 
 // Accept passes the masters at the quality check.
@@ -246,12 +275,9 @@ func (b *Batch) Stages(s Scanner, now func() time.Time) []wf.Stage {
 				return err
 			}
 			prints := find.Prints(img, PreviewPPI)
-			if err := writeAtomic(b.path("prints.png"), func(w io.Writer) error {
-				return png.Encode(w, annotate(img, prints, PreviewPPI))
-			}); err != nil {
-				return err
-			}
-			return writeYAML(b.path("prints.yaml"), found{Prints: prints})
+			mm := func(px int) float64 { return float64(px) * 25.4 / PreviewPPI }
+			bed := find.Rect{X1: mm(img.Bounds().Dx()), Y1: mm(img.Bounds().Dy())}
+			return writeYAML(b.path("prints.yaml"), found{Bed: bed, Prints: prints})
 		}},
 		{Name: "confirm",
 			Until: func(context.Context) (bool, error) {
