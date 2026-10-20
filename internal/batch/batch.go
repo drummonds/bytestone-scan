@@ -253,7 +253,9 @@ func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time)
 		return err
 	}
 	imgs, err := detailpass.Read(rc, p.Regions)
-	rc.Close()
+	if cerr := rc.Close(); err == nil {
+		err = cerr
+	}
 	if err != nil {
 		return err
 	}
@@ -371,4 +373,14 @@ func readPNG(path string) (image.Image, error) {
 	}
 	defer f.Close()
 	return png.Decode(f)
+}
+
+// Found is the prints found on the preview and, once confirmed, their
+// photo ids.
+func (b *Batch) Found() ([]find.Print, []pid.ID, error) {
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return nil, nil, err
+	}
+	return f.Prints, f.IDs, nil
 }

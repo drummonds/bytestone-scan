@@ -45,8 +45,16 @@ type fakeScanner struct {
 	prints      []testPrint
 	previews    int
 	details     int
-	failDetails int // fail this many detail passes first
+	failDetails int   // fail this many detail passes first
+	closeErr    error // the scan's stream fails as it closes, as scanimage exiting badly does
 }
+
+type closeFails struct {
+	io.Reader
+	err error
+}
+
+func (c closeFails) Close() error { return c.err }
 
 func (f *fakeScanner) valueAt(xmm, ymm float64) uint16 {
 	for _, p := range f.prints {
@@ -93,7 +101,7 @@ func (f *fakeScanner) Detail(_ context.Context, area find.Rect, ppi int) (io.Rea
 		}
 		b.Write(row)
 	}
-	return io.NopCloser(&b), nil
+	return closeFails{&b, f.closeErr}, nil
 }
 
 func describe(t *testing.T, root string) *Batch {
@@ -265,6 +273,21 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	}
 	if !bag.Complete(filepath.Join(root, "bags"), 0) {
 		t.Error("bag not complete after the retry")
+	}
+}
+
+func TestScannerExitingBadlyFailsTheDetailPass(t *testing.T) {
+	root := t.TempDir()
+	scanner := &fakeScanner{prints: []testPrint{{20, 20, 60, 50, 20000}}, closeErr: errors.New("scanimage: exit status 9")}
+	store := wf.NewMemStore()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	b.Confirm()
+	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), scanner, clock); err == nil || !strings.Contains(err.Error(), "exit status 9") {
+		t.Errorf("error %v, want the scanner's", err)
+	}
+	if bag.Complete(filepath.Join(root, "bags"), 0) {
+		t.Error("bag made from a scan that failed")
 	}
 }
 

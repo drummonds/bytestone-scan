@@ -1,6 +1,6 @@
 # 001 — Capture the fronts of a batch (#1)
 
-**Status:** agreed
+**Status:** in progress — capture works end to end; adjusting regions at confirm is not built
 
 ## Why
 

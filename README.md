@@ -10,8 +10,22 @@ the tool. The pipeline runs on
 
 ## Status
 
-Not started. Story 1 is capturing the fronts of a batch of prints:
-[docs/stories/001-capture-fronts.md](docs/stories/001-capture-fronts.md).
+Story 1, capturing the fronts of a batch of prints, works end to end on
+the 4990: [docs/stories/001-capture-fronts.md](docs/stories/001-capture-fronts.md).
+
+## Use
+
+```sh
+bytestone-scan batch -describe "SS Bonita at her berth" -person 0 -ppi 2400
+# check the annotated preview it names, then
+bytestone-scan confirm 20261020-1
+# after a failure, once fixed
+bytestone-scan resume 20261020-1
+```
+
+Batches, bags and the workflow database live under `-staging`
+(default `~/.local/share/bytestone-scan`). People come from life-weaver's
+register (`-people`, default `~/git/hum3/life-weaver/data/people`).
 
 ## Vocabulary
 

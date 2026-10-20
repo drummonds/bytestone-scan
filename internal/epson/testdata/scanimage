@@ -1,0 +1,17 @@
+#!/bin/sh
+# A stand-in for SANE's scanimage: records its arguments, answers -L with
+# the devices on the bench, and serves a tiny scan.
+echo "$*" >> "$FAKE_ARGS"
+case "$*" in
+*-L*)
+	echo "device \`escl:https://10.0.0.81:443' is a ESCL H3-ET-2850 platen scanner"
+	echo "device \`epson2:net:10.0.0.81' is a Epson PID flatbed scanner"
+	[ -n "$FAKE_NO_4990" ] || echo "device \`epson2:libusb:001:042' is a Epson GT-X800 flatbed scanner"
+	exit 0 ;;
+*--format=png*) cat "$(dirname "$0")/bed.png" ;;
+*--format=pnm*) printf 'P6\n1 1\n65535\n\001\002\003\004\005\006' ;;
+esac
+if [ -n "$FAKE_EXIT" ]; then
+	echo "scanimage: sane_start: Device busy" >&2
+	exit "$FAKE_EXIT"
+fi
