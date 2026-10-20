@@ -1,4 +1,4 @@
-# 002 — Run a batch's fronts from a web UI
+# 002 — Run a batch's fronts from a web UI (#2)
 
 **Status:** proposed
 
