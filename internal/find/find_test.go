@@ -58,12 +58,12 @@ func drawPrint(img *image.RGBA, x0, y0, w, h, deg float64, inside func(u, v floa
 	}
 }
 
-func near(a, b float64) bool { return math.Abs(a-b) <= 0.8 }
+func near(a, b float64) bool { return math.Abs(a-b) <= 0.4 }
 
 func checkRect(t *testing.T, what string, got, want Rect) {
 	t.Helper()
 	if !near(got.X0, want.X0) || !near(got.Y0, want.Y0) || !near(got.X1, want.X1) || !near(got.Y1, want.Y1) {
-		t.Errorf("%s = %+v, want %+v (±0.8 mm)", what, got, want)
+		t.Errorf("%s = %+v, want %+v (±0.4 mm)", what, got, want)
 	}
 }
 

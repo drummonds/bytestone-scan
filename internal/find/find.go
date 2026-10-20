@@ -123,12 +123,16 @@ func printMask(img image.Image) []bool {
 					n++
 				}
 			}
+			// A pixel is print when both it and its neighbourhood differ
+			// from the background: the mean keeps noise out, the pixel
+			// itself keeps the edges where they are.
+			own := rgb[y*w+x]
+			var near, self bool
 			for c := 0; c < 3; c++ {
-				if abs(s[c]/n-bg[c]) > backgroundDistance {
-					mask[y*w+x] = true
-					break
-				}
+				near = near || abs(s[c]/n-bg[c]) > backgroundDistance
+				self = self || abs(own[c]-bg[c]) > backgroundDistance
 			}
+			mask[y*w+x] = near && self
 		}
 	}
 	return mask
