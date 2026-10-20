@@ -1,0 +1,33 @@
+version: '3'
+
+tasks:
+  fmt:
+    desc: Format Go code
+    cmds:
+      - go fmt ./...
+  vet:
+    desc: Vet Go code
+    cmds:
+      - go vet ./...
+  test:
+    desc: Run the tests
+    cmds:
+      - go test ./...
+  check:
+    desc: fmt, vet, test
+    cmds:
+      - task: fmt
+      - task: vet
+      - task: test
+  deps:tidy:
+    desc: Tidy go.mod
+    cmds:
+      - go mod tidy
+  docs:build:
+    desc: Render the project docs into docs/
+    cmds:
+      - task-plus md2html --file index.md --dst docs
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -f bytestone-scan docs/*.html

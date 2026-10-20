@@ -1,0 +1,15 @@
+type: binary
+install: true
+check: [task check]
+changelog_format: keepachangelog
+remotes:
+  - name: origin
+    forge: forgejo
+    token_env: BYTESTONE_FORGEJO_TOKEN
+  - github
+pages_build:
+  - task docs:build
+pages_deploy:
+  - type: rsync
+    site: bytestone-scan
+    dir: docs

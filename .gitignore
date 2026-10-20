@@ -1,0 +1,6 @@
+/bytestone-scan
+/docs/*.html
+/staging/
+.tp-release-comment
+.task
+.claude/
