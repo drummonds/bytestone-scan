@@ -10,18 +10,20 @@ the tool. The pipeline runs on
 
 ## Status
 
-Story 1, capturing the fronts of a batch of prints, works end to end on
-the 4990: [docs/stories/001-capture-fronts.md](docs/stories/001-capture-fronts.md).
+Capturing the fronts of a batch of prints works end to end on the 4990,
+run from a web UI: stories [001](docs/stories/001-capture-fronts.md) and
+[002](docs/stories/002-batch-ui.md).
 
 ## Use
 
 ```sh
-bytestone-scan batch -describe "SS Bonita at her berth" -person 0 -ppi 2400
-# check the annotated preview it names, then
-bytestone-scan confirm 20261020-1
-# after a failure, once fixed
-bytestone-scan resume 20261020-1
+task serve      # or: bytestone-scan serve, then open http://localhost:8080
 ```
+
+Start a batch from *New batch*: a description, the home person's id and
+the scan ppi. The batch page then leads through the steps: check the
+prints found on the preview (or rescan it), confirm, check each photo's
+quality (or rescan at another ppi, or go back to the prints), accept.
 
 Batches, bags and the workflow database live under `-staging`
 (default `~/.local/share/bytestone-scan`). People come from life-weaver's

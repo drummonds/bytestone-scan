@@ -1,6 +1,6 @@
 # 002 — Run a batch's fronts from a web UI (#2)
 
-**Status:** in progress. Slice 1, looking, is done: the batches as the work queue, the batch page, and the quality page measured within the print. Next are the actions (new batch, prints editing, confirm, accept, redo)
+**Status:** in progress. Done: looking (work queue, batch page, quality page), the actions (new batch, rescan the preview, confirm, rescan at another ppi, back to the prints, accept, retry) with redo through gobank-workflow's Rewind, one step at a time in the background. Left: editing and splitting regions; moving to gobank-workflow v0.9.0 once released
 
 ## Why
 
@@ -72,7 +72,7 @@ quality check after the detail pass, and lets any step be redone.
 | Redo from | Cleared and run again | Photo ids |
 |---|---|---|
 | preview | preview onwards | reservations released |
-| confirm | confirm onwards | kept for the regions still there; released for regions removed |
+| confirm | confirm onwards | kept (released for regions removed, once regions can be edited) |
 | detail pass | detail pass onwards | kept |
 | any step, once a bag is complete | refused: a bag is never altered | — |
 

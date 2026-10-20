@@ -1,0 +1,212 @@
+package web
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"html"
+	"net/http"
+	"strconv"
+	"sync"
+	"time"
+
+	wf "git.bytestone.uk/hum3/gobank-workflow"
+	"git.bytestone.uk/hum3/lofigui"
+
+	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
+)
+
+// worker runs one batch step at a time in the background: there is one
+// scanner.
+type worker struct {
+	mu      sync.Mutex
+	batch   string // the batch a step is running for; empty when idle
+	started time.Time
+	running sync.WaitGroup
+}
+
+var errBusy = errors.New("busy")
+
+// start runs prepare and then the batch's workflow up to its next wait, in
+// the background, unless a step is already running.
+func (a *App) start(b *batch.Batch, prepare func() error) error {
+	a.work.mu.Lock()
+	defer a.work.mu.Unlock()
+	if a.work.batch != "" {
+		return fmt.Errorf("%w: the scanner is busy with batch %s", errBusy, a.work.batch)
+	}
+	if prepare != nil {
+		if err := prepare(); err != nil {
+			return err
+		}
+	}
+	a.work.batch, a.work.started = b.ID, time.Now()
+	a.work.running.Add(1)
+	go func() {
+		defer a.work.running.Done()
+		// a failure is recorded on the run, where the batch page reads it
+		b.Run(context.Background(), wf.NewRunner(a.Store, nil), a.Scanner, a.Now)
+		a.work.mu.Lock()
+		a.work.batch = ""
+		a.work.mu.Unlock()
+	}()
+	return nil
+}
+
+// wait blocks until no step is running.
+func (a *App) wait() { a.work.running.Wait() }
+
+// running is the batch a step is running for, or empty.
+func (a *App) running() string {
+	a.work.mu.Lock()
+	defer a.work.mu.Unlock()
+	return a.work.batch
+}
+
+func (a *App) busyWith(id string) (bool, time.Time) {
+	a.work.mu.Lock()
+	defer a.work.mu.Unlock()
+	return a.work.batch == id, a.work.started
+}
+
+const newBatchForm = `<h1 class="title">New batch</h1>
+%s
+<form action="batches" method="post" class="box">
+<div class="field"><label class="label">What is being scanned</label>
+<div class="control"><input class="input" name="description" value="%s" required></div></div>
+<div class="field"><label class="label">Home: the id of the person whose album the photos belong to</label>
+<div class="control"><input class="input" name="person" value="%s" required></div></div>
+<div class="field"><label class="label">Scan at</label>
+<div class="control"><div class="select"><select name="ppi">%s</select></div></div>
+<p class="help">600 ppi takes about 15 s for a 7 × 5 inch print, 1200 about 75 s, 2400 about 2½ minutes.</p></div>
+<button class="button is-primary" type="submit">Scan the preview</button>
+</form>`
+
+func ppiOptions(selected int) string {
+	var s string
+	for _, p := range []int{600, 1200, 2400} {
+		sel := ""
+		if p == selected {
+			sel = " selected"
+		}
+		s += fmt.Sprintf(`<option value="%d"%s>%d ppi</option>`, p, sel, p)
+	}
+	return s
+}
+
+func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, string, string)) {
+	fail := func(w http.ResponseWriter, err error, code int) {
+		if errors.Is(err, errBusy) {
+			code = http.StatusConflict
+		}
+		w.WriteHeader(code)
+		render(w, "Not done", `<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`)
+	}
+
+	mux.HandleFunc("GET /batches/new", func(w http.ResponseWriter, r *http.Request) {
+		render(w, "New batch", fmt.Sprintf(newBatchForm, "", "", "", ppiOptions(1200)))
+	})
+	mux.HandleFunc("POST /batches", func(w http.ResponseWriter, r *http.Request) {
+		// refuse before recording a batch that could not be scanned
+		if id := a.running(); id != "" {
+			fail(w, fmt.Errorf("%w: the scanner is busy with batch %s", errBusy, id), http.StatusConflict)
+			return
+		}
+		ppi, _ := strconv.Atoi(r.FormValue("ppi"))
+		person, err := pid.Parse(r.FormValue("person"))
+		var b *batch.Batch
+		if err == nil {
+			b, err = batch.Describe(a.Staging, a.People,
+				batch.Description{Text: r.FormValue("description"), Person: person, ScanPPI: ppi}, a.Now())
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			render(w, "New batch", fmt.Sprintf(newBatchForm,
+				`<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`,
+				html.EscapeString(r.FormValue("description")), html.EscapeString(r.FormValue("person")), ppiOptions(ppi)))
+			return
+		}
+		if err := a.start(b, nil); err != nil {
+			fail(w, err, http.StatusConflict)
+			return
+		}
+		http.Redirect(w, r, "/batches/"+b.ID, http.StatusSeeOther)
+	})
+
+	// Each action prepares the batch, then runs it to its next wait.
+	act := func(name string, prepare func(r *http.Request, b *batch.Batch) error) {
+		mux.HandleFunc("POST /batches/{id}/"+name, func(w http.ResponseWriter, r *http.Request) {
+			b, err := batch.Open(a.Staging, r.PathValue("id"))
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			if err := a.start(b, func() error { return prepare(r, b) }); err != nil {
+				fail(w, err, http.StatusUnprocessableEntity)
+				return
+			}
+			http.Redirect(w, r, "/batches/"+b.ID, http.StatusSeeOther)
+		})
+	}
+	runner := func() *wf.Runner { return wf.NewRunner(a.Store, nil) }
+	act("preview", func(r *http.Request, b *batch.Batch) error {
+		return b.Redo(r.Context(), runner(), "preview", 0)
+	})
+	act("prints", func(r *http.Request, b *batch.Batch) error {
+		return b.Redo(r.Context(), runner(), "confirm", 0)
+	})
+	act("confirm", func(r *http.Request, b *batch.Batch) error { return b.Confirm() })
+	act("rescan", func(r *http.Request, b *batch.Batch) error {
+		ppi, _ := strconv.Atoi(r.FormValue("ppi"))
+		return b.Redo(r.Context(), runner(), "detail pass", ppi)
+	})
+	act("accept", func(r *http.Request, b *batch.Batch) error { return b.Accept() })
+	act("retry", func(r *http.Request, b *batch.Batch) error { return nil })
+}
+
+// state writes where the batch's workflow stands and the operator's
+// choices there, reporting whether a step is running.
+func (a *App) state(r *http.Request, c *lofigui.Context, b *batch.Batch) bool {
+	if busy, since := a.busyWith(b.ID); busy {
+		c.HTML(fmt.Sprintf(`<div class="notification is-info">Working: the scanner has been busy for %s. This page refreshes itself.</div>`,
+			time.Since(since).Round(time.Second)))
+		return true
+	}
+	run, err := a.Store.FindRunByKey(r.Context(), batch.Workflow, b.ID)
+	if err != nil || run == nil {
+		c.HTML(`<div class="notification">Not started.</div>`)
+		return false
+	}
+	steps, _ := a.Store.ListSteps(r.Context(), run.ID)
+	waiting := ""
+	for _, s := range steps {
+		if s.Status == wf.StatusWaiting {
+			waiting = s.StepName
+		}
+	}
+	button := func(action, label, class string) string {
+		return fmt.Sprintf(`<form action="batches/%s/%s" method="post" style="display:inline"><button class="button %s" type="submit">%s</button></form> `,
+			html.EscapeString(b.ID), action, class, label)
+	}
+	switch {
+	case run.Status == wf.StatusFailed:
+		c.HTML(`<div class="notification is-danger">Failed: ` + html.EscapeString(run.Error) + `</div>` +
+			`<div class="buttons">` + button("retry", "Retry", "is-primary") + `</div>`)
+	case run.Status == wf.StatusCompleted:
+		c.HTML(`<div class="notification is-success">Done: every photo is bagged.</div>`)
+	case waiting == "confirm":
+		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
+			button("confirm", "Confirm and scan", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
+	case waiting == "check quality":
+		c.HTML(`<div class="notification is-warning">Check each photo's quality, then accept or send the batch back.</div><div class="buttons">` +
+			button("accept", "Accept and bag", "is-primary") +
+			fmt.Sprintf(`<form action="batches/%s/rescan" method="post" style="display:inline"><div class="select"><select name="ppi">%s</select></div> <button class="button" type="submit">Rescan at</button></form> `,
+				html.EscapeString(b.ID), ppiOptions(b.ScanPPI)) +
+			button("prints", "Back to the prints", "") + `</div>`)
+	default:
+		c.HTML(`<div class="notification">` + html.EscapeString(string(run.Status)) + `</div>` +
+			`<div class="buttons">` + button("retry", "Carry on", "") + `</div>`)
+	}
+	return false
+}

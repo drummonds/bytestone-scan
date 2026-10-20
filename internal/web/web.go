@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/view"
@@ -26,6 +27,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/quality"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 )
 
 const (
@@ -33,14 +35,20 @@ const (
 	CropSize = 512  // side of a 1:1 crop, in master pixels
 )
 
-// App serves the pages over a staging root and the workflow store.
+// App serves the pages over a staging root and the workflow store, and
+// runs a batch's steps on the scanner.
 type App struct {
 	Staging string
-	Store   view.Reader
+	Store   wf.Store
+	Scanner batch.Scanner
+	People  register.Register
+	Now     func() time.Time
 
 	mu     sync.Mutex // the last master decoded, since a page and its images all want it
 	cached pid.ID
 	img    *master.Image
+
+	work worker
 }
 
 const layout = `<!DOCTYPE html>
@@ -48,11 +56,13 @@ const layout = `<!DOCTYPE html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="/">
 <title>{{.title}} — bytestone-scan</title>
+{{if .refresh}}<meta http-equiv="refresh" content="3">{{end}}
 <link rel="stylesheet" href="assets/bulma.min.css">
 </head><body>
 <nav class="navbar is-primary"><div class="navbar-brand">
 <a class="navbar-item has-text-weight-bold" href="workflows/">bytestone-scan</a>
 <a class="navbar-item" href="workflows/">Batches</a>
+<a class="navbar-item" href="batches/new">New batch</a>
 <a class="navbar-item" href="workflows/definitions/">Workflows</a>
 </div></nav>
 <section class="section"><div class="container">{{.content}}</div></section>
@@ -65,6 +75,9 @@ func (a *App) Handler() http.Handler {
 	}
 	render := func(w http.ResponseWriter, title string, content string) {
 		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content)})
+	}
+	refreshing := func(w http.ResponseWriter, title string, content string) {
+		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "refresh": true})
 	}
 	views := &view.Views{
 		Store:       a.Store,
@@ -89,7 +102,12 @@ func (a *App) Handler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		render(w, "Batch "+b.ID, a.batchPage(b))
+		content, busy := a.batchPage(r, b)
+		if busy {
+			refreshing(w, "Batch "+b.ID, content)
+			return
+		}
+		render(w, "Batch "+b.ID, content)
 	})
 	mux.HandleFunc("GET /batches/{id}/prints.png", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
@@ -121,6 +139,7 @@ func (a *App) Handler() http.Handler {
 			png.Encode(w, quality.Crop(img, image.Pt(x, y), CropSize))
 		}
 	})
+	a.actions(mux, render)
 	return mux
 }
 
@@ -133,8 +152,11 @@ func (a *App) batchLink(_ *http.Request, run wf.RunRecord, _ []wf.StepResult, _ 
 		html.EscapeString(run.Key), html.EscapeString(run.Key)))
 }
 
-func (a *App) batchPage(b *batch.Batch) string {
+// batchPage is a batch's details, where its workflow stands and what the
+// operator can do there; busy reports that a step is running.
+func (a *App) batchPage(r *http.Request, b *batch.Batch) (string, bool) {
 	c := lofigui.NewContext()
+	busy := a.state(r, c, b)
 	c.HTML(fmt.Sprintf(`<h1 class="title">Batch %s</h1>
 <p class="subtitle">%s</p>
 <table class="table"><tbody>
@@ -147,7 +169,7 @@ func (a *App) batchPage(b *batch.Batch) string {
 	prints, ids, err := b.Found()
 	if err != nil {
 		c.HTML(`<p>No preview yet.</p>`)
-		return c.Buffer()
+		return c.Buffer(), busy
 	}
 	var t strings.Builder
 	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Photo</th></tr></thead><tbody>`)
@@ -167,7 +189,7 @@ func (a *App) batchPage(b *batch.Batch) string {
 	c.HTML(t.String())
 	c.HTML(fmt.Sprintf(`<figure><img src="batches/%s/prints.png" alt="The bed, with the prints found">
 <figcaption class="help">Preview, 75 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, html.EscapeString(b.ID)))
-	return c.Buffer()
+	return c.Buffer(), busy
 }
 
 // photo reads the photo the request names, writing a 404 when there is none.
