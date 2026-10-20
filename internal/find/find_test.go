@@ -205,3 +205,18 @@ func TestEmptyBedHasNoPrints(t *testing.T) {
 		t.Errorf("found %d prints on an empty bed", len(got))
 	}
 }
+
+func TestPrintsApartSeparatesWhatMerges(t *testing.T) {
+	img := bed()
+	drawPrint(img, 10, 10, 60, 60, 0, nil)
+	drawPrint(img, 73, 10, 60, 60, 0, nil) // 3 mm gap: one region by Prints
+	got := PrintsApart(img, ppi)
+	if len(got) != 2 {
+		t.Fatalf("found %d prints apart, want 2", len(got))
+	}
+	checkRect(t, "left print", got[0].Print, Rect{10, 10, 70, 70})
+	checkRect(t, "right print", got[1].Print, Rect{73, 10, 133, 70})
+	if got[0].Review || got[1].Review {
+		t.Error("separated prints still flagged for review")
+	}
+}

@@ -1,6 +1,6 @@
 # 002 — Run a batch's fronts from a web UI (#2)
 
-**Status:** in progress. Done: looking (work queue, batch page, quality page), the actions (new batch, rescan the preview, confirm, rescan at another ppi, back to the prints, accept, retry) with redo through gobank-workflow's Rewind, one step at a time in the background. Left: splitting and removing regions; moving to gobank-workflow v0.9.0 once released
+**Status:** in progress. Done: looking (work queue, batch page, quality page), the actions (new batch, rescan the preview, confirm, rescan at another ppi, back to the prints, accept, retry) with redo through gobank-workflow's Rewind, one step at a time in the background. Left: moving to gobank-workflow v0.9.0 once released
 
 ## Why
 
@@ -48,7 +48,7 @@ quality check after the detail pass, and lets any step be redone.
 |---|---|
 | an arrow on a region's edge | that edge moves 0.5 mm (single arrow) or 3 mm (double), outwards or inwards; the close-up and preview are redrawn |
 | — | an arrow is left out where its move cannot happen: outwards at the bed's edge, inwards below 20 mm; an outward move stops at the bed |
-| split a region | divided at the widest strip of background across it, into two numbered regions; refused if none is 5 mm wide |
+| split a region | offered only on a region holding more than one print: its prints found again without merging, one region each; refused when that finds fewer than two |
 | remove a region | gone; the rest renumbered |
 | rescan the preview | redo from preview |
 | confirm | the detail pass starts; refused with no regions |
@@ -68,6 +68,7 @@ quality check after the detail pass, and lets any step be redone.
 | accept | packaging starts |
 | rescan at 600, 1200 or 2400 ppi | the batch's scan ppi changed; redo from detail pass |
 | back to the prints | redo from confirm |
+| an arrow on an edge | back to confirm, the edge moved, confirmed again: the batch rescans |
 
 ### Redo
 

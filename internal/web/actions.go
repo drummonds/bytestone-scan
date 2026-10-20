@@ -173,27 +173,47 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		return b.Reshape(r.Context(), runner(), n-1, edge, by)
 	})
 
-	// Adjusting a region needs no scanner, only that no step is running on
-	// the batch.
-	mux.HandleFunc("POST /batches/{id}/adjust", func(w http.ResponseWriter, r *http.Request) {
-		b, err := batch.Open(a.Staging, r.PathValue("id"))
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		if a.running() == b.ID {
-			fail(w, fmt.Errorf("%w: wait for batch %s's step to finish", errBusy, b.ID), http.StatusConflict)
-			return
-		}
+	// Editing the regions needs no scanner, only that no step is running on
+	// the batch. Each edit names its print, counted from 1.
+	edit := func(name string, change func(r *http.Request, b *batch.Batch) (int, error)) {
+		mux.HandleFunc("POST /batches/{id}/"+name, func(w http.ResponseWriter, r *http.Request) {
+			b, err := batch.Open(a.Staging, r.PathValue("id"))
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			if a.running() == b.ID {
+				fail(w, fmt.Errorf("%w: wait for batch %s's step to finish", errBusy, b.ID), http.StatusConflict)
+				return
+			}
+			n, err := change(r, b)
+			if err != nil {
+				fail(w, err, http.StatusUnprocessableEntity)
+				return
+			}
+			http.Redirect(w, r, fmt.Sprintf("/batches/%s#print-%d", b.ID, n), http.StatusSeeOther)
+		})
+	}
+	edit("adjust", func(r *http.Request, b *batch.Batch) (int, error) {
 		n, edge, by, err := parseMove(r.FormValue("move"))
-		if err == nil {
-			err = b.Adjust(n-1, edge, by)
-		}
 		if err != nil {
-			fail(w, err, http.StatusUnprocessableEntity)
-			return
+			return 0, err
 		}
-		http.Redirect(w, r, fmt.Sprintf("/batches/%s#print-%d", b.ID, n), http.StatusSeeOther)
+		return n, b.Adjust(n-1, edge, by)
+	})
+	edit("split", func(r *http.Request, b *batch.Batch) (int, error) {
+		n, err := strconv.Atoi(r.FormValue("print"))
+		if err != nil {
+			return 0, fmt.Errorf("no print given")
+		}
+		return n, b.Split(n - 1)
+	})
+	edit("remove", func(r *http.Request, b *batch.Batch) (int, error) {
+		n, err := strconv.Atoi(r.FormValue("print"))
+		if err != nil {
+			return 0, fmt.Errorf("no print given")
+		}
+		return 1, b.Remove(n - 1)
 	})
 }
 

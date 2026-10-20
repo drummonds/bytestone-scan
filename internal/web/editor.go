@@ -73,10 +73,24 @@ func regionEditor(b *batch.Batch, i int, p find.Print) string {
 <h2 class="title is-5">Print %d: %.1f × %.1f mm</h2>
 %s
 <p class="help">Close-up of the 75 ppi preview: the region in green, the print as found in blue. Single arrows move an edge %.1f mm, double arrows %.0f mm.</p>
+<div class="buttons mt-3">%s%s</div>
 </div>`, n, n, p.Print.X1-p.Print.X0, p.Print.Y1-p.Print.Y0,
 		edgeGrid("batches/"+id+"/adjust", n, p, b.Bed(),
 			fmt.Sprintf(`<img src="batches/%s/regions/%d.png" alt="Print %d's region, close up">`, id, n, n)),
-		smallStep, largeStep)
+		smallStep, largeStep, splitButton(id, n, p), regionButton(id, "remove", n, "Remove this region", "is-danger is-light"))
+}
+
+func regionButton(id, action string, n int, label, class string) string {
+	return fmt.Sprintf(`<form action="batches/%s/%s" method="post" style="display:inline"><input type="hidden" name="print" value="%d"><button class="button is-small %s" type="submit">%s</button></form> `,
+		id, action, n, class, label)
+}
+
+// splitButton is offered only on a region holding more than one print.
+func splitButton(id string, n int, p find.Print) string {
+	if p.Parts < 2 {
+		return ""
+	}
+	return regionButton(id, "split", n, fmt.Sprintf("Split into %d", p.Parts), "is-warning")
 }
 
 // rescanEditor is the same arrows on the quality page, where each move

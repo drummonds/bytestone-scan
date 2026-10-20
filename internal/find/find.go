@@ -19,6 +19,7 @@ const (
 	marginMM   = 0.5
 	stripMM    = 6.0
 	mergeMM    = 5.0
+	apartMM    = 0.0 // only touching pixels join
 	minSizeMM  = 20.0
 	maxSkewDeg = 1.0
 	minFill    = 0.97
@@ -44,7 +45,13 @@ type Print struct {
 
 // Prints finds the prints in a preview scanned at ppi, numbered in rows
 // from the top, left to right within a row.
-func Prints(preview image.Image, ppi int) []Print {
+func Prints(preview image.Image, ppi int) []Print { return prints(preview, ppi, mergeMM) }
+
+// PrintsApart finds the prints as Prints does, but keeps apart prints that
+// are closer than 5 mm: for splitting a region that holds more than one.
+func PrintsApart(preview image.Image, ppi int) []Print { return prints(preview, ppi, apartMM) }
+
+func prints(preview image.Image, ppi int, merge float64) []Print {
 	b := preview.Bounds()
 	w, h := b.Dx(), b.Dy()
 	mm := 25.4 / float64(ppi)
@@ -59,7 +66,7 @@ func Prints(preview image.Image, ppi int) []Print {
 		}
 	}
 
-	r := int(math.Round(mergeMM / 2 / mm))
+	r := int(math.Round(merge / 2 / mm))
 	labels, n := components(dilate(mask, w, h, r), w, h)
 
 	var prints []Print

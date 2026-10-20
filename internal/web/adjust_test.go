@@ -106,3 +106,38 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 		t.Error("arrows on a bagged photo")
 	}
 }
+
+func TestSplitAndRemoveRegions(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{
+		{X0: 10, Y0: 10, X1: 70, Y1: 70, Value: 20000},
+		{X0: 73, Y0: 10, X1: 133, Y1: 70, Value: 20000},
+		{X0: 10, Y0: 100, X1: 70, Y1: 150, Value: 20000},
+	}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"description": {"three"}, "person": {"a"}, "ppi": {"600"}})
+	body := get(t, h, loc).Body.String()
+	if strings.Count(body, `action="`+loc[1:]+`/split"`) != 1 {
+		t.Error("want a split button on the merged region only")
+	}
+	if strings.Count(body, `action="`+loc[1:]+`/remove"`) != 2 {
+		t.Error("want a remove button on each region")
+	}
+	b, _ := batch.Open(a.Staging, strings.TrimPrefix(loc, "/batches/"))
+
+	if w := post(t, h, loc+"/split", url.Values{"print": {"1"}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("split: %d %s", w.Code, w.Body)
+	}
+	if prints, _, _ := b.Found(); len(prints) != 3 {
+		t.Errorf("%d regions after the split, want 3", len(prints))
+	}
+	if w := post(t, h, loc+"/remove", url.Values{"print": {"3"}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("remove: %d %s", w.Code, w.Body)
+	}
+	if prints, _, _ := b.Found(); len(prints) != 2 {
+		t.Errorf("%d regions after the removal, want 2", len(prints))
+	}
+	if w := post(t, h, loc+"/split", url.Values{"print": {"1"}}); w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("splitting a single print: %d", w.Code)
+	}
+}

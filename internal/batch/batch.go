@@ -173,21 +173,67 @@ func (b *Batch) Bed() find.Rect {
 // Adjust moves one edge of print n's region by mm, outwards when mm is
 // positive. Regions can be adjusted only until they are confirmed.
 func (b *Batch) Adjust(n int, e find.Edge, mm float64) error {
-	if _, err := os.Stat(b.path("confirmed")); err == nil {
-		return fmt.Errorf("batch %s: the prints are confirmed; go back to the prints to adjust them", b.ID)
-	}
-	var f found
-	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
-		return fmt.Errorf("batch %s: no prints to adjust yet: %w", b.ID, err)
-	}
-	if n < 0 || n >= len(f.Prints) {
-		return fmt.Errorf("batch %s has no print %d", b.ID, n+1)
+	f, err := b.editable(n)
+	if err != nil {
+		return err
 	}
 	r, err := f.Prints[n].Region.Move(e, mm, f.Bed)
 	if err != nil {
 		return fmt.Errorf("print %d: %w", n+1, err)
 	}
 	f.Prints[n].Region = r
+	return writeYAML(b.path("prints.yaml"), f)
+}
+
+// editable reads the prints for an edit, refusing once they are confirmed
+// or when there is no print n.
+func (b *Batch) editable(n int) (found, error) {
+	var f found
+	if _, err := os.Stat(b.path("confirmed")); err == nil {
+		return f, fmt.Errorf("batch %s: the prints are confirmed; go back to the prints to change them", b.ID)
+	}
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return f, fmt.Errorf("batch %s: no prints yet: %w", b.ID, err)
+	}
+	if n < 0 || n >= len(f.Prints) {
+		return f, fmt.Errorf("batch %s has no print %d", b.ID, n+1)
+	}
+	return f, nil
+}
+
+// Split replaces print n's region, when it holds prints too close to be
+// told apart, with one region for each print within it.
+func (b *Batch) Split(n int) error {
+	f, err := b.editable(n)
+	if err != nil {
+		return err
+	}
+	img, err := b.Preview()
+	if err != nil {
+		return err
+	}
+	r := f.Prints[n].Region
+	var parts []find.Print
+	for _, p := range find.PrintsApart(img, PreviewPPI) {
+		cx, cy := (p.Print.X0+p.Print.X1)/2, (p.Print.Y0+p.Print.Y1)/2
+		if cx > r.X0 && cx < r.X1 && cy > r.Y0 && cy < r.Y1 {
+			parts = append(parts, p)
+		}
+	}
+	if len(parts) < 2 {
+		return fmt.Errorf("print %d: no separate prints found within it to split", n+1)
+	}
+	f.Prints = append(f.Prints[:n], append(parts, f.Prints[n+1:]...)...)
+	return writeYAML(b.path("prints.yaml"), f)
+}
+
+// Remove drops print n's region: a mark that is not a print.
+func (b *Batch) Remove(n int) error {
+	f, err := b.editable(n)
+	if err != nil {
+		return err
+	}
+	f.Prints = append(f.Prints[:n], f.Prints[n+1:]...)
 	return writeYAML(b.path("prints.yaml"), f)
 }
 

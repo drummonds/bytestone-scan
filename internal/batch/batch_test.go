@@ -467,3 +467,56 @@ func TestReshapeFromTheQualityCheck(t *testing.T) {
 		t.Error("a refused reshape cleared the masters")
 	}
 }
+
+func TestSplitAMergedRegion(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{
+		{X0: 10, Y0: 10, X1: 70, Y1: 70, Value: 20000},
+		{X0: 73, Y0: 10, X1: 133, Y1: 70, Value: 20000}, // 3 mm apart: found as one
+		{X0: 10, Y0: 100, X1: 70, Y1: 150, Value: 20000},
+	}}
+	b := describe(t, root)
+	run(t, b, wf.NewMemStore(), scanner)
+	prints, _, _ := b.Found()
+	if len(prints) != 2 || prints[0].Parts != 2 {
+		t.Fatalf("found %d regions, first with %d parts; want 2 regions, the first merged", len(prints), prints[0].Parts)
+	}
+	if err := b.Split(0); err != nil {
+		t.Fatal(err)
+	}
+	prints, _, _ = b.Found()
+	if len(prints) != 3 {
+		t.Fatalf("%d regions after the split, want 3", len(prints))
+	}
+	if math.Abs(prints[0].Print.X1-70) > 0.5 || math.Abs(prints[1].Print.X0-73) > 0.5 || math.Abs(prints[2].Print.Y0-100) > 0.5 {
+		t.Errorf("after the split: %+v, %+v, %+v", prints[0].Print, prints[1].Print, prints[2].Print)
+	}
+	if err := b.Split(2); err == nil {
+		t.Error("split a region holding one print")
+	}
+}
+
+func TestRemoveARegion(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{
+		{X0: 10, Y0: 10, X1: 70, Y1: 70, Value: 20000},
+		{X0: 10, Y0: 100, X1: 70, Y1: 150, Value: 20000},
+	}}
+	b := describe(t, root)
+	store := wf.NewMemStore()
+	run(t, b, store, scanner)
+	if err := b.Remove(0); err != nil {
+		t.Fatal(err)
+	}
+	prints, _, _ := b.Found()
+	if len(prints) != 1 || math.Abs(prints[0].Print.Y0-100) > 0.5 {
+		t.Errorf("after removing the first: %+v", prints)
+	}
+	if err := b.Remove(1); err == nil {
+		t.Error("removed a region that is not there")
+	}
+	b.Confirm()
+	if err := b.Remove(0); err == nil {
+		t.Error("removed a region after confirming")
+	}
+}
