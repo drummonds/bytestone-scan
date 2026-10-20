@@ -63,7 +63,9 @@ const layout = `<!DOCTYPE html>
 <a class="navbar-item has-text-weight-bold" href="workflows/">bytestone-scan</a>
 <a class="navbar-item" href="workflows/">Batches</a>
 <a class="navbar-item" href="batches/new">New batch</a>
-<a class="navbar-item" href="workflows/definitions/">Workflows</a>
+<a class="navbar-item" href="workflows/definitions">Workflows</a>
+<a class="navbar-item" href="about">About</a>
+{{.status}}
 </div></nav>
 <section class="section"><div class="container">{{.content}}</div></section>
 </body></html>`
@@ -74,10 +76,10 @@ func (a *App) Handler() http.Handler {
 		panic(err)
 	}
 	render := func(w http.ResponseWriter, title string, content string) {
-		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content)})
+		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator()})
 	}
 	refreshing := func(w http.ResponseWriter, title string, content string) {
-		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "refresh": true})
+		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "refresh": true})
 	}
 	views := &view.Views{
 		Store:       a.Store,
@@ -139,6 +141,7 @@ func (a *App) Handler() http.Handler {
 			png.Encode(w, quality.Crop(img, image.Pt(x, y), CropSize))
 		}
 	})
+	mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) { render(w, "About", a.about()) })
 	a.actions(mux, render)
 	return mux
 }
