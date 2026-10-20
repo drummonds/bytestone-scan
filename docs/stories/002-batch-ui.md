@@ -59,6 +59,7 @@ quality check after the detail pass, and lets any step be redone.
 |---|---|
 | the master | scaled to fit |
 | a 1:1 crop | at full master resolution, wherever the operator clicks on the master |
+| the corners | each corner of the master at 1:1, 256 px square: whether the print is cut or the margin too generous |
 | histogram | per channel, within the print 3 mm in from its edges (the margin and curled corners show the lid, which clips by design), with the share of samples at 0 and at 65535 |
 | measurements | print size in mm, master size in pixels, master ppi, averaging, skew, fill, any warning |
 

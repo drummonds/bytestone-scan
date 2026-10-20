@@ -154,8 +154,12 @@ func (a *App) Handler() http.Handler {
 		if _, _, img, ok := a.photo(w, r); ok {
 			x, _ := strconv.Atoi(r.URL.Query().Get("x"))
 			y, _ := strconv.Atoi(r.URL.Query().Get("y"))
+			size, err := strconv.Atoi(r.URL.Query().Get("size"))
+			if err != nil {
+				size = CropSize
+			}
 			w.Header().Set("Content-Type", "image/png")
-			png.Encode(w, quality.Crop(img, image.Pt(x, y), CropSize))
+			png.Encode(w, quality.Crop(img, image.Pt(x, y), min(max(size, 32), 1024)))
 		}
 	})
 	mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) { render(w, "About", a.about()) })
@@ -280,6 +284,16 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="photos/%s/crop.png?x=%d&amp;y=%d" alt="Master pixels at 1:1">
 <figcaption class="help">1:1, master pixels, %d × %d centred on %d, %d.</figcaption></figure>`, id, mx, my, CropSize, CropSize, mx, my))
 	}
+	// the master's corners show its edges at full resolution: whether the
+	// print is cut, or the margin too generous
+	const corner = 256
+	c.HTML(`<h2 class="title is-5 mt-5">Corners at 1:1</h2><div class="columns is-multiline is-gapless">`)
+	for _, at := range []image.Point{{0, 0}, {img.W, 0}, {0, img.H}, {img.W, img.H}} {
+		c.HTML(fmt.Sprintf(`<div class="column is-half"><img src="photos/%s/crop.png?x=%d&amp;y=%d&amp;size=%d" alt="Master corner at %d, %d" style="border:1px solid #ccc"></div>`,
+			id, at.X, at.Y, corner, at.X, at.Y))
+	}
+	c.HTML(fmt.Sprintf(`</div><p class="help">Each corner of the master, %d × %d master pixels (%.1f mm square).</p>`,
+		corner, corner, float64(corner)*25.4/float64(s.MasterPPI)))
 	c.HTML(`</div><div class="column">`)
 
 	// the print within the master, which covers the print and its margin

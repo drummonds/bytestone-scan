@@ -99,6 +99,14 @@ func TestQualityPage(t *testing.T) {
 		"Master, 600 ppi,", "shown scaled to fit",
 	)
 	page(t, h, "/photos/1?at.x=50&at.y=40", `src="photos/1/crop.png?`, "1:1, master pixels")
+	page(t, h, "/photos/1", "Corners at 1:1", `src="photos/1/crop.png?x=0&amp;y=0&amp;size=256"`)
+	if n := strings.Count(get(t, h, "/photos/1").Body.String(), "&amp;size=256\""); n != 4 {
+		t.Errorf("%d corner crops, want 4", n)
+	}
+	corner, err := png.Decode(get(t, h, "/photos/1/crop.png?x=99999&y=99999&size=256").Body)
+	if err != nil || corner.Bounds().Dx() != 256 {
+		t.Errorf("corner crop: %v, %v", corner.Bounds(), err)
+	}
 
 	fit, err := jpeg.Decode(get(t, h, "/photos/0/fit.jpg").Body)
 	if err != nil || fit.Bounds().Dx() > FitWidth {
