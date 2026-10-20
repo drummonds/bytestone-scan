@@ -165,6 +165,13 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 	act("accept", func(r *http.Request, b *batch.Batch) error { return b.Accept() })
 	act("retry", func(r *http.Request, b *batch.Batch) error { return nil })
+	act("reshape", func(r *http.Request, b *batch.Batch) error {
+		n, edge, by, err := parseMove(r.FormValue("move"))
+		if err != nil {
+			return err
+		}
+		return b.Reshape(r.Context(), runner(), n-1, edge, by)
+	})
 
 	// Adjusting a region needs no scanner, only that no step is running on
 	// the batch.
@@ -220,17 +227,10 @@ func (a *App) state(r *http.Request, c *lofigui.Context, b *batch.Batch) (bool, 
 			time.Since(since).Round(time.Second)))
 		return true, ""
 	}
-	run, err := a.Store.FindRunByKey(r.Context(), batch.Workflow, b.ID)
-	if err != nil || run == nil {
+	run, waiting := a.where(r.Context(), b)
+	if run == nil {
 		c.HTML(`<div class="notification">Not started.</div>`)
 		return false, ""
-	}
-	steps, _ := a.Store.ListSteps(r.Context(), run.ID)
-	waiting := ""
-	for _, s := range steps {
-		if s.Status == wf.StatusWaiting {
-			waiting = s.StepName
-		}
 	}
 	button := func(action, label, class string) string {
 		return fmt.Sprintf(`<form action="batches/%s/%s" method="post" style="display:inline"><button class="button %s" type="submit">%s</button></form> `,
@@ -255,8 +255,24 @@ func (a *App) state(r *http.Request, c *lofigui.Context, b *batch.Batch) (bool, 
 		c.HTML(`<div class="notification">` + html.EscapeString(string(run.Status)) + `</div>` +
 			`<div class="buttons">` + button("retry", "Carry on", "") + `</div>`)
 	}
-	if run.Status != wf.StatusWaiting {
-		waiting = ""
-	}
 	return false, waiting
+}
+
+// where is the batch's run and the step it waits at, if it is waiting.
+func (a *App) where(ctx context.Context, b *batch.Batch) (*wf.RunRecord, string) {
+	run, err := a.Store.FindRunByKey(ctx, batch.Workflow, b.ID)
+	if err != nil || run == nil {
+		return nil, ""
+	}
+	if run.Status != wf.StatusWaiting {
+		return run, ""
+	}
+	steps, _ := a.Store.ListSteps(ctx, run.ID)
+	waiting := ""
+	for _, s := range steps {
+		if s.Status == wf.StatusWaiting {
+			waiting = s.StepName
+		}
+	}
+	return run, waiting
 }

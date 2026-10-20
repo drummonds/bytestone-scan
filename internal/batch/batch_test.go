@@ -437,3 +437,33 @@ func TestAdjustRefusals(t *testing.T) {
 		t.Error("moved an edge past the bed")
 	}
 }
+
+func TestReshapeFromTheQualityCheck(t *testing.T) {
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	root, b, store := prepared(t, scanner)
+	before, _, _ := FindPhoto(root, 0)
+	runner := wf.NewRunner(store, nil)
+	if err := b.Reshape(context.Background(), runner, 0, find.Right, -0.5); err != nil {
+		t.Fatal(err)
+	}
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
+		t.Fatalf("%s, want back at the quality check", rec.Status)
+	}
+	after, _, err := FindPhoto(root, 0)
+	if err != nil || after.Front.Region.X1 != before.Front.Region.X1-0.5 {
+		t.Errorf("region %+v after the reshape, from %+v (%v)", after.Front.Region, before.Front.Region, err)
+	}
+	if scanner.Details != 2 || scanner.Previews != 1 {
+		t.Errorf("details %d, previews %d; want 2 and 1", scanner.Details, scanner.Previews)
+	}
+	if _, ids, _ := b.Found(); len(ids) != 1 || ids[0] != 0 {
+		t.Errorf("ids %v, want the photo id kept", ids)
+	}
+	// a move that cannot happen leaves the batch where it was
+	if err := b.Reshape(context.Background(), runner, 0, find.Bottom, -30); err == nil {
+		t.Error("reshape under 20 mm accepted")
+	}
+	if _, err := os.Stat(filepath.Join(b.Dir(), "masters")); err != nil {
+		t.Error("a refused reshape cleared the masters")
+	}
+}

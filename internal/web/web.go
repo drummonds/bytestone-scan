@@ -296,6 +296,18 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		corner, corner, float64(corner)*25.4/float64(s.MasterPPI)))
 	c.HTML(`</div><div class="column">`)
 
+	// while the batch waits at the quality check, the margins can be moved
+	if b, err := batch.Open(a.Staging, p.Batch); err == nil && a.running() != b.ID {
+		if _, waiting := a.where(r.Context(), b); waiting == "check quality" {
+			prints, ids, _ := b.Found()
+			for i, pid := range ids {
+				if pid == id && i < len(prints) {
+					c.HTML(rescanEditor(b, i, prints[i]))
+				}
+			}
+		}
+	}
+
 	// the print within the master, which covers the print and its margin
 	px := func(mm float64) int { return int(mm / 25.4 * float64(s.MasterPPI)) }
 	inPrint := image.Rect(px(s.Print.X0-s.Region.X0), px(s.Print.Y0-s.Region.Y0), px(s.Print.X1-s.Region.X0), px(s.Print.Y1-s.Region.Y0))

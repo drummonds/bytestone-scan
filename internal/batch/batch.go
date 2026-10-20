@@ -191,6 +191,30 @@ func (b *Batch) Adjust(n int, e find.Edge, mm float64) error {
 	return writeYAML(b.path("prints.yaml"), f)
 }
 
+// Reshape moves one edge of print n's region from the quality check: the
+// batch goes back to confirm, the edge moves, and the prints are confirmed
+// again, so the next tick rescans them. A move that cannot happen is
+// refused before anything is undone.
+func (b *Batch) Reshape(ctx context.Context, runner *wf.Runner, n int, e find.Edge, mm float64) error {
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return err
+	}
+	if n < 0 || n >= len(f.Prints) {
+		return fmt.Errorf("batch %s has no print %d", b.ID, n+1)
+	}
+	if _, err := f.Prints[n].Region.Move(e, mm, f.Bed); err != nil {
+		return fmt.Errorf("print %d: %w", n+1, err)
+	}
+	if err := b.Redo(ctx, runner, "confirm", 0); err != nil {
+		return err
+	}
+	if err := b.Adjust(n, e, mm); err != nil {
+		return err
+	}
+	return b.Confirm()
+}
+
 // Accept passes the masters at the quality check.
 func (b *Batch) Accept() error {
 	if _, err := os.Stat(b.path("masters")); err != nil {

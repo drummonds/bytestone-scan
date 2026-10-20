@@ -79,3 +79,30 @@ func TestAnArrowMovesTheEdge(t *testing.T) {
 		t.Error("arrows offered after confirming")
 	}
 }
+
+func TestArrowsOnTheQualityPageRescan(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"description": {"one"}, "person": {"a"}, "ppi": {"600"}})
+	act(t, a, h, loc+"/confirm", nil)
+	page(t, h, "/photos/0", `action="`+loc[1:]+`/reshape"`, arrow(1, "right 0.5"), arrow(1, "left -0.5"))
+
+	b, _ := batch.Open(a.Staging, strings.TrimPrefix(loc, "/batches/"))
+	prints, _, _ := b.Found()
+	before := prints[0].Region
+	act(t, a, h, loc+"/reshape", url.Values{"move": {"1 right -0.5"}})
+	if s.Details != 2 {
+		t.Errorf("%d detail passes, want a rescan", s.Details)
+	}
+	prints, _, _ = b.Found()
+	if prints[0].Region.X1 != before.X1-0.5 {
+		t.Errorf("right edge %.2f, want %.2f", prints[0].Region.X1, before.X1-0.5)
+	}
+	page(t, h, loc, "Accept")
+
+	act(t, a, h, loc+"/accept", nil)
+	if strings.Contains(get(t, h, "/photos/0").Body.String(), `name="move"`) {
+		t.Error("arrows on a bagged photo")
+	}
+}
