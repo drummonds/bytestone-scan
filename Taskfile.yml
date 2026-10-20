@@ -23,6 +23,10 @@ tasks:
     desc: Tidy go.mod
     cmds:
       - go mod tidy
+  serve:
+    desc: Run the web UI on http://localhost:8080
+    cmds:
+      - go run ./cmd/bytestone-scan serve {{.CLI_ARGS}}
   docs:build:
     desc: Render the project docs into docs/
     cmds:

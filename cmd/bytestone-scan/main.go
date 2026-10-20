@@ -1,6 +1,7 @@
 // Command bytestone-scan scans batches of prints on the Epson 4990 into
 // archival masters, one bag per photo.
 //
+//	bytestone-scan serve
 //	bytestone-scan batch -describe "SS Bonita" -person 0 -ppi 2400
 //	bytestone-scan confirm <batch>
 //	bytestone-scan resume <batch>
@@ -9,10 +10,12 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"image"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -27,9 +30,11 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/web"
 )
 
 const usage = `usage:
+  bytestone-scan serve [-addr :8080] [flags]   the web UI
   bytestone-scan batch -describe TEXT -person ID -ppi 600|1200|2400 [flags]
   bytestone-scan confirm BATCH [flags]   accept the prints found, then scan them
   bytestone-scan resume BATCH [flags]    carry on after a failure
@@ -65,9 +70,13 @@ func run(ctx context.Context, cmd string, args []string) error {
 	describe := fs.String("describe", "", "batch: what is being scanned")
 	person := fs.String("person", "", "batch: id of the person whose album the photos belong to")
 	ppi := fs.Int("ppi", 1200, "batch: scan ppi, 600, 1200 or 2400")
+	addr := fs.String("addr", "localhost:8080", "serve: address to listen on")
 
 	var batchID string
 	switch cmd {
+	case "serve":
+		fs.Parse(args)
+		return serve(ctx, c, *addr)
 	case "batch":
 		fs.Parse(args)
 	case "confirm", "resume":
@@ -104,15 +113,11 @@ func run(ctx context.Context, cmd string, args []string) error {
 		}
 	}
 
-	db, err := sql.Open("pglike", filepath.Join(c.staging, "workflow.db"))
+	store, closeDB, err := openStore(c.staging)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-	store, err := sqlstore.New(db)
-	if err != nil {
-		return err
-	}
+	defer closeDB()
 	scanner := &telling{&epson.Scanner{Device: c.device}}
 	rec, err := b.Run(ctx, wf.NewRunner(store, nil), scanner, time.Now)
 	if err != nil {
@@ -163,4 +168,39 @@ func (t *telling) Preview(ctx context.Context) (image.Image, error) {
 func (t *telling) Detail(ctx context.Context, area find.Rect, ppi int) (io.ReadCloser, error) {
 	fmt.Printf("detail pass: scanning %.0f × %.0f mm at %d ppi\n", area.X1-area.X0, area.Y1-area.Y0, ppi)
 	return t.Scanner.Detail(ctx, area, ppi)
+}
+
+func openStore(staging string) (*sqlstore.Store, func(), error) {
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		return nil, nil, err
+	}
+	db, err := sql.Open("pglike", filepath.Join(staging, "workflow.db"))
+	if err != nil {
+		return nil, nil, err
+	}
+	store, err := sqlstore.New(db)
+	if err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+	return store, func() { db.Close() }, nil
+}
+
+// serve runs the web UI until interrupted.
+func serve(ctx context.Context, c config, addr string) error {
+	store, closeDB, err := openStore(c.staging)
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+	srv := &http.Server{Addr: addr, Handler: (&web.App{Staging: c.staging, Store: store}).Handler()}
+	go func() {
+		<-ctx.Done()
+		srv.Close()
+	}()
+	fmt.Printf("bytestone-scan: http://%s/ (staging %s)\n", addr, c.staging)
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }

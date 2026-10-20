@@ -384,3 +384,13 @@ func (b *Batch) Found() ([]find.Print, []pid.ID, error) {
 	}
 	return f.Prints, f.IDs, nil
 }
+
+// FindPhoto is a bagged photo's record and the path of its front master.
+func FindPhoto(root string, id pid.ID) (Photo, string, error) {
+	data := filepath.Join(root, "bags", id.String(), "data")
+	var p Photo
+	if err := readYAML(filepath.Join(data, "photo.yaml"), &p); err != nil {
+		return Photo{}, "", fmt.Errorf("photo %s: %w", id, err)
+	}
+	return p, filepath.Join(data, "front.tif"), nil
+}

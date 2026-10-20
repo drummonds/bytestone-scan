@@ -1,6 +1,6 @@
 # 002 — Run a batch's fronts from a web UI (#2)
 
-**Status:** proposed
+**Status:** in progress. Slice 1, looking, is done: the batches as the work queue, the batch page, and the quality page measured within the print. Next are the actions (new batch, prints editing, confirm, accept, redo)
 
 ## Why
 
@@ -58,7 +58,7 @@ quality check after the detail pass, and lets any step be redone.
 |---|---|
 | the master | scaled to fit |
 | a 1:1 crop | at full master resolution, wherever the operator clicks on the master |
-| histogram | per channel, with the share of samples at 0 and at 65535 |
+| histogram | per channel, within the print 3 mm in from its edges (the margin and curled corners show the lid, which clips by design), with the share of samples at 0 and at 65535 |
 | measurements | print size in mm, master size in pixels, master ppi, averaging, skew, fill, any warning |
 
 | Action | Result |

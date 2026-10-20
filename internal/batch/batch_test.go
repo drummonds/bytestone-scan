@@ -3,12 +3,7 @@ package batch
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
-	"fmt"
-	"image"
-	"image/color"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -22,7 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 )
@@ -32,77 +27,6 @@ var reg = register.Register{Dir: "testdata/people"}
 var now = time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
 
 func clock() time.Time { return now }
-
-// A test print: where it lies on the bed in mm, and the value every
-// sample of it scans as.
-type testPrint struct {
-	x0, y0, x1, y1 float64
-	value          uint16
-}
-
-// fakeScanner serves a bed with prints on the lid.
-type fakeScanner struct {
-	prints      []testPrint
-	previews    int
-	details     int
-	failDetails int   // fail this many detail passes first
-	closeErr    error // the scan's stream fails as it closes, as scanimage exiting badly does
-}
-
-type closeFails struct {
-	io.Reader
-	err error
-}
-
-func (c closeFails) Close() error { return c.err }
-
-func (f *fakeScanner) valueAt(xmm, ymm float64) uint16 {
-	for _, p := range f.prints {
-		if xmm >= p.x0 && xmm < p.x1 && ymm >= p.y0 && ymm < p.y1 {
-			return p.value
-		}
-	}
-	return 65535
-}
-
-func (f *fakeScanner) Name() string       { return "Fake Scanner" }
-func (f *fakeScanner) Settings() []string { return []string{"colour correction off"} }
-
-func (f *fakeScanner) Preview(context.Context) (image.Image, error) {
-	f.previews++
-	const ppi = 75
-	w, h := 637, 877 // the bed at 75 ppi
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			v := uint8(f.valueAt((float64(x)+0.5)*25.4/ppi, (float64(y)+0.5)*25.4/ppi) >> 8)
-			img.Set(x, y, color.RGBA{v, v, v, 255})
-		}
-	}
-	return img, nil
-}
-
-func (f *fakeScanner) Detail(_ context.Context, area find.Rect, ppi int) (io.ReadCloser, error) {
-	f.details++
-	if f.details <= f.failDetails {
-		return nil, errors.New("scanner: USB disconnected")
-	}
-	px := func(mm float64) int { return int(math.Round(mm / 25.4 * float64(ppi))) }
-	w, h := px(area.X1-area.X0), px(area.Y1-area.Y0)
-	var b bytes.Buffer
-	fmt.Fprintf(&b, "P6\n%d %d\n65535\n", w, h)
-	row := make([]byte, w*6)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			v := f.valueAt(area.X0+(float64(x)+0.5)*25.4/float64(ppi), area.Y0+(float64(y)+0.5)*25.4/float64(ppi))
-			for c := 0; c < 3; c++ {
-				binary.BigEndian.PutUint16(row[(x*3+c)*2:], v)
-			}
-		}
-		b.Write(row)
-	}
-	return closeFails{&b, f.closeErr}, nil
-}
 
 func describe(t *testing.T, root string) *Batch {
 	t.Helper()
@@ -164,9 +88,9 @@ func TestBatchIDsAreTheDateAndASequence(t *testing.T) {
 
 func TestBatchRunsToBags(t *testing.T) {
 	root := t.TempDir()
-	scanner := &fakeScanner{prints: []testPrint{
-		{20, 20, 60, 50, 20000}, // 40 × 30 mm
-		{90, 25, 125, 60, 40000},
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{
+		{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, // 40 × 30 mm
+		{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000},
 	}}
 	store := wf.NewMemStore()
 	b := describe(t, root)
@@ -180,7 +104,7 @@ func TestBatchRunsToBags(t *testing.T) {
 			t.Errorf("after the first tick: %v", err)
 		}
 	}
-	if scanner.details != 0 {
+	if scanner.Details != 0 {
 		t.Error("detail pass ran before confirm")
 	}
 
@@ -199,7 +123,7 @@ func TestBatchRunsToBags(t *testing.T) {
 	}
 
 	bags := filepath.Join(root, "bags")
-	for i, p := range scanner.prints {
+	for i, p := range scanner.Prints {
 		id := pid.ID(i)
 		if !bag.Complete(bags, id) {
 			t.Fatalf("bag %s not complete", id)
@@ -214,13 +138,13 @@ func TestBatchRunsToBags(t *testing.T) {
 			t.Fatalf("bag %s front.tif: %v", id, err)
 		}
 		// region = print + 3 mm each side, at 600 ppi
-		wantW := int((p.x1 - p.x0 + 6) / 25.4 * 600)
+		wantW := int((p.X1 - p.X0 + 6) / 25.4 * 600)
 		if got := img.Bounds().Dx(); got < wantW-4 || got > wantW+4 {
 			t.Errorf("bag %s master is %d px wide, want about %d", id, got, wantW)
 		}
 		c := img.Bounds().Size().Div(2)
-		if r, _, _, _ := img.At(c.X, c.Y).RGBA(); uint16(r) != p.value {
-			t.Errorf("bag %s centre = %d, want the print's %d", id, r, p.value)
+		if r, _, _, _ := img.At(c.X, c.Y).RGBA(); uint16(r) != p.Value {
+			t.Errorf("bag %s centre = %d, want the print's %d", id, r, p.Value)
 		}
 
 		var photo Photo
@@ -237,7 +161,7 @@ func TestBatchRunsToBags(t *testing.T) {
 			!photo.Front.Captured.Equal(now) || photo.Front.Warning == "" {
 			t.Errorf("bag %s photo.yaml = %+v", id, photo)
 		}
-		if math.Abs(photo.Front.Print.X0-p.x0) > 1 || math.Abs(photo.Front.Print.Y1-p.y1) > 1 {
+		if math.Abs(photo.Front.Print.X0-p.X0) > 1 || math.Abs(photo.Front.Print.Y1-p.Y1) > 1 {
 			t.Errorf("bag %s print at %+v, want about %v", id, photo.Front.Print, p)
 		}
 
@@ -252,7 +176,7 @@ func TestBatchRunsToBags(t *testing.T) {
 
 func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	root := t.TempDir()
-	scanner := &fakeScanner{prints: []testPrint{{20, 20, 60, 50, 20000}}, failDetails: 1}
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}, FailDetails: 1}
 	store := wf.NewMemStore()
 	runner := wf.NewRunner(store, nil)
 	b := describe(t, root)
@@ -268,8 +192,8 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
 		t.Fatalf("retry: %s, want completed", rec.Status)
 	}
-	if scanner.previews != 1 || scanner.details != 2 {
-		t.Errorf("previews %d, details %d; want 1 and 2", scanner.previews, scanner.details)
+	if scanner.Previews != 1 || scanner.Details != 2 {
+		t.Errorf("previews %d, details %d; want 1 and 2", scanner.Previews, scanner.Details)
 	}
 	if !bag.Complete(filepath.Join(root, "bags"), 0) {
 		t.Error("bag not complete after the retry")
@@ -278,7 +202,7 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 
 func TestScannerExitingBadlyFailsTheDetailPass(t *testing.T) {
 	root := t.TempDir()
-	scanner := &fakeScanner{prints: []testPrint{{20, 20, 60, 50, 20000}}, closeErr: errors.New("scanimage: exit status 9")}
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}, CloseErr: errors.New("scanimage: exit status 9")}
 	store := wf.NewMemStore()
 	b := describe(t, root)
 	run(t, b, store, scanner)
@@ -298,7 +222,7 @@ func TestConfirmNeedsPrints(t *testing.T) {
 	if err := b.Confirm(); err == nil {
 		t.Error("confirmed before the prints were found")
 	}
-	if rec := run(t, b, store, &fakeScanner{}); rec.Status != wf.StatusWaiting {
+	if rec := run(t, b, store, &batchtest.Scanner{}); rec.Status != wf.StatusWaiting {
 		t.Fatalf("empty bed: %s, want waiting", rec.Status)
 	}
 	if err := b.Confirm(); err == nil || !strings.Contains(err.Error(), "no prints") {
@@ -325,5 +249,26 @@ func TestEveryStepHasADefinition(t *testing.T) {
 		if def.Steps[i].Name != st.Name || !strings.HasPrefix(def.Steps[i].Source, "https://") {
 			t.Errorf("step %d: defined %+v, stage %s", i, def.Steps[i], st.Name)
 		}
+	}
+}
+
+func TestFindPhoto(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	store := wf.NewMemStore()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	b.Confirm()
+	run(t, b, store, scanner)
+
+	photo, path, err := FindPhoto(root, 0)
+	if err != nil || photo.ID != 0 || photo.Batch != b.ID || filepath.Base(path) != "front.tif" {
+		t.Errorf("FindPhoto(0) = %+v, %q, %v", photo, path, err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Error(err)
+	}
+	if _, _, err := FindPhoto(root, 7); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("FindPhoto(7): %v, want not found", err)
 	}
 }

@@ -79,17 +79,17 @@ func TestEncodeTags(t *testing.T) {
 	tags, order := readIFD(t, data)
 
 	want := map[uint16][]uint32{
-		256: {37},          // ImageWidth
-		257: {23},          // ImageLength
-		258: {16, 16, 16},  // BitsPerSample
-		259: {8},           // Compression: Deflate
-		262: {2},           // PhotometricInterpretation: RGB
-		277: {3},           // SamplesPerPixel
-		282: {600, 1},      // XResolution
-		283: {600, 1},      // YResolution
-		284: {1},           // PlanarConfiguration: chunky
-		296: {2},           // ResolutionUnit: inch
-		317: {2},           // Predictor: horizontal differencing
+		256: {37},         // ImageWidth
+		257: {23},         // ImageLength
+		258: {16, 16, 16}, // BitsPerSample
+		259: {8},          // Compression: Deflate
+		262: {2},          // PhotometricInterpretation: RGB
+		277: {3},          // SamplesPerPixel
+		282: {600, 1},     // XResolution
+		283: {600, 1},     // YResolution
+		284: {1},          // PlanarConfiguration: chunky
+		296: {2},          // ResolutionUnit: inch
+		317: {2},          // Predictor: horizontal differencing
 	}
 	for tag, w := range want {
 		got, ok := tags[tag]
