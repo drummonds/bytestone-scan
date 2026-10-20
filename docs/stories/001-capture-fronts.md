@@ -58,7 +58,7 @@ Averaging is the mean of each block, rounded to the nearest count.
 
 | Preview shows | Regions |
 |---|---|
-| one print | one, the print plus 3 mm each side |
+| one print | one, the print plus 1.5 mm each side (3 mm until story 002) |
 | a print against the edge of the bed | no margin on that side; the region stops at the bed's edge |
 | several prints at least 5 mm apart | one each, numbered top to bottom then left to right |
 | two prints closer than 5 mm | one region for both; the operator splits it at confirm |

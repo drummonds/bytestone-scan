@@ -165,7 +165,8 @@ func (a *App) batchPage(b *batch.Batch) string {
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
-	c.HTML(fmt.Sprintf(`<figure class="image"><img src="batches/%s/prints.png" alt="The bed, with the prints found"></figure>`, html.EscapeString(b.ID)))
+	c.HTML(fmt.Sprintf(`<figure><img src="batches/%s/prints.png" alt="The bed, with the prints found">
+<figcaption class="help">Preview, 75 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, html.EscapeString(b.ID)))
 	return c.Buffer()
 }
 
@@ -222,15 +223,15 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	fitW := min(img.W, FitWidth)
 	fitH := img.H * fitW / img.W
 	c.HTML(fmt.Sprintf(`<div class="columns"><div class="column is-two-thirds">
-<p class="help">Click the master to see it at 1:1.</p>
 <form action="photos/%s" method="get">
 <input type="image" name="at" src="photos/%s/fit.jpg" width="%d" height="%d" alt="The master" style="max-width:100%%;height:auto">
-</form>`, id, id, fitW, fitH))
+</form>
+<p class="help">Master, %d ppi, %d × %d px, shown scaled to fit. Click it to see master pixels at 1:1.</p>`, id, id, fitW, fitH, s.MasterPPI, img.W, img.H))
 	if ax, err := strconv.Atoi(r.URL.Query().Get("at.x")); err == nil {
 		ay, _ := strconv.Atoi(r.URL.Query().Get("at.y"))
 		mx, my := ax*img.W/fitW, ay*img.H/fitH
-		c.HTML(fmt.Sprintf(`<h2 class="title is-5 mt-4">1:1 at %d, %d</h2>
-<img src="photos/%s/crop.png?x=%d&amp;y=%d" alt="Master pixels at 1:1">`, mx, my, id, mx, my))
+		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="photos/%s/crop.png?x=%d&amp;y=%d" alt="Master pixels at 1:1">
+<figcaption class="help">1:1, master pixels, %d × %d centred on %d, %d.</figcaption></figure>`, id, mx, my, CropSize, CropSize, mx, my))
 	}
 	c.HTML(`</div><div class="column">`)
 

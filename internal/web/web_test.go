@@ -77,7 +77,8 @@ func TestBatchPage(t *testing.T) {
 	app, b := scanned(t)
 	page(t, app.Handler(), "/batches/"+b.ID,
 		"SS Bonita &amp; crew", "Ada Example", "600 ppi",
-		"batches/"+b.ID+"/prints.png", `href="photos/0"`, `href="photos/1"`)
+		"batches/"+b.ID+"/prints.png", `href="photos/0"`, `href="photos/1"`,
+		"Preview, 75 ppi")
 	w := get(t, app.Handler(), "/batches/"+b.ID+"/prints.png")
 	if _, err := png.Decode(w.Body); err != nil {
 		t.Errorf("prints.png: %v", err)
@@ -93,8 +94,9 @@ func TestQualityPage(t *testing.T) {
 	page(t, h, "/photos/1",
 		`src="photos/1/fit.jpg"`, `<input type="image" name="at"`, "<svg", // the master, clickable, and its histogram
 		"600 ppi", b.ID, "highlights",
+		"Master, 600 ppi,", "shown scaled to fit",
 	)
-	page(t, h, "/photos/1?at.x=50&at.y=40", `src="photos/1/crop.png?`)
+	page(t, h, "/photos/1?at.x=50&at.y=40", `src="photos/1/crop.png?`, "1:1, master pixels")
 
 	fit, err := jpeg.Decode(get(t, h, "/photos/0/fit.jpg").Body)
 	if err != nil || fit.Bounds().Dx() > FitWidth {

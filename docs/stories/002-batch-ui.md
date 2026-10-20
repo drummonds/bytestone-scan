@@ -83,6 +83,20 @@ quality check after the detail pass, and lets any step be redone.
 | a step is running | any | refused: "the scanner is busy with batch …" |
 | the server restarts mid-step | — | the step is failed by the engine's rules and can be retried |
 
+### Regions
+
+| Rule | Value |
+|---|---|
+| margin round a print | 1.5 mm, down from story 001's 3 mm, which looked too generous on the first real print; detection is good to about ±0.4 mm at 75 ppi |
+
+### Images are labelled
+
+| Page | Image | Caption |
+|---|---|---|
+| batch | the preview | preview, 75 ppi, with the regions found |
+| photo | the master | master, its ppi and size in pixels, shown scaled to fit |
+| photo | a crop | 1:1, master pixels, and where |
+
 ## Out of scope
 
 Backs (story 3), richer metadata and per-photo homes (story 4),

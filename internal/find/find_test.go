@@ -67,7 +67,7 @@ func checkRect(t *testing.T, what string, got, want Rect) {
 	}
 }
 
-func TestOnePrintGetsAMargin(t *testing.T) {
+func TestOnePrintGetsA1_5mmMargin(t *testing.T) {
 	img := bed()
 	drawPrint(img, 50, 60, 100, 70, 0, nil)
 	got := Prints(img, ppi)
@@ -75,7 +75,7 @@ func TestOnePrintGetsAMargin(t *testing.T) {
 		t.Fatalf("found %d prints, want 1", len(got))
 	}
 	checkRect(t, "print", got[0].Print, Rect{50, 60, 150, 130})
-	checkRect(t, "region", got[0].Region, Rect{47, 57, 153, 133})
+	checkRect(t, "region", got[0].Region, Rect{48.5, 58.5, 151.5, 131.5})
 	if got[0].Review {
 		t.Errorf("square, rectangular print flagged for review: skew %.2f°, fill %.3f", got[0].Skew, got[0].Fill)
 	}
@@ -88,7 +88,7 @@ func TestPrintAgainstTheBedEdgeHasNoMarginThere(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("found %d prints, want 1", len(got))
 	}
-	checkRect(t, "region", got[0].Region, Rect{0, 0, 123, 83})
+	checkRect(t, "region", got[0].Region, Rect{0, 0, 121.5, 81.5})
 }
 
 func TestSeparatePrintsAreNumberedInRowsLeftToRight(t *testing.T) {

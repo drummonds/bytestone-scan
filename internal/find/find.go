@@ -16,7 +16,7 @@ import (
 
 // Thresholds from story 001; the skew and fill limits are first guesses.
 const (
-	marginMM   = 3.0
+	marginMM   = 1.5
 	stripMM    = 6.0
 	mergeMM    = 5.0
 	minSizeMM  = 20.0

@@ -137,8 +137,8 @@ func TestBatchRunsToBags(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bag %s front.tif: %v", id, err)
 		}
-		// region = print + 3 mm each side, at 600 ppi
-		wantW := int((p.X1 - p.X0 + 6) / 25.4 * 600)
+		// region = print + 1.5 mm each side, at 600 ppi
+		wantW := int((p.X1 - p.X0 + 3) / 25.4 * 600)
 		if got := img.Bounds().Dx(); got < wantW-4 || got > wantW+4 {
 			t.Errorf("bag %s master is %d px wide, want about %d", id, got, wantW)
 		}
