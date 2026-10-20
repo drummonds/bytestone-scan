@@ -50,6 +50,8 @@ real run is the SS Bonita print at 2400 ppi.
 | smaller than 4 × 6 in | 1200 | 1200 | none |
 | smaller than 4 × 6 in | 2400 | 1200 | 2 × 2 |
 
+A print counts as smaller than 4 × 6 inches only when a side is more than
+3 mm short, since prints sold as 6 × 4 are often cut a little small.
 Averaging is the mean of each block, rounded to the nearest count.
 
 ### Find prints, from the preview
