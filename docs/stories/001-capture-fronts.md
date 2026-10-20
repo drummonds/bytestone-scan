@@ -1,6 +1,6 @@
 # 001 — Capture the fronts of a batch (#1)
 
-**Status:** in progress — capture works end to end; adjusting regions at confirm is not built
+**Status:** done. Adjusting and splitting regions at confirm moved to story 002, which also replaces the command line with a web UI
 
 ## Why
 
