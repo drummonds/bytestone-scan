@@ -30,6 +30,7 @@ type Scanner struct {
 	Details     int
 	FailDetails int   // fail this many detail passes first
 	CloseErr    error // the scan's stream fails as it closes, as scanimage exiting badly does
+	LastPPI     int   // the ppi of the last detail pass
 }
 
 func (f *Scanner) Name() string       { return "Fake Scanner" }
@@ -67,6 +68,7 @@ func (c closeFails) Close() error { return c.err }
 
 func (f *Scanner) Detail(_ context.Context, area find.Rect, ppi int) (io.ReadCloser, error) {
 	f.Details++
+	f.LastPPI = ppi
 	if f.Details <= f.FailDetails {
 		return nil, errors.New("scanner: USB disconnected")
 	}

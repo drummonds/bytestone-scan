@@ -214,3 +214,24 @@ func TestManifestIsSorted(t *testing.T) {
 		t.Errorf("manifest not sorted by path: %v", lines)
 	}
 }
+
+func TestReleaseFreesAReservationButNeverABag(t *testing.T) {
+	root := t.TempDir()
+	id, _ := Reserve(root)
+	if err := Release(root, id); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := Reserve(root); again != id {
+		t.Errorf("after release, reserved %s, want %s again", again, id)
+	}
+	makeBag(t, root, 5)
+	if err := Release(root, 5); err == nil {
+		t.Error("released a complete bag")
+	}
+	if !Complete(root, 5) {
+		t.Error("complete bag gone")
+	}
+	if err := Release(root, 9); err != nil {
+		t.Errorf("releasing what was never reserved: %v", err)
+	}
+}

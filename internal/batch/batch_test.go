@@ -111,12 +111,18 @@ func TestBatchRunsToBags(t *testing.T) {
 	if err := b.Confirm(); err != nil {
 		t.Fatal(err)
 	}
+	if rec = run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
+		t.Fatalf("after confirm: %s, want waiting for the quality check", rec.Status)
+	}
+	if err := b.Accept(); err != nil {
+		t.Fatal(err)
+	}
 	rec = run(t, b, store, scanner)
 	if rec.Status != wf.StatusCompleted {
-		t.Fatalf("after confirm: %s, want completed", rec.Status)
+		t.Fatalf("after accept: %s, want completed", rec.Status)
 	}
 	steps := runnertest.Steps(t, store, runnertest.OnlyRun(t, store).ID)
-	for _, name := range []string{"describe", "preview", "find prints", "confirm", "detail pass", "package"} {
+	for _, name := range []string{"describe", "preview", "find prints", "confirm", "detail pass", "check quality", "package"} {
 		if steps[name] != wf.StatusCompleted {
 			t.Errorf("step %s: %s", name, steps[name])
 		}
@@ -189,9 +195,11 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	if bag.Complete(filepath.Join(root, "bags"), 0) {
 		t.Error("bag complete after a failed detail pass")
 	}
-	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
-		t.Fatalf("retry: %s, want completed", rec.Status)
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
+		t.Fatalf("retry: %s, want waiting for the quality check", rec.Status)
 	}
+	b.Accept()
+	run(t, b, store, scanner)
 	if scanner.Previews != 1 || scanner.Details != 2 {
 		t.Errorf("previews %d, details %d; want 1 and 2", scanner.Previews, scanner.Details)
 	}
@@ -261,7 +269,15 @@ func TestFindPhoto(t *testing.T) {
 	b.Confirm()
 	run(t, b, store, scanner)
 
+	// before packaging, the master is in the batch
 	photo, path, err := FindPhoto(root, 0)
+	if err != nil || photo.ID != 0 || filepath.Base(path) != "0.tif" {
+		t.Errorf("before packaging, FindPhoto(0) = %+v, %q, %v", photo, path, err)
+	}
+	b.Accept()
+	run(t, b, store, scanner)
+
+	photo, path, err = FindPhoto(root, 0)
 	if err != nil || photo.ID != 0 || photo.Batch != b.ID || filepath.Base(path) != "front.tif" {
 		t.Errorf("FindPhoto(0) = %+v, %q, %v", photo, path, err)
 	}
@@ -270,5 +286,88 @@ func TestFindPhoto(t *testing.T) {
 	}
 	if _, _, err := FindPhoto(root, 7); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("FindPhoto(7): %v, want not found", err)
+	}
+}
+
+// prepared is a batch whose detail pass is done, waiting for the quality check.
+func prepared(t *testing.T, scanner *batchtest.Scanner) (string, *Batch, wf.Store) {
+	t.Helper()
+	root := t.TempDir()
+	store := wf.NewMemStore()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	if err := b.Confirm(); err != nil {
+		t.Fatal(err)
+	}
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
+		t.Fatalf("%s, want waiting for the quality check", rec.Status)
+	}
+	return root, b, store
+}
+
+func redo(t *testing.T, b *Batch, store wf.Store, from string, ppi int) {
+	t.Helper()
+	if err := b.Redo(context.Background(), wf.NewRunner(store, nil), from, ppi); err != nil {
+		t.Fatalf("redo from %s: %v", from, err)
+	}
+}
+
+func TestRedoFromThePreviewAfterMovingPrints(t *testing.T) {
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	root, b, store := prepared(t, scanner)
+
+	scanner.Prints = append(scanner.Prints, batchtest.Print{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000})
+	redo(t, b, store, "preview", 0)
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
+		t.Fatalf("%s, want waiting", rec.Status)
+	}
+	prints, ids, _ := b.Found()
+	if len(prints) != 2 || len(ids) != 0 {
+		t.Errorf("after the redo: %d prints, %d ids; want 2 prints waiting to be confirmed", len(prints), len(ids))
+	}
+	if scanner.Previews != 2 || scanner.Details != 1 {
+		t.Errorf("previews %d, details %d; want 2 and 1", scanner.Previews, scanner.Details)
+	}
+	if _, err := os.Stat(filepath.Join(root, "bags", "0.partial")); !os.IsNotExist(err) {
+		t.Error("photo id 0's reservation was not released")
+	}
+	b.Confirm()
+	run(t, b, store, scanner)
+	if _, ids, _ = b.Found(); len(ids) != 2 || ids[0] != 0 || ids[1] != 1 {
+		t.Errorf("ids %v after confirming again, want 0, 1", ids)
+	}
+}
+
+func TestRedoTheDetailPassAtAnotherPPI(t *testing.T) {
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	root, b, store := prepared(t, scanner)
+	redo(t, b, store, "detail pass", 1200)
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
+		t.Fatalf("%s, want waiting for the quality check", rec.Status)
+	}
+	if scanner.LastPPI != 1200 || scanner.Previews != 1 {
+		t.Errorf("rescanned at %d ppi with %d previews; want 1200 and 1", scanner.LastPPI, scanner.Previews)
+	}
+	again, _ := Open(root, b.ID)
+	if again.ScanPPI != 1200 {
+		t.Errorf("batch scan ppi %d, want 1200", again.ScanPPI)
+	}
+	photo, _, err := FindPhoto(root, 0)
+	if err != nil || photo.Front.ScanPPI != 1200 || photo.Front.MasterPPI != 1200 || photo.Front.Warning != "" {
+		t.Errorf("photo after the rescan: %+v, %v", photo.Front, err)
+	}
+}
+
+func TestRedoRefusals(t *testing.T) {
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	_, b, store := prepared(t, scanner)
+	if err := b.Redo(context.Background(), wf.NewRunner(store, nil), "detail pass", 300); err == nil {
+		t.Error("redo at 300 ppi accepted")
+	}
+	b.Accept()
+	run(t, b, store, scanner)
+	err := b.Redo(context.Background(), wf.NewRunner(store, nil), "detail pass", 0)
+	if err == nil || !strings.Contains(err.Error(), "final") {
+		t.Errorf("redo once bagged: %v, want a refusal", err)
 	}
 }

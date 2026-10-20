@@ -162,6 +162,63 @@ func (b *Batch) Confirm() error {
 	return os.WriteFile(b.path("confirmed"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
 
+// Accept passes the masters at the quality check.
+func (b *Batch) Accept() error {
+	if _, err := os.Stat(b.path("masters")); err != nil {
+		return fmt.Errorf("batch %s: no masters to accept yet", b.ID)
+	}
+	return os.WriteFile(b.path("accepted"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+// Redo sends the batch back to the step named from, which and every later
+// step run again on the next tick. A ppi other than 0 changes the batch's
+// scan ppi first. What the operator decided at the steps cleared is
+// cleared with them: the confirmation, the acceptance, and, when the
+// prints are found again, their photo ids.
+func (b *Batch) Redo(ctx context.Context, runner *wf.Runner, from string, ppi int) error {
+	if ppi != 0 && ppi != 600 && ppi != 1200 && ppi != 2400 {
+		return fmt.Errorf("scan ppi %d, want 600, 1200 or 2400", ppi)
+	}
+	stages := b.Stages(nil, nil)
+	if _, err := runner.Rewind(ctx, Workflow, b.ID, from, stages); err != nil {
+		return err
+	}
+	cleared := map[string]bool{}
+	for i, st := range stages {
+		if st.Name == from {
+			for _, later := range stages[i:] {
+				cleared[later.Name] = true
+			}
+		}
+	}
+	if ppi != 0 && ppi != b.ScanPPI {
+		b.ScanPPI = ppi
+		if err := writeYAML(b.path("batch.yaml"), b); err != nil {
+			return err
+		}
+	}
+	if cleared["find prints"] {
+		if _, ids, err := b.Found(); err == nil {
+			for _, id := range ids {
+				if err := bag.Release(b.bags(), id); err != nil {
+					return err
+				}
+			}
+		}
+		if err := os.Remove(b.path("prints.yaml")); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	for step, marker := range map[string]string{"confirm": "confirmed", "check quality": "accepted", "detail pass": "masters"} {
+		if cleared[step] {
+			if err := os.RemoveAll(b.path(marker)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // Run ticks the batch's workflow once: it runs until it completes, fails
 // or waits for the operator.
 func (b *Batch) Run(ctx context.Context, runner *wf.Runner, s Scanner, now func() time.Time) (*wf.RunRecord, error) {
@@ -204,7 +261,12 @@ func (b *Batch) Stages(s Scanner, now func() time.Time) []wf.Stage {
 			Run: b.reserveIDs,
 		},
 		{Name: "detail pass", Run: func(ctx context.Context) error { return b.detailPass(ctx, s, now) }},
-		{Name: "package", Run: func(context.Context) error { return b.pack(now) }},
+		{Name: "check quality", Until: func(context.Context) (bool, error) {
+			_, err := os.Stat(b.path("accepted"))
+			return err == nil, nil
+		}},
+		// A bag is never altered, so nothing before packaging can be redone after it.
+		{Name: "package", Run: func(context.Context) error { return b.pack(now) }, Final: true},
 	}
 }
 
@@ -385,12 +447,20 @@ func (b *Batch) Found() ([]find.Print, []pid.ID, error) {
 	return f.Prints, f.IDs, nil
 }
 
-// FindPhoto is a bagged photo's record and the path of its front master.
+// FindPhoto is a photo's record and the path of its front master: in its
+// bag, or before packaging in its batch.
 func FindPhoto(root string, id pid.ID) (Photo, string, error) {
-	data := filepath.Join(root, "bags", id.String(), "data")
 	var p Photo
-	if err := readYAML(filepath.Join(data, "photo.yaml"), &p); err != nil {
+	data := filepath.Join(root, "bags", id.String(), "data")
+	if err := readYAML(filepath.Join(data, "photo.yaml"), &p); err == nil {
+		return p, filepath.Join(data, "front.tif"), nil
+	}
+	found, _ := filepath.Glob(filepath.Join(root, "batches", "*", "masters", id.String()+".yaml"))
+	if len(found) == 0 {
+		return Photo{}, "", fmt.Errorf("photo %s: %w", id, os.ErrNotExist)
+	}
+	if err := readYAML(found[0], &p); err != nil {
 		return Photo{}, "", fmt.Errorf("photo %s: %w", id, err)
 	}
-	return p, filepath.Join(data, "front.tif"), nil
+	return p, strings.TrimSuffix(found[0], ".yaml") + ".tif", nil
 }

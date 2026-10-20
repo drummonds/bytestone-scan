@@ -163,3 +163,13 @@ func (c *counter) Write(p []byte) (int, error) {
 	c.n += int64(n)
 	return n, err
 }
+
+// Release gives up a reservation, and anything an unfinished bag left
+// under it, so the id can be reserved again. A complete bag is never
+// released.
+func Release(root string, id pid.ID) error {
+	if Complete(root, id) {
+		return fmt.Errorf("bag %s is complete and cannot be released", id)
+	}
+	return os.RemoveAll(dir(root, id) + partial)
+}

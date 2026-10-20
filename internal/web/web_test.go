@@ -38,6 +38,8 @@ func scanned(t *testing.T) (*App, *batch.Batch) {
 		t.Fatal(err)
 	}
 	b.Confirm()
+	b.Run(context.Background(), runner, s, clock)
+	b.Accept()
 	if rec, err := b.Run(context.Background(), runner, s, clock); err != nil || rec.Status != wf.StatusCompleted {
 		t.Fatalf("batch: %+v, %v", rec, err)
 	}
