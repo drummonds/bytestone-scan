@@ -15,69 +15,73 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 )
 
-// Read reads a 16-bit colour PNM scan from r, averages each factor ×
-// factor block of pixels to one, rounding to the nearest count, and cuts
-// the result into one image per region. Regions are in averaged pixels,
-// relative to the scan's top left. Blocks cut short by the scan's right or
-// bottom edge are dropped.
-func Read(r io.Reader, factor int, regions []image.Rectangle) ([]*master.Image, error) {
-	if factor != 1 && factor != 2 && factor != 4 {
-		return nil, fmt.Errorf("detail pass: averaging factor %d, want 1, 2 or 4", factor)
-	}
+// Region is where one print lies in the scan, in scan pixels, and the
+// factor its master is averaged down by: 1, 2 or 4.
+type Region struct {
+	Rect   image.Rectangle
+	Factor int
+}
+
+// Read reads a 16-bit colour PNM scan from r and makes one image per
+// region: each factor × factor block of the region's pixels, from its top
+// left corner, averaged to one and rounded to the nearest count. Blocks
+// cut short by the region's right or bottom edge are dropped, and a region
+// running past the scan's edge is cut at it.
+func Read(r io.Reader, regions []Region) ([]*master.Image, error) {
 	br := bufio.NewReaderSize(r, 1<<20)
 	w, h, err := readHeader(br)
 	if err != nil {
 		return nil, err
 	}
-	grid := image.Rect(0, 0, w/factor, h/factor)
+	scan := image.Rect(0, 0, w, h)
+	type state struct {
+		Region
+		img  *master.Image
+		sums []uint32
+	}
+	states := make([]*state, len(regions))
 	out := make([]*master.Image, len(regions))
 	for i, rg := range regions {
-		if rg.Empty() {
-			return nil, fmt.Errorf("detail pass: region %d is empty", i+1)
+		f := rg.Factor
+		if f != 1 && f != 2 && f != 4 {
+			return nil, fmt.Errorf("detail pass: region %d averaging factor %d, want 1, 2 or 4", i+1, f)
 		}
-		if !rg.In(grid) {
-			return nil, fmt.Errorf("detail pass: region %d %v is outside the pass %v", i+1, rg, grid)
+		if rg.Rect = rg.Rect.Intersect(scan); rg.Rect.Empty() {
+			return nil, fmt.Errorf("detail pass: region %d %v is outside the scan %v", i+1, regions[i].Rect, scan)
 		}
-		out[i] = master.NewImage(rg.Dx(), rg.Dy())
+		mw, mh := rg.Rect.Dx()/f, rg.Rect.Dy()/f
+		if mw == 0 || mh == 0 {
+			return nil, fmt.Errorf("detail pass: region %d %v is smaller than one %d × %d block", i+1, rg.Rect, f, f)
+		}
+		out[i] = master.NewImage(mw, mh)
+		states[i] = &state{rg, out[i], make([]uint32, mw*3)}
 	}
 
 	row := make([]byte, w*6)
-	sums := make([]uint32, grid.Dx()*3)
-	avg := make([]uint16, grid.Dx()*3)
-	n := uint32(factor * factor)
-	readRow := func(y int) error {
+	for y := 0; y < h; y++ {
 		if _, err := io.ReadFull(br, row); err != nil {
-			return fmt.Errorf("detail pass: scan short at row %d of %d: %w", y+1, h, err)
+			return nil, fmt.Errorf("detail pass: scan short at row %d of %d: %w", y+1, h, err)
 		}
-		return nil
-	}
-	for my := 0; my < grid.Dy(); my++ {
-		clear(sums)
-		for dy := 0; dy < factor; dy++ {
-			if err := readRow(my*factor + dy); err != nil {
-				return nil, err
-			}
-			for i := range sums {
-				mx, c := i/3, i%3
-				for dx := 0; dx < factor; dx++ {
-					sums[i] += uint32(binary.BigEndian.Uint16(row[((mx*factor+dx)*3+c)*2:]))
-				}
-			}
-		}
-		for i, s := range sums {
-			avg[i] = uint16((s + n/2) / n)
-		}
-		for i, rg := range regions {
-			if my < rg.Min.Y || my >= rg.Max.Y {
+		for _, st := range states {
+			f, rect := st.Factor, st.Rect
+			dy := y - rect.Min.Y
+			if dy < 0 || dy >= st.img.H*f {
 				continue
 			}
-			dst := out[i].Pix[(my-rg.Min.Y)*rg.Dx()*3:]
-			copy(dst[:rg.Dx()*3], avg[rg.Min.X*3:rg.Max.X*3])
-		}
-	}
-	for y := grid.Dy() * factor; y < h; y++ {
-		if err := readRow(y); err != nil {
-			return nil, err
+			for i := range st.sums {
+				mx, c := i/3, i%3
+				for dx := 0; dx < f; dx++ {
+					st.sums[i] += uint32(binary.BigEndian.Uint16(row[((rect.Min.X+mx*f+dx)*3+c)*2:]))
+				}
+			}
+			if dy%f == f-1 {
+				n := uint32(f * f)
+				dst := st.img.Pix[dy/f*st.img.W*3:]
+				for i, s := range st.sums {
+					dst[i] = uint16((s + n/2) / n)
+				}
+				clear(st.sums)
+			}
 		}
 	}
 	return out, nil
