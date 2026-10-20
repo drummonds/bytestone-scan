@@ -1,4 +1,4 @@
-# 001 — Capture the fronts of a batch
+# 001 — Capture the fronts of a batch (#1)
 
 **Status:** proposed
 
