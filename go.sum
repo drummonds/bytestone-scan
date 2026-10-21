@@ -4,6 +4,8 @@ git.bytestone.uk/hum3/gobank-db v0.2.0 h1:kMysLV0VTO8hzvS+FMGBg1UoCr+/+Oesag8hBT
 git.bytestone.uk/hum3/gobank-db v0.2.0/go.mod h1:wCD+SdqmWlwoKc55VUnC/X3bNtkp3KedWD1cja0D9QA=
 git.bytestone.uk/hum3/gobank-workflow v0.9.0 h1:5nI3f8IrUiUUgLXo4vPdx7efmhENef1scFoMRCynndE=
 git.bytestone.uk/hum3/gobank-workflow v0.9.0/go.mod h1:vC2UYx4IlimjEwajIiWST0sYXLy8+uxV9s0rXAymJRU=
+git.bytestone.uk/hum3/gobank-workflow v0.10.0 h1:BF1BlYgnEsTJDY59GitUZq6XcJurw/ivz94yHJqh32s=
+git.bytestone.uk/hum3/gobank-workflow v0.10.0/go.mod h1:vC2UYx4IlimjEwajIiWST0sYXLy8+uxV9s0rXAymJRU=
 git.bytestone.uk/hum3/lofigui v0.18.0 h1:1kMfr9L6FfyzPgnGIJKPa7NYBk/Feumv263kbJX10TY=
 git.bytestone.uk/hum3/lofigui v0.18.0/go.mod h1:R8bGnSaKoR9fca7SC8MDFm5BhAtXOADaoIBxpi+Lt54=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=

@@ -85,6 +85,7 @@ func (a *App) Handler() http.Handler {
 		Definitions: wf.Definitions,
 		Base:        "workflows/",
 		Detail:      a.batchLink,
+		Cancel:      a.Store.CancelRun,
 		Frame: func(w http.ResponseWriter, r *http.Request, p view.Page) {
 			render(w, "Batches", string(p.HTML))
 		},
