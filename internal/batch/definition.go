@@ -20,7 +20,7 @@ func init() {
 		InstanceKey: "batch id",
 		Steps: []wf.Step{
 			{Name: "describe", Description: "The batch's description, home person and scan ppi are recorded", Source: src},
-			{Name: "preview", Description: "The whole bed is scanned at 75 ppi", Source: src},
+			{Name: "preview", Description: "The whole bed is scanned at 150 ppi", Source: src},
 			{Name: "find prints", Description: "Prints are found on the preview, with a margin; doubtful ones are flagged for review", Source: src},
 			{Name: "confirm", Description: "Waits for the operator to accept the prints, then reserves a photo id for each", Source: src},
 			{Name: "detail pass", Description: "One scan over every print, averaged down to each master's ppi and written as master TIFFs", Source: src},

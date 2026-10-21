@@ -47,8 +47,8 @@ func (f *Scanner) valueAt(xmm, ymm float64) uint16 {
 
 func (f *Scanner) Preview(context.Context) (image.Image, error) {
 	f.Previews++
-	const ppi = 75
-	w, h := 637, 877 // the bed at 75 ppi
+	const ppi = 150
+	w, h := 1272, 1755 // the bed at 150 ppi, in whole 8 px across as the 4990 scans it
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {

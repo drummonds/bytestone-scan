@@ -62,7 +62,7 @@ func TestABatchFromStartToBags(t *testing.T) {
 	if loc != "/batches/20261020-1" {
 		t.Fatalf("new batch went to %q", loc)
 	}
-	page(t, h, loc, "Confirm", "Rescan the preview", "Preview, 75 ppi")
+	page(t, h, loc, "Confirm", "Rescan the preview", "Preview, 150 ppi")
 
 	s.Prints = append(s.Prints, batchtest.Print{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000})
 	act(t, a, h, loc+"/preview", nil)

@@ -32,8 +32,10 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 )
 
-// PreviewPPI is the resolution of the preview prints are found on.
-const PreviewPPI = 75
+// PreviewPPI is the resolution of the preview prints are found on. The
+// 4990 scans whole 8 px blocks across, so the preview falls short of the
+// bed's right edge by up to 8 px: 2 mm at 75 ppi, 0.5 mm at 150.
+const PreviewPPI = 150
 
 // Scanner is the scanner as a batch uses it.
 type Scanner interface {

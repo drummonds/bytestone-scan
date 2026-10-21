@@ -412,7 +412,7 @@ func TestCloseUpsAndTheAnnotatedPreview(t *testing.T) {
 	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	b := describe(t, root)
 	run(t, b, wf.NewMemStore(), scanner)
-	if img, err := b.Annotated(); err != nil || img.Bounds().Dx() != 637 {
+	if img, err := b.Annotated(); err != nil || img.Bounds().Dx() != 1272 { // the bed at 150 ppi, in whole 8 px as the 4990 scans it
 		t.Errorf("annotated preview: %v, %v", img, err)
 	}
 	img, err := b.CloseUp(0)

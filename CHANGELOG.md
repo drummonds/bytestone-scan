@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+ - Preview at 150 ppi, up from 75: the 4990 scans whole 8 px blocks across, so 75 ppi lost 2 mm of the bed's right edge; 150 loses 0.5 mm (#2)
  - Batches run from the web UI: new batch, rescan the preview, confirm, a check-quality step with accept or rescan at another ppi, back to the prints, retry; the command line's `batch`, `confirm` and `resume` are gone (#2)
  - Region margin 0.5 mm, down from 3: tight by default (#2)
  - Quality page shows the master's four corners at 1:1, with margin arrows that move an edge and rescan (#2)

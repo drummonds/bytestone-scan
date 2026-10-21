@@ -38,7 +38,7 @@ register (`-people`, default `~/git/hum3/life-weaver/data/people`).
 | Photo | The archived record of one print; has its own id |
 | Side | Front or back of a print |
 | Region | Where a print lies on the bed, with a margin, found from the preview |
-| Preview | The 75 ppi bed scan regions are found from |
+| Preview | The 150 ppi bed scan regions are found from |
 | Detail pass | The one high-resolution scan covering every region in the batch |
 | Scan ppi | The resolution of the detail pass: 600, 1200 or 2400 |
 | Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches |

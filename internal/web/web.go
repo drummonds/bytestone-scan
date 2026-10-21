@@ -212,7 +212,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) (string, bool) {
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
 	c.HTML(fmt.Sprintf(`<figure><img src="batches/%s/prints.png" alt="The bed, with the prints found">
-<figcaption class="help">Preview, 75 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, html.EscapeString(b.ID)))
+<figcaption class="help">Preview, 150 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, html.EscapeString(b.ID)))
 	if waiting == "confirm" && !busy {
 		for i, p := range prints {
 			c.HTML(regionEditor(b, i, p))

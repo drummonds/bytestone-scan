@@ -77,13 +77,13 @@ func (s *Scanner) args(dev string, extra ...string) []string {
 	return append(args, extra...)
 }
 
-// Preview scans the whole bed at 75 ppi.
+// Preview scans the whole bed at 150 ppi.
 func (s *Scanner) Preview(ctx context.Context) (image.Image, error) {
 	dev, err := s.device(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, s.command(), s.args(dev, "--depth", "8", "--resolution", "75", "--format=png")...)
+	cmd := exec.CommandContext(ctx, s.command(), s.args(dev, "--depth", "8", "--resolution", "150", "--format=png")...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

@@ -39,7 +39,7 @@ func TestNo4990(t *testing.T) {
 	}
 }
 
-func TestPreviewScansTheWholeBedAt75ppi(t *testing.T) {
+func TestPreviewScansTheWholeBedAt150ppi(t *testing.T) {
 	s, calls := fake(t)
 	img, err := s.Preview(context.Background())
 	if err != nil {
@@ -49,7 +49,7 @@ func TestPreviewScansTheWholeBedAt75ppi(t *testing.T) {
 		t.Errorf("preview %v", img.Bounds())
 	}
 	call := calls()[1]
-	for _, want := range []string{"-d epson2:libusb:001:042", "--mode Color", "--resolution 75", "--color-correction None", "--sharpness 0", "--format=png"} {
+	for _, want := range []string{"-d epson2:libusb:001:042", "--mode Color", "--resolution 150", "--color-correction None", "--sharpness 0", "--format=png"} {
 		if !strings.Contains(call, want) {
 			t.Errorf("preview call %q lacks %q", call, want)
 		}

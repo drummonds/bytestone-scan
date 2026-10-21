@@ -72,7 +72,7 @@ func regionEditor(b *batch.Batch, i int, p find.Print) string {
 	return fmt.Sprintf(`<div class="box" id="print-%d">
 <h2 class="title is-5">Print %d: %.1f × %.1f mm</h2>
 %s
-<p class="help">Close-up of the 75 ppi preview: the region in green, the print as found in blue. Single arrows move an edge %.1f mm, double arrows %.0f mm.</p>
+<p class="help">Close-up of the 150 ppi preview: the region in green, the print as found in blue. Single arrows move an edge %.1f mm, double arrows %.0f mm.</p>
 <div class="buttons mt-3">%s%s</div>
 </div>`, n, n, p.Print.X1-p.Print.X0, p.Print.Y1-p.Print.Y0,
 		edgeGrid("batches/"+id+"/adjust", n, p, b.Bed(),

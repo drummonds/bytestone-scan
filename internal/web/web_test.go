@@ -80,7 +80,7 @@ func TestBatchPage(t *testing.T) {
 	page(t, app.Handler(), "/batches/"+b.ID,
 		"SS Bonita &amp; crew", "Ada Example", "600 ppi",
 		"batches/"+b.ID+"/prints.png", `href="photos/0"`, `href="photos/1"`,
-		"Preview, 75 ppi")
+		"Preview, 150 ppi")
 	w := get(t, app.Handler(), "/batches/"+b.ID+"/prints.png")
 	if _, err := png.Decode(w.Body); err != nil {
 		t.Errorf("prints.png: %v", err)
