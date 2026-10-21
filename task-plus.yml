@@ -13,3 +13,5 @@ pages_deploy:
   - type: rsync
     site: bytestone-scan
     dir: docs
+maturity:
+  code: 1
