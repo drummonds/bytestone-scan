@@ -10,12 +10,16 @@ import (
 
 const in = 25.4
 
-func print(wIn, hIn float64) find.Rect { return find.Rect{X0: 0, Y0: 0, X1: wIn * in, Y1: hIn * in} }
+func print(wIn, hIn float64) find.Box {
+	return find.BoxOf(find.Rect{X0: 0, Y0: 0, X1: wIn * in, Y1: hIn * in})
+}
+
+var bed = find.Rect{X1: 215.9, Y1: 297.2}
 
 // Story 001, "Master ppi and averaging".
 func TestMasterPPIAndAveraging(t *testing.T) {
 	cases := []struct {
-		print     find.Rect
+		print     find.Box
 		scanPPI   int
 		masterPPI int
 		factor    int
@@ -24,8 +28,9 @@ func TestMasterPPIAndAveraging(t *testing.T) {
 		{print(7, 5), 600, 600, 1, false},
 		{print(5, 7), 1200, 600, 2, false},
 		{print(6, 4), 2400, 600, 4, false},
-		{find.Rect{X1: 152, Y1: 99.5}, 2400, 600, 4, false}, // a 6 × 4 cut a little small
-		{find.Rect{X1: 152, Y1: 98}, 2400, 1200, 2, false},  // more than 3 mm short
+		{find.Box{W: 152, H: 99.5}, 2400, 600, 4, false},            // a 6 × 4 cut a little small
+		{find.Box{W: 152, H: 98}, 2400, 1200, 2, false},             // more than 3 mm short
+		{find.Box{W: 152, H: 101.6, Angle: 9}, 2400, 600, 4, false}, // turned: its own size, not its bounds
 		{print(3.5, 2.5), 600, 600, 1, true},
 		{print(3.5, 2.5), 1200, 1200, 1, false},
 		{print(3.5, 2.5), 2400, 1200, 2, false},
@@ -39,7 +44,7 @@ func TestMasterPPIAndAveraging(t *testing.T) {
 		}
 		if m.PPI != tc.masterPPI || m.Factor != tc.factor || (m.Warning != "") != tc.warn {
 			t.Errorf("%.1f × %.1f in at %d ppi: master %d ppi, factor %d, warning %q; want %d, %d, warning %v",
-				(tc.print.X1-tc.print.X0)/in, (tc.print.Y1-tc.print.Y0)/in, tc.scanPPI, m.PPI, m.Factor, m.Warning, tc.masterPPI, tc.factor, tc.warn)
+				tc.print.W/in, tc.print.H/in, tc.scanPPI, m.PPI, m.Factor, m.Warning, tc.masterPPI, tc.factor, tc.warn)
 		}
 	}
 }
@@ -54,10 +59,10 @@ func TestMasterForRefusesOtherScanPPI(t *testing.T) {
 
 func TestPassCoversEveryRegionOnce(t *testing.T) {
 	prints := []find.Print{
-		{Print: find.Rect{X0: 13, Y0: 23, X1: 113, Y1: 93}, Region: find.Rect{X0: 10, Y0: 20, X1: 116, Y1: 96}},     // ≥ 4 × 6? no: 100 × 70 mm
-		{Print: find.Rect{X0: 13, Y0: 103, X1: 190, Y1: 230}, Region: find.Rect{X0: 10, Y0: 100, X1: 193, Y1: 233}}, // 177 × 127 mm, 7 × 5
+		{Print: find.BoxOf(find.Rect{X0: 13, Y0: 23, X1: 113, Y1: 93}), Region: find.BoxOf(find.Rect{X0: 10, Y0: 20, X1: 116, Y1: 96})},     // ≥ 4 × 6? no: 100 × 70 mm
+		{Print: find.BoxOf(find.Rect{X0: 13, Y0: 103, X1: 190, Y1: 230}), Region: find.BoxOf(find.Rect{X0: 10, Y0: 100, X1: 193, Y1: 233})}, // 177 × 127 mm, 7 × 5
 	}
-	p, err := New(prints, 2400)
+	p, err := New(prints, bed, 2400)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,8 +88,21 @@ func TestPassCoversEveryRegionOnce(t *testing.T) {
 	}
 }
 
+// Story 004: a turned region is scanned as its bounds, within the bed.
+func TestPassScansATurnedRegionsBoundsOnTheBed(t *testing.T) {
+	region := find.Box{CX: 100, CY: 10, W: 120, H: 30, Angle: 5}
+	p, err := New([]find.Print{{Print: region, Region: region}}, bed, 1200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := region.Bounds()
+	if want := (find.Rect{X0: b.X0, Y0: 0, X1: b.X1, Y1: b.Y1}); p.Area != want || b.Y0 >= 0 {
+		t.Errorf("area %+v, want the bounds %+v cut at the bed's top", p.Area, b)
+	}
+}
+
 func TestPassNeedsPrints(t *testing.T) {
-	if _, err := New(nil, 1200); err == nil {
+	if _, err := New(nil, bed, 1200); err == nil {
 		t.Error("a pass with no prints was planned")
 	}
 }

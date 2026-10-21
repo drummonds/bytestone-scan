@@ -86,8 +86,9 @@ type Photo struct {
 // Side is the capture of one side of a print.
 type Side struct {
 	Captured  time.Time `yaml:"captured"`
-	Print     find.Rect `yaml:"print"`  // the print on the bed, mm
-	Region    find.Rect `yaml:"region"` // what the master covers, mm
+	Print     find.Box  `yaml:"print"`  // the print on the bed, mm, square to itself
+	Region    find.Box  `yaml:"region"` // the print with its margin, likewise
+	Bounds    find.Rect `yaml:"bounds"` // what the master covers: the region's bounds on the bed, mm
 	ScanPPI   int       `yaml:"scan_ppi"`
 	MasterPPI int       `yaml:"master_ppi"`
 	Averaging int       `yaml:"averaging"` // scan pixels per master pixel, each way
@@ -217,8 +218,7 @@ func (b *Batch) Split(n int) error {
 	r := f.Prints[n].Region
 	var parts []find.Print
 	for _, p := range find.PrintsApart(img, PreviewPPI) {
-		cx, cy := (p.Print.X0+p.Print.X1)/2, (p.Print.Y0+p.Print.Y1)/2
-		if cx > r.X0 && cx < r.X1 && cy > r.Y0 && cy < r.Y1 {
+		if r.Contains(p.Print.CX, p.Print.CY) {
 			parts = append(parts, p)
 		}
 	}
@@ -403,7 +403,7 @@ func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time)
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
 	}
-	p, err := plan.New(f.Prints, b.ScanPPI)
+	p, err := plan.New(f.Prints, f.Bed, b.ScanPPI)
 	if err != nil {
 		return err
 	}
@@ -429,7 +429,7 @@ func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time)
 			ID: f.IDs[i], Batch: b.ID, Description: b.Description,
 			Home: Person{b.Person, b.PersonName},
 			Front: Side{
-				Captured: captured, Print: pr.Print, Region: pr.Region,
+				Captured: captured, Print: pr.Print, Region: pr.Region, Bounds: pr.Region.On(f.Bed),
 				ScanPPI: p.ScanPPI, MasterPPI: m.PPI, Averaging: m.Factor,
 				Skew: pr.Skew, Fill: pr.Fill, Review: pr.Review, Warning: m.Warning,
 				Scanner: s.Name(), Settings: s.Settings(),

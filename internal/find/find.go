@@ -4,8 +4,10 @@
 // the prints, is part of a print, except strips narrower than 6 mm along
 // the bed's edges, which are the shadow of its frame. Prints
 // less than 5 mm apart are one region, marks under 20 mm are ignored, and a
-// print that is skewed or not rectangular is flagged for review. Its skew
-// and fill come from the smallest rectangle that encloses it, at any angle.
+// print that is not rectangular or is turned over 10° is flagged for review.
+// Its skew and fill come from the smallest rectangle that encloses it, at
+// any angle, and its region is square to it (story 004): turned with it
+// from 0.1° to 10°, square to the bed otherwise.
 package find
 
 import (
@@ -14,15 +16,19 @@ import (
 	"sort"
 )
 
-// Thresholds from story 001; the skew and fill limits are first guesses.
+// Thresholds from stories 001 and 004; the fill limit is a first guess.
 const (
-	marginMM   = 0.5
-	stripMM    = 6.0
-	mergeMM    = 5.0
-	apartMM    = 0.0 // only touching pixels join
-	minSizeMM  = 20.0
-	maxSkewDeg = 1.0
-	minFill    = 0.97
+	marginMM  = 0.5
+	stripMM   = 6.0
+	mergeMM   = 5.0
+	apartMM   = 0.0 // only touching pixels join
+	minSizeMM = 20.0
+	minFill   = 0.97
+
+	// A print turned less than squareDeg is square to the bed; more than
+	// maxDeskewDeg is straightened by hand rather than deskewed.
+	squareDeg    = 0.1
+	maxDeskewDeg = 10.0
 
 	// background is how far, in 8-bit levels on any channel, a pixel must
 	// be from the background's colour to count as print.
@@ -35,13 +41,17 @@ type Rect struct{ X0, Y0, X1, Y1 float64 }
 
 // Print is one print, or several too close to separate, found on the bed.
 type Print struct {
-	Print  Rect    // the print's own extent
-	Region Rect    // the print plus the margin, within the bed
-	Skew   float64 // degrees from square to the bed
+	Print  Box     // the print's own extent
+	Region Box     // the print plus the margin, square to the bed within it
+	Skew   float64 // degrees the print is turned clockwise from square to the bed
 	Fill   float64 // share of its enclosing rectangle the print fills
 	Parts  int     // separate prints in the region, when they are under 5 mm apart
-	Review bool    // skewed, not rectangular, or more than one print
+	Review bool    // turned over 10°, not rectangular, or more than one print
 }
+
+// Straighten reports whether the print is turned too far to deskew: the
+// operator straightens it on the bed and scans the preview again.
+func (p Print) Straighten() bool { return math.Abs(p.Skew) > maxDeskewDeg }
 
 // Prints finds the prints in a preview scanned at ppi, numbered in rows
 // from the top, left to right within a row.
@@ -85,18 +95,19 @@ func prints(preview image.Image, ppi int, merge float64) []Print {
 		if p.X1-p.X0 < minSizeMM || p.Y1-p.Y0 < minSizeMM {
 			continue
 		}
-		skew, fill, parts := shape(mask, labels, l, w, bx, int(minSizeMM/2/mm))
-		prints = append(prints, Print{
-			Print: p,
-			Region: Rect{
-				max(0, p.X0-marginMM), max(0, p.Y0-marginMM),
-				min(float64(w)*mm, p.X1+marginMM), min(float64(h)*mm, p.Y1+marginMM),
-			},
-			Skew:   skew,
-			Fill:   fill,
-			Parts:  parts,
-			Review: skew > maxSkewDeg || fill < minFill || parts > 1,
-		})
+		skew, enclosing, fill, parts := shape(mask, labels, l, w, bx, int(minSizeMM/2/mm))
+		pr := Print{Print: BoxOf(p), Skew: skew, Fill: fill, Parts: parts}
+		if a := math.Abs(skew); a >= squareDeg && a <= maxDeskewDeg {
+			pr.Print = Box{CX: enclosing.CX * mm, CY: enclosing.CY * mm, W: enclosing.W * mm, H: enclosing.H * mm, Angle: skew}
+		}
+		pr.Region = pr.Print
+		pr.Region.W += 2 * marginMM
+		pr.Region.H += 2 * marginMM
+		if pr.Region.Angle == 0 {
+			pr.Region = BoxOf(pr.Region.On(Rect{0, 0, float64(w) * mm, float64(h) * mm}))
+		}
+		pr.Review = pr.Straighten() || fill < minFill || parts > 1
+		prints = append(prints, pr)
 	}
 	return inRows(prints)
 }
@@ -258,11 +269,11 @@ func components(mask []bool, w, h int) ([]int, int) {
 	return labels, n
 }
 
-// shape measures the print labelled l within bx: its skew, how much of its
-// smallest enclosing rectangle it fills, holes (light patches of the
+// shape measures the print labelled l within bx: its skew, its smallest
+// enclosing rectangle in preview pixels, how much of that rectangle it fills, holes (light patches of the
 // picture) counted as print, and how many separate parts it has of at
 // least minSide pixels square.
-func shape(mask []bool, labels []int, l, w int, bx image.Rectangle, minSide int) (skew, fill float64, parts int) {
+func shape(mask []bool, labels []int, l, w int, bx image.Rectangle, minSide int) (skew float64, enclosing Box, fill float64, parts int) {
 	bw, bh := bx.Dx(), bx.Dy()
 	in := func(x, y int) bool {
 		i := (bx.Min.Y+y)*w + bx.Min.X + x
@@ -330,15 +341,10 @@ func shape(mask []bool, labels []int, l, w int, bx image.Rectangle, minSide int)
 		}
 	}
 
-	rectArea, angle := minAreaRect(hull(pts))
-	a := math.Mod(angle*180/math.Pi, 90)
-	if a < 0 {
-		a += 90
-	}
-	if a > 45 {
-		a -= 90
-	}
-	return math.Abs(a), float64(area) / rectArea, parts
+	enclosing = minAreaRect(hull(pts))
+	enclosing.CX += float64(bx.Min.X)
+	enclosing.CY += float64(bx.Min.Y)
+	return enclosing.Angle, enclosing, float64(area) / (enclosing.W * enclosing.H), parts
 }
 
 // hull is the convex hull of pts, by the monotone chain.
@@ -370,10 +376,11 @@ func hull(pts [][2]float64) [][2]float64 {
 	return h[:len(h)-1]
 }
 
-// minAreaRect is the area and angle of the smallest rectangle enclosing a
-// convex polygon; one of its sides lies along an edge of the polygon.
-func minAreaRect(poly [][2]float64) (area, angle float64) {
-	area = math.Inf(1)
+// minAreaRect is the smallest rectangle enclosing a convex polygon, one of
+// its sides along an edge of the polygon, turned less than 45° either way.
+func minAreaRect(poly [][2]float64) Box {
+	var best Box
+	area := math.Inf(1)
 	for i := range poly {
 		p, q := poly[i], poly[(i+1)%len(poly)]
 		th := math.Atan2(q[1]-p[1], q[0]-p[0])
@@ -384,24 +391,35 @@ func minAreaRect(poly [][2]float64) (area, angle float64) {
 			u0, u1, v0, v1 = min(u0, u), max(u1, u), min(v0, v), max(v1, v)
 		}
 		if a := (u1 - u0) * (v1 - v0); a < area {
-			area, angle = a, th
+			uc, vc := (u0+u1)/2, (v0+v1)/2
+			area = a
+			best = Box{CX: uc*c - vc*s, CY: uc*s + vc*c, W: u1 - u0, H: v1 - v0, Angle: th * 180 / math.Pi}
 		}
 	}
-	return area, angle
+	// a quarter turn swaps the sides: the angle nearest square is the skew
+	for best.Angle > 45 {
+		best.Angle -= 90
+		best.W, best.H = best.H, best.W
+	}
+	for best.Angle <= -45 {
+		best.Angle += 90
+		best.W, best.H = best.H, best.W
+	}
+	return best
 }
 
 // inRows orders prints in rows from the top, left to right within a row;
 // a print joins a row when its top is above the bottom of the row's first.
 func inRows(ps []Print) []Print {
-	sort.Slice(ps, func(i, j int) bool { return ps[i].Print.Y0 < ps[j].Print.Y0 })
+	sort.Slice(ps, func(i, j int) bool { return ps[i].Print.Bounds().Y0 < ps[j].Print.Bounds().Y0 })
 	var out []Print
 	for i := 0; i < len(ps); {
 		j := i + 1
-		for j < len(ps) && ps[j].Print.Y0 < ps[i].Print.Y1 {
+		for j < len(ps) && ps[j].Print.Bounds().Y0 < ps[i].Print.Bounds().Y1 {
 			j++
 		}
 		row := ps[i:j]
-		sort.Slice(row, func(a, b int) bool { return row[a].Print.X0 < row[b].Print.X0 })
+		sort.Slice(row, func(a, b int) bool { return row[a].Print.Bounds().X0 < row[b].Print.Bounds().X0 })
 		out = append(out, row...)
 		i = j
 	}

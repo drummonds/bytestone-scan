@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image"
 	"math"
 	"os"
 	"path/filepath"
@@ -168,7 +169,7 @@ func TestBatchRunsToBags(t *testing.T) {
 			!photo.Front.Captured.Equal(now) || photo.Front.Warning == "" {
 			t.Errorf("bag %s photo.yaml = %+v", id, photo)
 		}
-		if math.Abs(photo.Front.Print.X0-p.X0) > 1 || math.Abs(photo.Front.Print.Y1-p.Y1) > 1 {
+		if math.Abs(photo.Front.Print.Bounds().X0-p.X0) > 1 || math.Abs(photo.Front.Print.Bounds().Y1-p.Y1) > 1 {
 			t.Errorf("bag %s print at %+v, want about %v", id, photo.Front.Print, p)
 		}
 
@@ -389,7 +390,7 @@ func TestAdjustARegionBeforeConfirming(t *testing.T) {
 		t.Fatal(err)
 	}
 	prints, _, _ = b.Found()
-	if got := prints[0].Region; got.X1 != before.X1+3 || got.Y0 != before.Y0+0.5 || got.X0 != before.X0 {
+	if got, was := prints[0].Region.Bounds(), before.Bounds(); !same(got.X1, was.X1+3) || !same(got.Y0, was.Y0+0.5) || !same(got.X0, was.X0) {
 		t.Errorf("region %+v after the moves, from %+v", got, before)
 	}
 	if bed := b.Bed(); bed.X1 < 215 || bed.Y1 < 297 {
@@ -399,8 +400,8 @@ func TestAdjustARegionBeforeConfirming(t *testing.T) {
 	b.Confirm()
 	run(t, b, store, scanner)
 	photo, _, _ := FindPhoto(root, 0)
-	if photo.Front.Region != prints[0].Region {
-		t.Errorf("master covers %+v, want the adjusted %+v", photo.Front.Region, prints[0].Region)
+	if photo.Front.Region != prints[0].Region || photo.Front.Bounds != prints[0].Region.On(b.Bed()) {
+		t.Errorf("region %+v covering %+v, want the adjusted %+v", photo.Front.Region, photo.Front.Bounds, prints[0].Region)
 	}
 	if err := b.Adjust(0, find.Right, 0.5); err == nil {
 		t.Error("adjusted a region after confirming")
@@ -421,6 +422,74 @@ func TestCloseUpsAndTheAnnotatedPreview(t *testing.T) {
 	}
 	if _, err := b.CloseUp(1); err == nil {
 		t.Error("close-up of a print that is not there")
+	}
+}
+
+// readTIFFSize is a TIFF's size in pixels, read from its header.
+func readTIFFSize(path string) (image.Point, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return image.Point{}, err
+	}
+	defer f.Close()
+	c, err := tiff.DecodeConfig(f)
+	return image.Pt(c.Width, c.Height), err
+}
+
+func same(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+
+// Story 004: a print turned on the bed has a region turned with it; the
+// detail pass scans the region's bounds, and the master is not rotated.
+func TestATurnedPrintIsScannedAsItsBounds(t *testing.T) {
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 40, Y0: 40, X1: 140, Y1: 110, Angle: 5, Value: 20000}}}
+	root, b, _ := prepared(t, scanner)
+	photo, _, err := FindPhoto(root, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := photo.Front
+	if math.Abs(f.Skew-5) > 0.3 || f.Region.Angle != f.Skew || f.Print.Angle != f.Skew || f.Review {
+		t.Errorf("skew %.2f°, region at %.2f°, print at %.2f°, review %v; want about 5°, not for review", f.Skew, f.Region.Angle, f.Print.Angle, f.Review)
+	}
+	if math.Abs(f.Print.W-100) > 0.5 || math.Abs(f.Print.H-70) > 0.5 {
+		t.Errorf("print %.1f × %.1f mm, want 100 × 70", f.Print.W, f.Print.H)
+	}
+	if f.Bounds != f.Region.On(b.Bed()) {
+		t.Errorf("master covers %+v, want the region's bounds %+v", f.Bounds, f.Region.On(b.Bed()))
+	}
+	img, err := readTIFFSize(filepath.Join(b.Dir(), "masters", photo.ID.String()+".tif"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := image.Pt(int(math.Round((f.Bounds.X1-f.Bounds.X0)/25.4*600)), int(math.Round((f.Bounds.Y1-f.Bounds.Y0)/25.4*600)))
+	if d := img.Sub(want); max(d.X, -d.X, d.Y, -d.Y) > 1 {
+		t.Errorf("master %v px, want the bounds at 600 ppi, %v", img, want)
+	}
+}
+
+// Story 004: the close-up of a turned print is drawn square to the print.
+func TestTheCloseUpOfATurnedPrintSitsSquare(t *testing.T) {
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 40, Y0: 40, X1: 140, Y1: 110, Angle: 5, Value: 20000}}}
+	root := t.TempDir()
+	b := describe(t, root)
+	run(t, b, wf.NewMemStore(), scanner)
+	img, err := b.CloseUp(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// where the print starts on a row near its top and one near its bottom
+	start := func(y int) int {
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			if r, _, _, _ := img.At(x, y).RGBA(); r>>8 < 128 {
+				return x
+			}
+		}
+		return -1
+	}
+	h := img.Bounds().Dy()
+	top, bottom := start(h/4), start(3*h/4)
+	if top < 0 || max(top-bottom, bottom-top) > 4 {
+		t.Errorf("the print's left edge is at %d px near the top and %d px near the bottom; want it square", top, bottom)
 	}
 }
 
@@ -450,7 +519,7 @@ func TestReshapeFromTheQualityCheck(t *testing.T) {
 		t.Fatalf("%s, want back at the quality check", rec.Status)
 	}
 	after, _, err := FindPhoto(root, 0)
-	if err != nil || after.Front.Region.X1 != before.Front.Region.X1-0.5 {
+	if err != nil || !same(after.Front.Region.Bounds().X1, before.Front.Region.Bounds().X1-0.5) {
 		t.Errorf("region %+v after the reshape, from %+v (%v)", after.Front.Region, before.Front.Region, err)
 	}
 	if scanner.Details != 2 || scanner.Previews != 1 {
@@ -488,7 +557,7 @@ func TestSplitAMergedRegion(t *testing.T) {
 	if len(prints) != 3 {
 		t.Fatalf("%d regions after the split, want 3", len(prints))
 	}
-	if math.Abs(prints[0].Print.X1-70) > 0.5 || math.Abs(prints[1].Print.X0-73) > 0.5 || math.Abs(prints[2].Print.Y0-100) > 0.5 {
+	if math.Abs(prints[0].Print.Bounds().X1-70) > 0.5 || math.Abs(prints[1].Print.Bounds().X0-73) > 0.5 || math.Abs(prints[2].Print.Bounds().Y0-100) > 0.5 {
 		t.Errorf("after the split: %+v, %+v, %+v", prints[0].Print, prints[1].Print, prints[2].Print)
 	}
 	if err := b.Split(2); err == nil {
@@ -509,7 +578,7 @@ func TestRemoveARegion(t *testing.T) {
 		t.Fatal(err)
 	}
 	prints, _, _ := b.Found()
-	if len(prints) != 1 || math.Abs(prints[0].Print.Y0-100) > 0.5 {
+	if len(prints) != 1 || math.Abs(prints[0].Print.Bounds().Y0-100) > 0.5 {
 		t.Errorf("after removing the first: %+v", prints)
 	}
 	if err := b.Remove(1); err == nil {

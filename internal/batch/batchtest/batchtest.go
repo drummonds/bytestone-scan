@@ -16,10 +16,12 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 )
 
-// Print is a print on the fake bed: where it lies in mm, and the value
-// every sample of it scans as.
+// Print is a print on the fake bed: where it lies in mm before it is
+// turned Angle degrees clockwise about its centre, and the value every
+// sample of it scans as.
 type Print struct {
 	X0, Y0, X1, Y1 float64
+	Angle          float64
 	Value          uint16
 }
 
@@ -38,7 +40,12 @@ func (f *Scanner) Settings() []string { return []string{"colour correction off"}
 
 func (f *Scanner) valueAt(xmm, ymm float64) uint16 {
 	for _, p := range f.Prints {
-		if xmm >= p.X0 && xmm < p.X1 && ymm >= p.Y0 && ymm < p.Y1 {
+		// into the print's frame, unturned about its centre
+		cx, cy := (p.X0+p.X1)/2, (p.Y0+p.Y1)/2
+		s, c := math.Sincos(p.Angle * math.Pi / 180)
+		dx, dy := xmm-cx, ymm-cy
+		x, y := cx+dx*c+dy*s, cy-dx*s+dy*c
+		if x >= p.X0 && x < p.X1 && y >= p.Y0 && y < p.Y1 {
 			return p.Value
 		}
 	}

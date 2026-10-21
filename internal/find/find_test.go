@@ -74,8 +74,8 @@ func TestOnePrintGetsATightMargin(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("found %d prints, want 1", len(got))
 	}
-	checkRect(t, "print", got[0].Print, Rect{50, 60, 150, 130})
-	checkRect(t, "region", got[0].Region, Rect{49.5, 59.5, 150.5, 130.5})
+	checkRect(t, "print", got[0].Print.Bounds(), Rect{50, 60, 150, 130})
+	checkRect(t, "region", got[0].Region.Bounds(), Rect{49.5, 59.5, 150.5, 130.5})
 	if got[0].Review {
 		t.Errorf("square, rectangular print flagged for review: skew %.2f°, fill %.3f", got[0].Skew, got[0].Fill)
 	}
@@ -88,7 +88,7 @@ func TestPrintAgainstTheBedEdgeHasNoMarginThere(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("found %d prints, want 1", len(got))
 	}
-	checkRect(t, "region", got[0].Region, Rect{0, 0, 120.5, 80.5})
+	checkRect(t, "region", got[0].Region.Bounds(), Rect{0, 0, 120.5, 80.5})
 }
 
 func TestSeparatePrintsAreNumberedInRowsLeftToRight(t *testing.T) {
@@ -101,12 +101,12 @@ func TestSeparatePrintsAreNumberedInRowsLeftToRight(t *testing.T) {
 		t.Fatalf("found %d prints, want 3", len(got))
 	}
 	for i, x0 := range []float64{10, 110, 10} {
-		if !near(got[i].Print.X0, x0) {
-			t.Errorf("print %d starts at x %.1f, want %.0f", i+1, got[i].Print.X0, x0)
+		if !near(got[i].Print.Bounds().X0, x0) {
+			t.Errorf("print %d starts at x %.1f, want %.0f", i+1, got[i].Print.Bounds().X0, x0)
 		}
 	}
-	if !near(got[2].Print.Y0, 90) {
-		t.Errorf("print 3 starts at y %.1f, want 90", got[2].Print.Y0)
+	if !near(got[2].Print.Bounds().Y0, 90) {
+		t.Errorf("print 3 starts at y %.1f, want 90", got[2].Print.Bounds().Y0)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestPrintsCloserThan5mmAreOneRegion(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("found %d regions, want 1", len(got))
 	}
-	checkRect(t, "print", got[0].Print, Rect{10, 10, 133, 70})
+	checkRect(t, "print", got[0].Print.Bounds(), Rect{10, 10, 133, 70})
 	if !got[0].Review {
 		t.Error("two prints in one region not flagged for review")
 	}
@@ -142,30 +142,54 @@ func TestMarksSmallerThan20mmAreIgnored(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("found %d prints, want only the 25 mm one", len(got))
 	}
-	checkRect(t, "print", got[0].Print, Rect{100, 100, 125, 125})
+	checkRect(t, "print", got[0].Print.Bounds(), Rect{100, 100, 125, 125})
 }
 
-func TestSkewedPrintIsFlagged(t *testing.T) {
+// Story 004: a skewed print's region is square to the print.
+func TestASkewedPrintsRegionIsSquareToIt(t *testing.T) {
+	for _, deg := range []float64{3, -3, 9} {
+		img := bed()
+		drawPrint(img, 40, 60, 120, 80, deg, nil)
+		got := Prints(img, ppi)
+		if len(got) != 1 {
+			t.Fatalf("%v°: found %d prints, want 1", deg, len(got))
+		}
+		p := got[0]
+		if math.Abs(p.Skew-deg) > 0.3 || p.Region.Angle != p.Skew || p.Print.Angle != p.Skew {
+			t.Errorf("%v°: skew %.2f°, region at %.2f°, print at %.2f°; want all about %v°", deg, p.Skew, p.Region.Angle, p.Print.Angle, deg)
+		}
+		if !near(p.Print.CX, 100) || !near(p.Print.CY, 100) || !near(p.Print.W, 120) || !near(p.Print.H, 80) {
+			t.Errorf("%v°: print %+v, want 120 × 80 about (100, 100)", deg, p.Print)
+		}
+		if math.Abs(p.Region.W-p.Print.W-1) > 1e-9 || math.Abs(p.Region.H-p.Print.H-1) > 1e-9 || p.Region.CX != p.Print.CX || p.Region.CY != p.Print.CY {
+			t.Errorf("%v°: region %+v is not the print %+v with 0.5 mm round it", deg, p.Region, p.Print)
+		}
+		if p.Review || p.Straighten() {
+			t.Errorf("%v°: a skew the region takes up is not for review", deg)
+		}
+	}
+}
+
+func TestUnder0Point1DegreeIsSquareToTheBed(t *testing.T) {
 	img := bed()
-	drawPrint(img, 40, 60, 120, 80, 3, nil)
+	drawPrint(img, 40, 60, 120, 80, 0.05, nil)
+	got := Prints(img, ppi)
+	if len(got) != 1 || got[0].Region.Angle != 0 || got[0].Print.Angle != 0 {
+		t.Fatalf("0.05° print: %+v, want one square to the bed", got)
+	}
+	checkRect(t, "print", got[0].Print.Bounds(), Rect{40, 60, 160, 140})
+}
+
+func TestOver10DegreesIsStraightenedByHand(t *testing.T) {
+	img := bed()
+	drawPrint(img, 40, 60, 120, 80, 12, nil)
 	got := Prints(img, ppi)
 	if len(got) != 1 {
 		t.Fatalf("found %d prints, want 1", len(got))
 	}
-	if math.Abs(got[0].Skew-3) > 0.5 {
-		t.Errorf("skew %.2f°, want about 3°", got[0].Skew)
-	}
-	if !got[0].Review {
-		t.Error("skewed print not flagged for review")
-	}
-}
-
-func TestSlightSkewIsNotFlagged(t *testing.T) {
-	img := bed()
-	drawPrint(img, 40, 60, 120, 80, 0.5, nil)
-	got := Prints(img, ppi)
-	if len(got) != 1 || got[0].Review {
-		t.Fatalf("0.5° print: %+v, want one print not flagged", got)
+	p := got[0]
+	if math.Abs(p.Skew-12) > 0.3 || p.Region.Angle != 0 || !p.Review || !p.Straighten() {
+		t.Errorf("12° print: skew %.2f°, region at %.2f°, review %v; want measured, square to the bed, to straighten", p.Skew, p.Region.Angle, p.Review)
 	}
 }
 
@@ -196,8 +220,8 @@ func TestBlackCardBehindThePrints(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("found %d prints on black card, want 2", len(got))
 	}
-	checkRect(t, "print 1", got[0].Print, Rect{0, 0, 120, 80})
-	checkRect(t, "print 2", got[1].Print, Rect{30, 100, 90, 160})
+	checkRect(t, "print 1", got[0].Print.Bounds(), Rect{0, 0, 120, 80})
+	checkRect(t, "print 2", got[1].Print.Bounds(), Rect{30, 100, 90, 160})
 }
 
 func TestEmptyBedHasNoPrints(t *testing.T) {
@@ -214,8 +238,8 @@ func TestPrintsApartSeparatesWhatMerges(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("found %d prints apart, want 2", len(got))
 	}
-	checkRect(t, "left print", got[0].Print, Rect{10, 10, 70, 70})
-	checkRect(t, "right print", got[1].Print, Rect{73, 10, 133, 70})
+	checkRect(t, "left print", got[0].Print.Bounds(), Rect{10, 10, 70, 70})
+	checkRect(t, "right print", got[1].Print.Bounds(), Rect{73, 10, 133, 70})
 	if got[0].Review || got[1].Review {
 		t.Error("separated prints still flagged for review")
 	}

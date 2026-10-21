@@ -207,7 +207,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) (string, bool) {
 			review = ` <span class="tag is-danger">review</span>`
 		}
 		fmt.Fprintf(&t, `<tr><td>%d%s</td><td>%.0f × %.0f mm</td><td>%.0f, %.0f mm</td><td>%.1f°</td><td>%.3f</td><td>%s</td></tr>`,
-			i+1, review, p.Print.X1-p.Print.X0, p.Print.Y1-p.Print.Y0, p.Print.X0, p.Print.Y0, p.Skew, p.Fill, photo)
+			i+1, review, p.Print.W, p.Print.H, p.Print.Bounds().X0, p.Print.Bounds().Y0, p.Skew, p.Fill, photo)
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
@@ -308,9 +308,11 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		}
 	}
 
-	// the print within the master, which covers the print and its margin
+	// the print within the master, which covers the region's bounds: the
+	// part of a turned print that is square to the master
 	px := func(mm float64) int { return int(mm / 25.4 * float64(s.MasterPPI)) }
-	inPrint := image.Rect(px(s.Print.X0-s.Region.X0), px(s.Print.Y0-s.Region.Y0), px(s.Print.X1-s.Region.X0), px(s.Print.Y1-s.Region.Y0))
+	in := s.Print.Inside()
+	inPrint := image.Rect(px(in.X0-s.Bounds.X0), px(in.Y0-s.Bounds.Y0), px(in.X1-s.Bounds.X0), px(in.Y1-s.Bounds.Y0))
 	// lid shows at curled corners and in the detection's slack at the edges
 	h := quality.Analyse(img, inPrint.Inset(px(3)))
 	c.HTML(`<h2 class="title is-6">Within the print, 3 mm in from its edges</h2>`)
@@ -324,7 +326,7 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	}
 	rows := [][2]string{
 		{"Home", html.EscapeString(fmt.Sprintf("%s (%s)", p.Home.Name, p.Home.ID))},
-		{"Print", fmt.Sprintf("%.1f × %.1f mm", s.Print.X1-s.Print.X0, s.Print.Y1-s.Print.Y0)},
+		{"Print", fmt.Sprintf("%.1f × %.1f mm", s.Print.W, s.Print.H)},
 		{"Master", fmt.Sprintf("%d × %d px at %d ppi", img.W, img.H, s.MasterPPI)},
 		{"Scanned", fmt.Sprintf("%d ppi, averaged %d × %d", s.ScanPPI, s.Averaging, s.Averaging)},
 		{"Skew", fmt.Sprintf("%.2f°", s.Skew)},

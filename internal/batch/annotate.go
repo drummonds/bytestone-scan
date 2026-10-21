@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"math"
 	"strconv"
 
 	"golang.org/x/image/font"
@@ -19,24 +20,20 @@ import (
 func annotate(preview image.Image, prints []find.Print, ppi int) image.Image {
 	out := image.NewRGBA(preview.Bounds())
 	draw.Draw(out, out.Bounds(), preview, preview.Bounds().Min, draw.Src)
-	px := func(mm float64) int { return int(mm / 25.4 * float64(ppi)) }
+	mm := 25.4 / float64(ppi)
+	px := func(v float64) int { return int(v / mm) }
 	for i, p := range prints {
 		col := color.RGBA{0, 160, 0, 255}
 		if p.Review {
 			col = color.RGBA{220, 0, 0, 255}
 		}
-		r := image.Rect(px(p.Region.X0), px(p.Region.Y0), px(p.Region.X1), px(p.Region.Y1)).Intersect(out.Bounds())
-		for t := 0; t < 2; t++ {
-			rr := r.Inset(t)
-			for x := rr.Min.X; x < rr.Max.X; x++ {
-				out.Set(x, rr.Min.Y, col)
-				out.Set(x, rr.Max.Y-1, col)
-			}
-			for y := rr.Min.Y; y < rr.Max.Y; y++ {
-				out.Set(rr.Min.X, y, col)
-				out.Set(rr.Max.X-1, y, col)
-			}
+		corners := p.Region.Corners()
+		for k := range corners {
+			a, b := corners[k], corners[(k+1)%len(corners)]
+			line(out, a[0]/mm, a[1]/mm, b[0]/mm, b[1]/mm, col)
 		}
+		bounds := p.Region.Bounds()
+		r := image.Rect(px(bounds.X0), px(bounds.Y0), px(bounds.X1), px(bounds.Y1)).Intersect(out.Bounds())
 		label := strconv.Itoa(i + 1)
 		if p.Review {
 			label += " review"
@@ -46,6 +43,20 @@ func annotate(preview image.Image, prints []find.Print, ppi int) image.Image {
 		d.DrawString(label)
 	}
 	return out
+}
+
+// line draws a line 2 px wide from x0, y0 to x1, y1, in pixels.
+func line(img *image.RGBA, x0, y0, x1, y1 float64, col color.RGBA) {
+	n := int(max(math.Abs(x1-x0), math.Abs(y1-y0))) + 1
+	for i := 0; i <= n; i++ {
+		t := float64(i) / float64(n)
+		x, y := int(x0+t*(x1-x0)), int(y0+t*(y1-y0))
+		for _, d := range [4][2]int{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
+			if image.Pt(x+d[0], y+d[1]).In(img.Bounds()) {
+				img.Set(x+d[0], y+d[1], col)
+			}
+		}
+	}
 }
 
 // Preview is the batch's preview of the bed.
@@ -67,9 +78,9 @@ func (b *Batch) Annotated() (image.Image, error) {
 // closeUpWidth is the width a close-up is enlarged towards, at most 4×.
 const closeUpWidth = 480
 
-// CloseUp is print n's region on the preview with 6 mm round it,
-// enlarged pixel for pixel: the region outlined in green, the print as
-// found in blue.
+// CloseUp is print n's region on the preview with 6 mm round it, turned
+// so the print sits square and enlarged pixel for pixel: the region
+// outlined in green, the print as found in blue.
 func (b *Batch) CloseUp(n int) (image.Image, error) {
 	img, err := b.Preview()
 	if err != nil {
@@ -82,19 +93,37 @@ func (b *Batch) CloseUp(n int) (image.Image, error) {
 	if n < 0 || n >= len(prints) {
 		return nil, fmt.Errorf("batch %s has no print %d", b.ID, n+1)
 	}
-	px := func(mm float64) int { return int(mm / 25.4 * PreviewPPI) }
+	const mm = 25.4 / PreviewPPI
 	p := prints[n]
 	const context = 6.0
-	view := image.Rect(px(p.Region.X0-context), px(p.Region.Y0-context), px(p.Region.X1+context)+1, px(p.Region.Y1+context)+1).Intersect(img.Bounds())
-	k := max(1, min(4, closeUpWidth/max(1, view.Dx())))
-	out := image.NewRGBA(image.Rect(0, 0, view.Dx()*k, view.Dy()*k))
-	for y := 0; y < out.Bounds().Dy(); y++ {
-		for x := 0; x < out.Bounds().Dx(); x++ {
-			out.Set(x, y, img.At(view.Min.X+x/k, view.Min.Y+y/k))
+	view := p.Region
+	view.W += 2 * context
+	view.H += 2 * context
+	if view.Angle == 0 {
+		view = find.BoxOf(view.On(b.Bed())) // square to the bed, it stops at the bed as before
+	}
+	w, h := int(view.W/mm), int(view.H/mm)
+	k := max(1, min(4, closeUpWidth/max(1, w)))
+	out := image.NewRGBA(image.Rect(0, 0, w*k, h*k))
+	off := color.RGBA{200, 200, 200, 255} // beyond the bed
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			bx, by := view.At((float64(x)+0.5)*mm, (float64(y)+0.5)*mm)
+			at := image.Pt(int(math.Floor(bx/mm)), int(math.Floor(by/mm)))
+			var c color.Color = off
+			if at.In(img.Bounds()) {
+				c = img.At(at.X, at.Y)
+			}
+			for dy := 0; dy < k; dy++ {
+				for dx := 0; dx < k; dx++ {
+					out.Set(x*k+dx, y*k+dy, c)
+				}
+			}
 		}
 	}
 	outline := func(r find.Rect, col color.RGBA) {
-		box := image.Rect((px(r.X0)-view.Min.X)*k, (px(r.Y0)-view.Min.Y)*k, (px(r.X1)-view.Min.X)*k, (px(r.Y1)-view.Min.Y)*k).Intersect(out.Bounds())
+		px := func(v float64) int { return int(v / mm * float64(k)) }
+		box := image.Rect(px(r.X0), px(r.Y0), px(r.X1), px(r.Y1)).Intersect(out.Bounds())
 		for x := box.Min.X; x < box.Max.X; x++ {
 			out.Set(x, box.Min.Y, col)
 			out.Set(x, box.Max.Y-1, col)
@@ -104,7 +133,7 @@ func (b *Batch) CloseUp(n int) (image.Image, error) {
 			out.Set(box.Max.X-1, y, col)
 		}
 	}
-	outline(p.Print, color.RGBA{30, 90, 220, 255})
-	outline(p.Region, color.RGBA{0, 170, 0, 255})
+	outline(p.Print.Within(view), color.RGBA{30, 90, 220, 255})
+	outline(p.Region.Within(view), color.RGBA{0, 170, 0, 255})
 	return out, nil
 }

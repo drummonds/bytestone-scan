@@ -2,8 +2,10 @@ package web
 
 import (
 	"image/png"
+	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -67,8 +69,8 @@ func TestAnArrowMovesTheEdge(t *testing.T) {
 		t.Fatalf("adjust: %d %s", w.Code, w.Body)
 	}
 	prints, _, _ = b.Found()
-	if prints[0].Region.X1 != before.X1+3 {
-		t.Errorf("right edge at %.2f, want %.2f", prints[0].Region.X1, before.X1+3)
+	if got, want := prints[0].Region.Bounds().X1, before.Bounds().X1+3; math.Abs(got-want) > 1e-9 {
+		t.Errorf("right edge at %.2f, want %.2f", got, want)
 	}
 	if w := post(t, h, loc+"/adjust", url.Values{"move": {"1 sideways 3"}}); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("a bad move: %d", w.Code)
@@ -96,14 +98,46 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 		t.Errorf("%d detail passes, want a rescan", s.Details)
 	}
 	prints, _, _ = b.Found()
-	if prints[0].Region.X1 != before.X1-0.5 {
-		t.Errorf("right edge %.2f, want %.2f", prints[0].Region.X1, before.X1-0.5)
+	if got, want := prints[0].Region.Bounds().X1, before.Bounds().X1-0.5; math.Abs(got-want) > 1e-9 {
+		t.Errorf("right edge %.2f, want %.2f", got, want)
 	}
 	page(t, h, loc, "Accept")
 
 	act(t, a, h, loc+"/accept", nil)
 	if strings.Contains(get(t, h, "/photos/0").Body.String(), `name="move"`) {
 		t.Error("arrows on a bagged photo")
+	}
+}
+
+// Story 004: a turned print's arrows move its own edges; one turned too far
+// to deskew has none, and asks to be straightened.
+func TestArrowsOnTurnedPrints(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{
+		{X0: 20, Y0: 30, X1: 120, Y1: 100, Angle: 5, Value: 20000},
+		{X0: 20, Y0: 150, X1: 120, Y1: 220, Angle: 12, Value: 40000},
+	}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"description": {"two"}, "person": {"a"}, "ppi": {"600"}})
+	body := get(t, h, loc).Body.String()
+	for _, present := range []string{"top 0.5", "right 3", "bottom -0.5", "left -3"} {
+		if !strings.Contains(body, arrow(1, present)) {
+			t.Errorf("print 1, turned 5°, lacks the arrow %q", present)
+		}
+	}
+	if !regexp.MustCompile(`Print 1: 100\.\d × 70\.\d mm`).MatchString(body) {
+		t.Error("print 1's size is not its own, square to it")
+	}
+	if !strings.Contains(body, "turned back 5.0° so the print sits square") {
+		t.Error("print 1's close-up does not say it is turned")
+	}
+	if strings.Contains(body, `value="2 `) {
+		t.Error("print 2, turned 12°, has arrows")
+	}
+	for _, want := range []string{"Print 2 is turned 12", "straighten it on the bed and rescan the preview"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("print 2 lacks %q", want)
+		}
 	}
 }
 
