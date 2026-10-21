@@ -1,6 +1,6 @@
 # 002 — Run a batch's fronts from a web UI (#2)
 
-**Status:** in progress. Done: looking (work queue, batch page, quality page), the actions (new batch, rescan the preview, confirm, rescan at another ppi, back to the prints, accept, retry) with redo through gobank-workflow's Rewind, one step at a time in the background. Left: moving to gobank-workflow v0.9.0 once released
+**Status:** done
 
 ## Why
 

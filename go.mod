@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	git.bytestone.uk/hum3/go-postgres v0.5.13
-	git.bytestone.uk/hum3/gobank-workflow v0.8.1-0.20261020163252-f63ea9097ac1
+	git.bytestone.uk/hum3/gobank-workflow v0.9.0
 	git.bytestone.uk/hum3/lofigui v0.18.0
 	golang.org/x/image v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
