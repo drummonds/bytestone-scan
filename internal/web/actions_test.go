@@ -146,3 +146,26 @@ func TestOneStepAtATime(t *testing.T) {
 	a.wait()
 	page(t, h, loc, "Confirm")
 }
+
+// A batch left waiting can be cancelled from the queue, one at a time.
+func TestCancelABatchFromTheQueue(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	act(t, a, h, "/batches", url.Values{"description": {"abandoned"}, "person": {"a"}, "ppi": {"600"}})
+	runs, _ := a.Store.ListRuns(context.Background(), wf.RunFilter{})
+	if len(runs) != 1 || runs[0].Status != wf.StatusWaiting {
+		t.Fatalf("runs %+v, want one batch waiting at confirm", runs)
+	}
+	action := `action="workflows/instances/` + runs[0].ID + `/cancel"`
+	page(t, h, "/workflows/", action)
+	if w := post(t, h, "/workflows/instances/"+runs[0].ID+"/cancel", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("cancel: %d %s", w.Code, w.Body)
+	}
+	if run, _ := a.Store.GetRun(context.Background(), runs[0].ID); run.Status != wf.StatusCancelled {
+		t.Errorf("status %s, want cancelled", run.Status)
+	}
+	if strings.Contains(get(t, h, "/workflows/").Body.String(), action) {
+		t.Error("a cancelled batch is still offered to cancel")
+	}
+}
