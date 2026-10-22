@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+ - The master's XMP says where the print and its margin lie in it: angle, centre and size in master pixels (`bs:print`, `bs:region`), so a master apart from its bag can still be straightened; masters stay unrotated (#9)
+
 ## [0.2.0] - 2026-10-21
 
  - Regions are square to their print: a print turned up to 10° gets a region turned with it, its close-up drawn square and its arrows moving the print's own edges; the master covers the region's bounds and is not rotated; over 10° it is flagged to straighten by hand (#4)
