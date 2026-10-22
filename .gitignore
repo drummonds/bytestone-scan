@@ -4,3 +4,5 @@
 .tp-release-comment
 .task
 .claude/
+.tp-release-inflight
+.tp-release.yml
