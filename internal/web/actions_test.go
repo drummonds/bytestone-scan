@@ -169,3 +169,10 @@ func TestCancelABatchFromTheQueue(t *testing.T) {
 		t.Error("a cancelled batch is still offered to cancel")
 	}
 }
+
+func TestNewBatchSaysTheScanIsAveragedDownToTheMaster(t *testing.T) {
+	h := live(t, &batchtest.Scanner{}).Handler()
+	page(t, h, "/batches/new",
+		"averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches",
+		"lowers noise", "the master is the same size")
+}
