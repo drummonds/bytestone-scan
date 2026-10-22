@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-23
+
+ - New batch says the scan ppi is averaged down to the master's ppi: a higher scan ppi takes longer but lowers noise, and the master is the same size
+
+### Changed
+
+- New batch says the scan ppi is averaged down to the master's ppi: a higher scan ppi takes longer but lowers noise, and the master is the same size (#8)
+
 ## [0.3.0] - 2026-10-22
 
  - The master's XMP says where the print and its margin lie in it: angle, centre and size in master pixels (`bs:print`, `bs:region`), so a master apart from its bag can still be straightened; masters stay unrotated (#9)
