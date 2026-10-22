@@ -163,3 +163,15 @@ func TestInsideIsSquareToTheBedWithinTheBox(t *testing.T) {
 		t.Errorf("a box square to the bed is all inside")
 	}
 }
+
+// Story 009: the master records where the print lies in it.
+func TestABoxInTheImageOfItsBounds(t *testing.T) {
+	region := Box{CX: 100, CY: 80, W: 127, H: 101.6, Angle: -3}
+	bounds := region.Bounds()
+	got := region.InImage(bounds, 600)
+	k := 600 / 25.4
+	checkBox(t, "turned region", got, Box{CX: (100 - bounds.X0) * k, CY: (80 - bounds.Y0) * k, W: 127 * k, H: 101.6 * k, Angle: -3})
+
+	checkBox(t, "square region", square(10, 20, 35.4, 45.4).InImage(Rect{10, 20, 35.4, 45.4}, 1200),
+		Box{CX: 600, CY: 600, W: 1200, H: 1200})
+}

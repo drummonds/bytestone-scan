@@ -84,6 +84,13 @@ func (b Box) Contains(x, y float64) bool {
 	return u >= 0 && u <= b.W && v >= 0 && v <= b.H
 }
 
+// InImage is b in the pixels of an image covering frame at ppi, from the
+// image's top left corner.
+func (b Box) InImage(frame Rect, ppi int) Box {
+	k := float64(ppi) / 25.4
+	return Box{CX: (b.CX - frame.X0) * k, CY: (b.CY - frame.Y0) * k, W: b.W * k, H: b.H * k, Angle: b.Angle}
+}
+
 // Within is b's extent in frame's own axes, from frame's top left corner;
 // b is taken to lie at frame's angle.
 func (b Box) Within(frame Box) Rect {
