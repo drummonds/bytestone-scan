@@ -1,6 +1,6 @@
 // Package batch runs one load of the scanner bed as a gobank-workflow
 // instance keyed by batch id: describe, preview, find prints, confirm, the
-// detail pass, and a bag for each print.
+// detail pass, and an archived photo for each print.
 //
 // A batch's state lives in its directory under the staging root, not in
 // the run: the workflow records only which steps are done, and every step
@@ -23,7 +23,7 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"gopkg.in/yaml.v3"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/detailpass"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
@@ -74,7 +74,7 @@ type Person struct {
 	Name string `yaml:"name"`
 }
 
-// Photo is a bag's photo.yaml: what is known of one print.
+// Photo is an archived photo's photo.yaml: what is known of one print.
 type Photo struct {
 	ID          pid.ID `yaml:"id"`
 	Batch       string `yaml:"batch"`
@@ -301,7 +301,7 @@ func (b *Batch) Redo(ctx context.Context, runner *wf.Runner, from string, ppi in
 	if cleared["find prints"] {
 		if _, ids, err := b.Found(); err == nil {
 			for _, id := range ids {
-				if err := bag.Release(b.bags(), id); err != nil {
+				if err := archive.Release(b.archive(), id); err != nil {
 					return err
 				}
 			}
@@ -363,12 +363,12 @@ func (b *Batch) Stages(s Scanner, now func() time.Time) []wf.Stage {
 			_, err := os.Stat(b.path("accepted"))
 			return err == nil, nil
 		}},
-		// A bag is never altered, so nothing before packaging can be redone after it.
+		// An archived photo is never altered, so nothing before packaging can be redone after it.
 		{Name: "package", Run: func(context.Context) error { return b.pack(now) }, Final: true},
 	}
 }
 
-func (b *Batch) bags() string { return filepath.Join(b.root, "bags") }
+func (b *Batch) archive() string { return filepath.Join(b.root, "archive") }
 
 // reserveIDs gives each confirmed print its photo id, once.
 func (b *Batch) reserveIDs(context.Context) error {
@@ -379,11 +379,11 @@ func (b *Batch) reserveIDs(context.Context) error {
 	if len(f.IDs) == len(f.Prints) {
 		return nil
 	}
-	if err := os.MkdirAll(b.bags(), 0o755); err != nil {
+	if err := os.MkdirAll(b.archive(), 0o755); err != nil {
 		return err
 	}
 	for len(f.IDs) < len(f.Prints) {
-		id, err := bag.Reserve(b.bags())
+		id, err := archive.Reserve(b.archive())
 		if err != nil {
 			return err
 		}
@@ -448,8 +448,8 @@ func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time)
 	return nil
 }
 
-// pack puts each print's master and photo.yaml into its bag, skipping
-// bags already complete, then clears the batch's masters.
+// pack archives each print's master and photo.yaml as a photo, skipping
+// photos already complete, then clears the batch's masters.
 func (b *Batch) pack(now func() time.Time) error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
@@ -457,19 +457,19 @@ func (b *Batch) pack(now func() time.Time) error {
 	}
 	dir := b.path("masters")
 	for _, id := range f.IDs {
-		if bag.Complete(b.bags(), id) {
+		if archive.Complete(b.archive(), id) {
 			continue
 		}
-		bg, err := bag.Create(b.bags(), id)
+		ph, err := archive.Create(b.archive(), id)
 		if err != nil {
 			return err
 		}
 		for _, file := range [][2]string{{id.String() + ".tif", "front.tif"}, {id.String() + ".yaml", "photo.yaml"}} {
-			if err := bg.Add(file[1], copyFrom(filepath.Join(dir, file[0]))); err != nil {
+			if err := ph.Add(file[1], copyFrom(filepath.Join(dir, file[0]))); err != nil {
 				return err
 			}
 		}
-		if err := bg.Close(bag.Info{Batch: b.ID, Description: b.Description, Bagged: now()}); err != nil {
+		if err := ph.Close(archive.Info{Batch: b.ID, Description: b.Description, Bagged: now()}); err != nil {
 			return err
 		}
 	}
@@ -546,10 +546,10 @@ func (b *Batch) Found() ([]find.Print, []pid.ID, error) {
 }
 
 // FindPhoto is a photo's record and the path of its front master: in its
-// bag, or before packaging in its batch.
+// archive, or before packaging in its batch.
 func FindPhoto(root string, id pid.ID) (Photo, string, error) {
 	var p Photo
-	data := filepath.Join(root, "bags", id.String(), "data")
+	data := filepath.Join(root, "archive", id.String(), "data")
 	if err := readYAML(filepath.Join(data, "photo.yaml"), &p); err == nil {
 		return p, filepath.Join(data, "front.tif"), nil
 	}

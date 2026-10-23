@@ -20,33 +20,20 @@ run from a web UI: stories [001](docs/stories/001-capture-fronts.md) and
 task serve      # or: bytestone-scan serve, then open http://localhost:8080
 ```
 
-Start a batch from *New batch*: a description, the home person's id and
-the scan ppi. The batch page then leads through the steps: check the
+Start a batch from *New batch*: a description, the home person (chosen
+by name from the register) and the scan ppi. The batch page then leads through the steps: check the
 prints found on the preview (or rescan it), confirm, check each photo's
 quality (or rescan at another ppi, or go back to the prints), accept.
 
-Batches, bags and the workflow database live under `-staging`
+Batches, the archive and the workflow database live under `-staging`
 (default `~/.local/share/bytestone-scan`). People come from life-weaver's
 register (`-people`, default `~/git/hum3/life-weaver/data/people`).
 
-## Vocabulary
+## Glossary
 
-| Term | Meaning |
-|---|---|
-| Batch | One load of the scanner bed: its description, home person and scan resolution |
-| Print | A physical photograph on the bed |
-| Photo | The archived record of one print; has its own id |
-| Side | Front or back of a print |
-| Region | Where a print lies on the bed, with a margin, found from the preview; square to the print, turned with it up to 10° |
-| Bounds | The rectangle square to the bed that covers a region: what the detail pass scans and the master covers |
-| Preview | The 150 ppi bed scan regions are found from |
-| Detail pass | The one high-resolution scan covering every region in the batch |
-| Scan ppi | The resolution of the detail pass: 600, 1200 or 2400 |
-| Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches |
-| Master | The archival image of one side, never altered after capture |
-| Rendition | A display image derived from a master |
-| Home | The person whose album a photo belongs to |
-| Bag | A photo's archive directory (BagIt, RFC 8493) |
+The words in the code, the pages and these docs are defined in
+[the glossary](internal/glossary/glossary.md), also shown on the app's
+About page.
 
 ## Links
 

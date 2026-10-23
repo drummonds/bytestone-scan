@@ -15,7 +15,7 @@ import (
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
@@ -52,7 +52,7 @@ func act(t *testing.T, a *App, h http.Handler, path string, form url.Values) str
 	return w.Header().Get("Location")
 }
 
-func TestABatchFromStartToBags(t *testing.T) {
+func TestABatchFromStartToTheArchive(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	a := live(t, s)
 	h := a.Handler()
@@ -81,8 +81,8 @@ func TestABatchFromStartToBags(t *testing.T) {
 	}
 
 	act(t, a, h, loc+"/accept", nil)
-	if !bag.Complete(filepath.Join(a.Staging, "bags"), 0) || !bag.Complete(filepath.Join(a.Staging, "bags"), 1) {
-		t.Error("bags not complete after accept")
+	if !archive.Complete(filepath.Join(a.Staging, "archive"), 0) || !archive.Complete(filepath.Join(a.Staging, "archive"), 1) {
+		t.Error("photos not archived after accept")
 	}
 	page(t, h, loc, "Done")
 }
@@ -104,6 +104,7 @@ func TestNewBatchRefusals(t *testing.T) {
 	for _, f := range []url.Values{
 		{"description": {""}, "person": {"a"}, "ppi": {"600"}},
 		{"description": {"x"}, "person": {"c"}, "ppi": {"600"}},
+		{"description": {"x"}, "person": {""}, "ppi": {"600"}},
 		{"description": {"x"}, "person": {"a"}, "ppi": {"300"}},
 	} {
 		if w := post(t, h, "/batches", f); w.Code != http.StatusUnprocessableEntity {
@@ -175,4 +176,34 @@ func TestNewBatchSaysTheScanIsAveragedDownToTheMaster(t *testing.T) {
 	page(t, h, "/batches/new",
 		"averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches",
 		"lowers noise", "the master is the same size")
+}
+
+func TestNewBatchChoosesTheHomePersonByName(t *testing.T) {
+	h := live(t, &batchtest.Scanner{}).Handler()
+	body := get(t, h, "/batches/new").Body.String()
+	ada := strings.Index(body, `<option value="a">Ada Example (a)</option>`)
+	zak := strings.Index(body, `<option value="b">Zak Example (b)</option>`)
+	if ada < 0 || zak < ada {
+		t.Errorf("want Ada (a) then Zak (b) offered as home person:\n%s", body)
+	}
+	if !strings.Contains(body, "d.yaml") {
+		t.Error("the record with no name is not warned of")
+	}
+	if w := post(t, h, "/batches", url.Values{"description": {"x"}, "person": {""}, "ppi": {"600"}}); !strings.Contains(w.Body.String(), "choose the home person") {
+		t.Errorf("no person chosen: want it asked for:\n%s", w.Body)
+	}
+	// a refused batch offers the people again, with its choice kept
+	w := post(t, h, "/batches", url.Values{"description": {""}, "person": {"b"}, "ppi": {"600"}})
+	if !strings.Contains(w.Body.String(), `<option value="b" selected>Zak Example (b)</option>`) {
+		t.Errorf("refused form does not keep the person chosen:\n%s", w.Body)
+	}
+}
+
+func TestNewBatchWithNoPeopleIsRefused(t *testing.T) {
+	a := live(t, &batchtest.Scanner{})
+	a.People = register.Register{Dir: t.TempDir()}
+	w := get(t, a.Handler(), "/batches/new")
+	if body := w.Body.String(); !strings.Contains(body, a.People.Dir) || strings.Contains(body, "<form") {
+		t.Errorf("new batch with no people: want the register named and no form:\n%s", body)
+	}
 }

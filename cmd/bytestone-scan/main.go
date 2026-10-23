@@ -1,5 +1,5 @@
 // Command bytestone-scan scans batches of prints on the Epson 4990 into
-// archival masters, one bag per photo, run from a web UI.
+// archival masters, one archived photo per print, run from a web UI.
 //
 //	bytestone-scan serve [-addr localhost:8080] [-staging DIR] [-people DIR] [-device DEV]
 package main
@@ -32,7 +32,7 @@ func main() {
 	home, _ := os.UserHomeDir()
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", "localhost:8080", "address to listen on")
-	staging := fs.String("staging", filepath.Join(home, ".local/share/bytestone-scan"), "staging root: batches, bags and the workflow database")
+	staging := fs.String("staging", filepath.Join(home, ".local/share/bytestone-scan"), "staging root: batches, the archive and the workflow database")
 	people := fs.String("people", filepath.Join(home, "git/hum3/life-weaver/data/people"), "life-weaver's register of people")
 	device := fs.String("device", "", "SANE device; found from scanimage -L if empty")
 	fs.Parse(os.Args[2:])

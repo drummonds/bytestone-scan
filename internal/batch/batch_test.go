@@ -17,7 +17,7 @@ import (
 	"golang.org/x/image/tiff"
 	"gopkg.in/yaml.v3"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
@@ -88,7 +88,7 @@ func TestBatchIDsAreTheDateAndASequence(t *testing.T) {
 	}
 }
 
-func TestBatchRunsToBags(t *testing.T) {
+func TestBatchRunsToTheArchive(t *testing.T) {
 	root := t.TempDir()
 	scanner := &batchtest.Scanner{Prints: []batchtest.Print{
 		{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, // 40 × 30 mm
@@ -130,33 +130,33 @@ func TestBatchRunsToBags(t *testing.T) {
 		}
 	}
 
-	bags := filepath.Join(root, "bags")
+	arc := filepath.Join(root, "archive")
 	for i, p := range scanner.Prints {
 		id := pid.ID(i)
-		if !bag.Complete(bags, id) {
-			t.Fatalf("bag %s not complete", id)
+		if !archive.Complete(arc, id) {
+			t.Fatalf("photo %s not complete", id)
 		}
-		f, err := os.Open(filepath.Join(bags, id.String(), "data", "front.tif"))
+		f, err := os.Open(filepath.Join(arc, id.String(), "data", "front.tif"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		img, err := tiff.Decode(f)
 		f.Close()
 		if err != nil {
-			t.Fatalf("bag %s front.tif: %v", id, err)
+			t.Fatalf("photo %s front.tif: %v", id, err)
 		}
 		// region = print + 0.5 mm each side, at 600 ppi
 		wantW := int((p.X1 - p.X0 + 1) / 25.4 * 600)
 		if got := img.Bounds().Dx(); got < wantW-4 || got > wantW+4 {
-			t.Errorf("bag %s master is %d px wide, want about %d", id, got, wantW)
+			t.Errorf("photo %s master is %d px wide, want about %d", id, got, wantW)
 		}
 		c := img.Bounds().Size().Div(2)
 		if r, _, _, _ := img.At(c.X, c.Y).RGBA(); uint16(r) != p.Value {
-			t.Errorf("bag %s centre = %d, want the print's %d", id, r, p.Value)
+			t.Errorf("photo %s centre = %d, want the print's %d", id, r, p.Value)
 		}
 
 		var photo Photo
-		raw, err := os.ReadFile(filepath.Join(bags, id.String(), "data", "photo.yaml"))
+		raw, err := os.ReadFile(filepath.Join(arc, id.String(), "data", "photo.yaml"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -167,16 +167,16 @@ func TestBatchRunsToBags(t *testing.T) {
 			photo.Home.ID != 10 || photo.Home.Name != "Ada Example" ||
 			photo.Front.ScanPPI != 600 || photo.Front.MasterPPI != 600 || photo.Front.Averaging != 1 ||
 			!photo.Front.Captured.Equal(now) || photo.Front.Warning == "" {
-			t.Errorf("bag %s photo.yaml = %+v", id, photo)
+			t.Errorf("photo %s photo.yaml = %+v", id, photo)
 		}
 		if math.Abs(photo.Front.Print.Bounds().X0-p.X0) > 1 || math.Abs(photo.Front.Print.Bounds().Y1-p.Y1) > 1 {
-			t.Errorf("bag %s print at %+v, want about %v", id, photo.Front.Print, p)
+			t.Errorf("photo %s print at %+v, want about %v", id, photo.Front.Print, p)
 		}
 
-		tif, _ := os.ReadFile(filepath.Join(bags, id.String(), "data", "front.tif"))
+		tif, _ := os.ReadFile(filepath.Join(arc, id.String(), "data", "front.tif"))
 		for _, want := range []string{"<dc:identifier>" + id.String() + "</dc:identifier>", "<bs:batch>" + b.ID + "</bs:batch>", "<bs:side>front</bs:side>"} {
 			if !bytes.Contains(tif, []byte(want)) {
-				t.Errorf("bag %s master's XMP lacks %s", id, want)
+				t.Errorf("photo %s master's XMP lacks %s", id, want)
 			}
 		}
 	}
@@ -194,8 +194,8 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	if _, err := b.Run(context.Background(), runner, scanner, clock); err == nil || !strings.Contains(err.Error(), "USB") {
 		t.Fatalf("failed detail pass: error %v", err)
 	}
-	if bag.Complete(filepath.Join(root, "bags"), 0) {
-		t.Error("bag complete after a failed detail pass")
+	if archive.Complete(filepath.Join(root, "archive"), 0) {
+		t.Error("photo archived after a failed detail pass")
 	}
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
 		t.Fatalf("retry: %s, want waiting for the quality check", rec.Status)
@@ -205,8 +205,8 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	if scanner.Previews != 1 || scanner.Details != 2 {
 		t.Errorf("previews %d, details %d; want 1 and 2", scanner.Previews, scanner.Details)
 	}
-	if !bag.Complete(filepath.Join(root, "bags"), 0) {
-		t.Error("bag not complete after the retry")
+	if !archive.Complete(filepath.Join(root, "archive"), 0) {
+		t.Error("photo not archived after the retry")
 	}
 }
 
@@ -220,8 +220,8 @@ func TestScannerExitingBadlyFailsTheDetailPass(t *testing.T) {
 	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), scanner, clock); err == nil || !strings.Contains(err.Error(), "exit status 9") {
 		t.Errorf("error %v, want the scanner's", err)
 	}
-	if bag.Complete(filepath.Join(root, "bags"), 0) {
-		t.Error("bag made from a scan that failed")
+	if archive.Complete(filepath.Join(root, "archive"), 0) {
+		t.Error("photo archived from a scan that failed")
 	}
 }
 
@@ -330,7 +330,7 @@ func TestRedoFromThePreviewAfterMovingPrints(t *testing.T) {
 	if scanner.Previews != 2 || scanner.Details != 1 {
 		t.Errorf("previews %d, details %d; want 2 and 1", scanner.Previews, scanner.Details)
 	}
-	if _, err := os.Stat(filepath.Join(root, "bags", "0.partial")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "archive", "0.partial")); !os.IsNotExist(err) {
 		t.Error("photo id 0's reservation was not released")
 	}
 	b.Confirm()
@@ -370,7 +370,7 @@ func TestRedoRefusals(t *testing.T) {
 	run(t, b, store, scanner)
 	err := b.Redo(context.Background(), wf.NewRunner(store, nil), "detail pass", 0)
 	if err == nil || !strings.Contains(err.Error(), "final") {
-		t.Errorf("redo once bagged: %v, want a refusal", err)
+		t.Errorf("redo once archived: %v, want a refusal", err)
 	}
 }
 
