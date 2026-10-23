@@ -1,6 +1,6 @@
 # 010 — New batch chooses the home person by name; a glossary (#10)
 
-**Status:** proposed
+**Status:** done
 
 ## Why
 

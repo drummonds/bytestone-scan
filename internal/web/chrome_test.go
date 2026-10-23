@@ -1,12 +1,14 @@
 package web
 
 import (
+	"html"
 	"net/url"
 	"regexp"
 	"strings"
 	"testing"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/glossary"
 )
 
 func TestEveryNavbarLinkWorks(t *testing.T) {
@@ -27,6 +29,15 @@ func TestAbout(t *testing.T) {
 	page(t, a.Handler(), "/about",
 		"Version", a.Staging, "testdata/people", "Fake Scanner",
 		"https://git.bytestone.uk/hum3/bytestone-scan", "archiving-family-photographs")
+}
+
+func TestAboutHasTheGlossary(t *testing.T) {
+	h := live(t, &batchtest.Scanner{}).Handler()
+	want := []string{"Glossary"}
+	for _, tm := range glossary.Terms() {
+		want = append(want, "<th>"+html.EscapeString(tm.Term)+"</th><td>"+html.EscapeString(tm.Meaning)+"</td>")
+	}
+	page(t, h, "/about", want...)
 }
 
 func TestTheNavbarSaysWhenTheScannerIsBusy(t *testing.T) {

@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"runtime/debug"
 	"time"
+
+	"git.bytestone.uk/hum3/bytestone-scan/internal/glossary"
 )
 
 // indicator is the navbar's word on the scanner: idle, or busy with a
@@ -55,5 +57,15 @@ func (a *App) about() string {
 		row("Format statement", link("https://www.bytestone.uk/posts/2026-10-20-archiving-family-photographs/")) +
 		row("Source", link("https://git.bytestone.uk/hum3/bytestone-scan")) +
 		row("Documentation", link("https://bytestone-scan.docs.bytestone.uk")) +
-		`</tbody></table>`
+		`</tbody></table>
+<h2 class="subtitle">Glossary</h2>
+<table class="table"><tbody>` + glossaryRows() + `</tbody></table>`
+}
+
+func glossaryRows() string {
+	var s string
+	for _, t := range glossary.Terms() {
+		s += "<tr><th>" + html.EscapeString(t.Term) + "</th><td>" + html.EscapeString(t.Meaning) + "</td></tr>"
+	}
+	return s
 }

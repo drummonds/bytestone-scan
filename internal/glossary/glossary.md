@@ -1,0 +1,21 @@
+# Glossary
+
+The words bytestone-scan uses, in its code, its pages and its docs.
+
+| Term | Meaning |
+|---|---|
+| Item | One thing in a person's collection: a photo, letter, notebook, …; has its own id, from one series for every type |
+| Photo | An item that is a photographic print; kept as a BagIt bag (RFC 8493) holding its masters and photo.yaml |
+| Home | The person whose collection an item belongs to |
+| Album | A titled, ordered arrangement of items, kept with a person's record on i.bytestone.uk; an item may be in many albums |
+| Batch | One load of the scanner bed: its description, home person and scan resolution |
+| Print | A physical photograph on the bed |
+| Side | Front or back of a print |
+| Region | Where a print lies on the bed, with a margin, found from the preview; square to the print, turned with it up to 10° |
+| Bounds | The rectangle square to the bed that covers a region: what the detail pass scans and the master covers |
+| Preview | The 150 ppi bed scan regions are found from |
+| Detail pass | The one high-resolution scan covering every region in the batch |
+| Scan ppi | The resolution of the detail pass: 600, 1200 or 2400 |
+| Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches |
+| Master | The archival image of one side, never altered after capture |
+| Rendition | A display image derived from a master |
