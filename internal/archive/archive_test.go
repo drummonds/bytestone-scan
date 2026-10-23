@@ -1,4 +1,4 @@
-package bag
+package archive
 
 import (
 	"crypto/sha256"
@@ -35,7 +35,7 @@ var info = Info{
 	Bagged:      time.Date(2026, 10, 20, 14, 30, 0, 0, time.UTC),
 }
 
-func makeBag(t *testing.T, root string, id pid.ID) {
+func makePhoto(t *testing.T, root string, id pid.ID) {
 	t.Helper()
 	b, err := Create(root, id)
 	if err != nil {
@@ -54,7 +54,7 @@ func makeBag(t *testing.T, root string, id pid.ID) {
 
 func TestBagLayout(t *testing.T) {
 	root := t.TempDir()
-	makeBag(t, root, 10)
+	makePhoto(t, root, 10)
 	dir := filepath.Join(root, "a")
 
 	if got, want := read(t, filepath.Join(dir, "bagit.txt")), "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n"; got != want {
@@ -97,7 +97,7 @@ func TestBagLayout(t *testing.T) {
 	}
 }
 
-func TestBagAppearsOnlyWhenComplete(t *testing.T) {
+func TestPhotoAppearsOnlyWhenComplete(t *testing.T) {
 	root := t.TempDir()
 	b, err := Create(root, 3)
 	if err != nil {
@@ -105,16 +105,16 @@ func TestBagAppearsOnlyWhenComplete(t *testing.T) {
 	}
 	b.Add("front.tif", writeString("x"))
 	if Complete(root, 3) {
-		t.Error("bag complete before Close")
+		t.Error("photo complete before Close")
 	}
 	if _, err := os.Stat(filepath.Join(root, "3")); !os.IsNotExist(err) {
-		t.Error("bag directory visible before Close")
+		t.Error("photo directory visible before Close")
 	}
 	if err := b.Close(info); err != nil {
 		t.Fatal(err)
 	}
 	if !Complete(root, 3) {
-		t.Error("bag not complete after Close")
+		t.Error("photo not complete after Close")
 	}
 	entries, _ := os.ReadDir(root)
 	var names []string
@@ -122,24 +122,24 @@ func TestBagAppearsOnlyWhenComplete(t *testing.T) {
 		names = append(names, e.Name())
 	}
 	if strings.Join(names, ",") != "3" {
-		t.Errorf("root holds %v, want only the bag", names)
+		t.Errorf("root holds %v, want only the photo", names)
 	}
 }
 
-func TestCreateRefusesACompleteBag(t *testing.T) {
+func TestCreateRefusesACompletePhoto(t *testing.T) {
 	root := t.TempDir()
-	makeBag(t, root, 3)
+	makePhoto(t, root, 3)
 	if _, err := Create(root, 3); err == nil {
-		t.Error("Create over a complete bag succeeded")
+		t.Error("Create over a complete photo succeeded")
 	}
 }
 
-func TestCreateRestartsAnUnfinishedBag(t *testing.T) {
+func TestCreateRestartsAnUnfinishedPhoto(t *testing.T) {
 	root := t.TempDir()
 	b, _ := Create(root, 3)
 	b.Add("front.tif", writeString("half a scan"))
 	// crash: no Close
-	makeBag(t, root, 3)
+	makePhoto(t, root, 3)
 	if got := read(t, filepath.Join(root, "3", "data/front.tif")); got != "TIFF bytes" {
 		t.Errorf("front.tif = %q, want the second attempt's", got)
 	}
@@ -166,7 +166,7 @@ func TestReserveTakesTheNextID(t *testing.T) {
 		t.Errorf("first ids %v, want 0,1,2", got)
 	}
 
-	makeBag(t, root, 31) // "z"
+	makePhoto(t, root, 31) // "z"
 	os.Mkdir(filepath.Join(root, "notes"), 0o755)
 	os.WriteFile(filepath.Join(root, "README"), nil, 0o644)
 	id, err := Reserve(root)
@@ -174,20 +174,20 @@ func TestReserveTakesTheNextID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if id.String() != "10" {
-		t.Errorf("after bag z, reserved %s, want 10 (32)", id)
+		t.Errorf("after photo z, reserved %s, want 10 (32)", id)
 	}
 }
 
 func TestReservedIDsAreCreatable(t *testing.T) {
 	root := t.TempDir()
 	id, _ := Reserve(root)
-	makeBag(t, root, id)
+	makePhoto(t, root, id)
 	if !Complete(root, id) {
-		t.Error("reserved id did not become a complete bag")
+		t.Error("reserved id did not become a complete photo")
 	}
 	next, _ := Reserve(root)
 	if next == id {
-		t.Error("a complete bag's id was reserved again")
+		t.Error("a complete photo's id was reserved again")
 	}
 }
 
@@ -215,7 +215,7 @@ func TestManifestIsSorted(t *testing.T) {
 	}
 }
 
-func TestReleaseFreesAReservationButNeverABag(t *testing.T) {
+func TestReleaseFreesAReservationButNeverAPhoto(t *testing.T) {
 	root := t.TempDir()
 	id, _ := Reserve(root)
 	if err := Release(root, id); err != nil {
@@ -224,12 +224,12 @@ func TestReleaseFreesAReservationButNeverABag(t *testing.T) {
 	if again, _ := Reserve(root); again != id {
 		t.Errorf("after release, reserved %s, want %s again", again, id)
 	}
-	makeBag(t, root, 5)
+	makePhoto(t, root, 5)
 	if err := Release(root, 5); err == nil {
-		t.Error("released a complete bag")
+		t.Error("released a complete photo")
 	}
 	if !Complete(root, 5) {
-		t.Error("complete bag gone")
+		t.Error("complete photo gone")
 	}
 	if err := Release(root, 9); err != nil {
 		t.Errorf("releasing what was never reserved: %v", err)

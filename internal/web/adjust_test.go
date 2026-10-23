@@ -105,7 +105,7 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 
 	act(t, a, h, loc+"/accept", nil)
 	if strings.Contains(get(t, h, "/photos/0").Body.String(), `name="move"`) {
-		t.Error("arrows on a bagged photo")
+		t.Error("arrows on an archived photo")
 	}
 }
 

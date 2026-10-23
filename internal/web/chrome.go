@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"runtime/debug"
 	"time"
+
+	"git.bytestone.uk/hum3/bytestone-scan/internal/glossary"
 )
 
 // indicator is the navbar's word on the scanner: idle, or busy with a
@@ -46,7 +48,7 @@ func (a *App) about() string {
 	row := func(k, v string) string { return "<tr><th>" + k + "</th><td>" + v + "</td></tr>" }
 	link := func(u string) string { return fmt.Sprintf(`<a href="%s">%s</a>`, u, u) }
 	return `<h1 class="title">About</h1>
-<p class="subtitle">Scans family photographs on the Epson 4990 into archival masters, one bag per photo, for i.bytestone.uk.</p>
+<p class="subtitle">Scans family photographs on the Epson 4990 into archival masters, one archived photo per print, for i.bytestone.uk.</p>
 <table class="table"><tbody>` +
 		row("Version", html.EscapeString(version())) +
 		row("Scanner", html.EscapeString(a.Scanner.Name())) +
@@ -55,5 +57,15 @@ func (a *App) about() string {
 		row("Format statement", link("https://www.bytestone.uk/posts/2026-10-20-archiving-family-photographs/")) +
 		row("Source", link("https://git.bytestone.uk/hum3/bytestone-scan")) +
 		row("Documentation", link("https://bytestone-scan.docs.bytestone.uk")) +
-		`</tbody></table>`
+		`</tbody></table>
+<h2 class="subtitle">Glossary</h2>
+<table class="table"><tbody>` + glossaryRows() + `</tbody></table>`
+}
+
+func glossaryRows() string {
+	var s string
+	for _, t := range glossary.Terms() {
+		s += "<tr><th>" + html.EscapeString(t.Term) + "</th><td>" + html.EscapeString(t.Meaning) + "</td></tr>"
+	}
+	return s
 }

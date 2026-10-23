@@ -1,6 +1,7 @@
 package register
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -28,5 +29,27 @@ func TestPersonRefusals(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("Person(%s): %v, want an error mentioning %q", tc.id, err, tc.want)
 		}
+	}
+}
+
+func TestPeopleAreListedByName(t *testing.T) {
+	people, warnings, err := Register{Dir: "testdata/people"}.People()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Person{{14, "Aaron Example"}, {10, "Ada Example"}} // e, a
+	if !reflect.DeepEqual(people, want) {
+		t.Errorf("People() = %v, want %v", people, want)
+	}
+	// b does not parse, d has no name; both are left out, each named
+	if len(warnings) != 2 || !strings.Contains(warnings[0], "b.yaml") || !strings.Contains(warnings[1], "d.yaml") {
+		t.Errorf("warnings = %q, want one naming b.yaml, one d.yaml", warnings)
+	}
+}
+
+func TestNoPeopleIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, err := (Register{Dir: dir}).People(); err == nil || !strings.Contains(err.Error(), dir) {
+		t.Errorf("People() of an empty register: %v, want an error naming %s", err, dir)
 	}
 }
