@@ -17,6 +17,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 )
 
 // worker runs one batch step at a time in the background: there is one
@@ -77,14 +78,39 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 <form action="batches" method="post" class="box">
 <div class="field"><label class="label">What is being scanned</label>
 <div class="control"><input class="input" name="description" value="%s" required></div></div>
-<div class="field"><label class="label">Home: the id of the person whose album the photos belong to</label>
-<div class="control"><input class="input" name="person" value="%s" required></div></div>
+<div class="field"><label class="label">Home: the person whose collection the photos belong to</label>
+<div class="control"><div class="select"><select name="person" required>%s</select></div></div></div>
 <div class="field"><label class="label">Scan at</label>
 <div class="control"><div class="select"><select name="ppi">%s</select></div></div>
 <p class="help">The detail pass scans at this ppi and is averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick.</p>
 <p class="help">600 ppi takes about 15 s for a 7 × 5 inch print, 1200 about 75 s, 2400 about 2½ minutes.</p></div>
 <button class="button is-primary" type="submit">Scan the preview</button>
 </form>`
+
+// newBatch is the New batch page: msg above the form, and the form holding
+// what was entered. With no one in the register there is no form.
+func (a *App) newBatch(msg, description, person string, ppi int) string {
+	people, warnings, err := a.People.People()
+	if err != nil {
+		return `<h1 class="title">New batch</h1><div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
+	}
+	for _, w := range warnings {
+		msg += `<div class="notification is-warning">` + html.EscapeString(w) + `</div>`
+	}
+	return fmt.Sprintf(newBatchForm, msg, html.EscapeString(description), personOptions(people, person), ppiOptions(ppi))
+}
+
+func personOptions(people []register.Person, selected string) string {
+	s := `<option value="">Choose…</option>`
+	for _, p := range people {
+		sel := ""
+		if p.ID.String() == selected {
+			sel = " selected"
+		}
+		s += fmt.Sprintf(`<option value="%s"%s>%s (%s)</option>`, p.ID, sel, html.EscapeString(p.Name), p.ID)
+	}
+	return s
+}
 
 func ppiOptions(selected int) string {
 	var s string
@@ -108,7 +134,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	}
 
 	mux.HandleFunc("GET /batches/new", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "New batch", fmt.Sprintf(newBatchForm, "", "", "", ppiOptions(1200)))
+		render(w, "New batch", a.newBatch("", "", "", 1200))
 	})
 	mux.HandleFunc("POST /batches", func(w http.ResponseWriter, r *http.Request) {
 		// refuse before recording a batch that could not be scanned
@@ -118,6 +144,9 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		ppi, _ := strconv.Atoi(r.FormValue("ppi"))
 		person, err := pid.Parse(r.FormValue("person"))
+		if r.FormValue("person") == "" {
+			err = errors.New("choose the home person")
+		}
 		var b *batch.Batch
 		if err == nil {
 			b, err = batch.Describe(a.Staging, a.People,
@@ -125,9 +154,8 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		if err != nil {
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			render(w, "New batch", fmt.Sprintf(newBatchForm,
-				`<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`,
-				html.EscapeString(r.FormValue("description")), html.EscapeString(r.FormValue("person")), ppiOptions(ppi)))
+			render(w, "New batch", a.newBatch(`<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`,
+				r.FormValue("description"), r.FormValue("person"), ppi))
 			return
 		}
 		if err := a.start(b, nil); err != nil {
