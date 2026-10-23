@@ -46,7 +46,7 @@ func (a *App) about() string {
 	row := func(k, v string) string { return "<tr><th>" + k + "</th><td>" + v + "</td></tr>" }
 	link := func(u string) string { return fmt.Sprintf(`<a href="%s">%s</a>`, u, u) }
 	return `<h1 class="title">About</h1>
-<p class="subtitle">Scans family photographs on the Epson 4990 into archival masters, one bag per photo, for i.bytestone.uk.</p>
+<p class="subtitle">Scans family photographs on the Epson 4990 into archival masters, one archived photo per print, for i.bytestone.uk.</p>
 <table class="table"><tbody>` +
 		row("Version", html.EscapeString(version())) +
 		row("Scanner", html.EscapeString(a.Scanner.Name())) +

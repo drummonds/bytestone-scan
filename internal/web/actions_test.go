@@ -15,7 +15,7 @@ import (
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
@@ -52,7 +52,7 @@ func act(t *testing.T, a *App, h http.Handler, path string, form url.Values) str
 	return w.Header().Get("Location")
 }
 
-func TestABatchFromStartToBags(t *testing.T) {
+func TestABatchFromStartToTheArchive(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	a := live(t, s)
 	h := a.Handler()
@@ -81,8 +81,8 @@ func TestABatchFromStartToBags(t *testing.T) {
 	}
 
 	act(t, a, h, loc+"/accept", nil)
-	if !bag.Complete(filepath.Join(a.Staging, "bags"), 0) || !bag.Complete(filepath.Join(a.Staging, "bags"), 1) {
-		t.Error("bags not complete after accept")
+	if !archive.Complete(filepath.Join(a.Staging, "archive"), 0) || !archive.Complete(filepath.Join(a.Staging, "archive"), 1) {
+		t.Error("photos not archived after accept")
 	}
 	page(t, h, loc, "Done")
 }

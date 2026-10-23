@@ -262,13 +262,13 @@ func (a *App) state(r *http.Request, c *lofigui.Context, b *batch.Batch) (bool, 
 		c.HTML(`<div class="notification is-danger">Failed: ` + html.EscapeString(run.Error) + `</div>` +
 			`<div class="buttons">` + button("retry", "Retry", "is-primary") + `</div>`)
 	case run.Status == wf.StatusCompleted:
-		c.HTML(`<div class="notification is-success">Done: every photo is bagged.</div>`)
+		c.HTML(`<div class="notification is-success">Done: every photo is archived.</div>`)
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
 			button("confirm", "Confirm and scan", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
 	case waiting == "check quality":
 		c.HTML(`<div class="notification is-warning">Check each photo's quality, then accept or send the batch back.</div><div class="buttons">` +
-			button("accept", "Accept and bag", "is-primary") +
+			button("accept", "Accept and archive", "is-primary") +
 			fmt.Sprintf(`<form action="batches/%s/rescan" method="post" style="display:inline"><div class="select"><select name="ppi">%s</select></div> <button class="button" type="submit">Rescan at</button></form> `,
 				html.EscapeString(b.ID), ppiOptions(b.ScanPPI)) +
 			button("prints", "Back to the prints", "") + `</div>`)

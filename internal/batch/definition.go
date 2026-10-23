@@ -12,10 +12,10 @@ func init() {
 		Type: Workflow,
 		Purpose: wf.Purpose{
 			Name:        "Archive photographs",
-			Description: "Capture prints as archival masters, each in its own bag, under the person they belong to.",
+			Description: "Capture prints as archival masters, each archived as a photo in the collection of the person it belongs to.",
 		},
 		Description: "Scans one load of the bed: finds the prints on a preview, waits for the operator to confirm them, " +
-			"scans them in one detail pass, waits for the masters to be accepted and bags each. " +
+			"scans them in one detail pass, waits for the masters to be accepted and archives each. " +
 			"A retry resumes at the first step not done; the operator can send the batch back to any step before packaging.",
 		InstanceKey: "batch id",
 		Steps: []wf.Step{
@@ -25,7 +25,7 @@ func init() {
 			{Name: "confirm", Description: "Waits for the operator to accept the prints, then reserves a photo id for each", Source: src},
 			{Name: "detail pass", Description: "One scan over every print, averaged down to each master's ppi and written as master TIFFs", Source: src},
 			{Name: "check quality", Description: "Waits for the operator to accept the masters, or to send the batch back a step", Source: src},
-			{Name: "package", Description: "Each master and its photo.yaml become a bag; final, since a bag is never altered", Source: src},
+			{Name: "package", Description: "Each master and its photo.yaml are archived as a photo; final, since an archived photo is never altered", Source: src},
 		},
 	})
 }
