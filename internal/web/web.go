@@ -186,10 +186,13 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) (string, bool) {
 <p class="subtitle">%s</p>
 <table class="table"><tbody>
 <tr><th>Home</th><td>%s (%s)</td></tr>
+<tr><th>Provenance</th><td>%s</td></tr>
+<tr><th>Credit</th><td>%s</td></tr>
 <tr><th>Scanned at</th><td>%d ppi</td></tr>
 <tr><th>Started</th><td>%s</td></tr>
 </tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Description),
-		html.EscapeString(b.PersonName), b.Person, b.ScanPPI, b.Created.Local().Format("2 Jan 2006 15:04")))
+		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
+		b.ScanPPI, b.Created.Local().Format("2 Jan 2006 15:04")))
 
 	prints, ids, err := b.Found()
 	if err != nil {
@@ -327,6 +330,8 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	}
 	rows := [][2]string{
 		{"Home", html.EscapeString(fmt.Sprintf("%s (%s)", p.Home.Name, p.Home.ID))},
+		{"Provenance", orUnknown(p.Provenance)},
+		{"Credit", html.EscapeString(p.Credit)},
 		{"Print", fmt.Sprintf("%.1f × %.1f mm", s.Print.W, s.Print.H)},
 		{"Master", fmt.Sprintf("%d × %d px at %d ppi", img.W, img.H, s.MasterPPI)},
 		{"Scanned", fmt.Sprintf("%d ppi, averaged %d × %d", s.ScanPPI, s.Averaging, s.Averaging)},
@@ -347,6 +352,14 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	t.WriteString(`</tbody></table></div></div>`)
 	c.HTML(t.String())
 	return c.Buffer()
+}
+
+// orUnknown shows a provenance, or that none was known.
+func orUnknown(s string) string {
+	if s == "" {
+		return `<span class="has-text-grey">unknown</span>`
+	}
+	return html.EscapeString(s)
 }
 
 // histogram draws the three channels as lines, scaled to the fullest bin
