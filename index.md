@@ -31,7 +31,7 @@ under `renditions/` beside the archive, by photo and recipe version.
 
 Batches, the archive, recordings and the workflow database live under
 `-staging` (default `~/.local/share/bytestone-scan`). People come from life-weaver's
-register (`-people`, default `~/git/hum3/life-weaver/data/people`).
+register in the bytestone archive (`-people`, default the mirror `~/.local/share/bytestone/archive/people`).
 
 Without the scanner, run the UI on a recorded print: `bytestone-scan
 capture -print <name>` records the one print on the bed (its preview and

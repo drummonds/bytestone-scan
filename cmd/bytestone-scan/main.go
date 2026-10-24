@@ -48,7 +48,7 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		addr := fs.String("addr", "localhost:8080", "address to listen on")
-		people := fs.String("people", filepath.Join(home, "git/hum3/life-weaver/data/people"), "life-weaver's register of people")
+		people := fs.String("people", filepath.Join(home, ".local/share/bytestone/archive/people"), "the register of people: the archive mirror (life-weaver)")
 		name := fs.String("recorded", "", "run on the recording of this print under <staging>/fixtures instead of the scanner")
 		fs.Parse(os.Args[2:])
 		var s batch.Scanner = &epson.Scanner{Device: *device}

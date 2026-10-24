@@ -84,7 +84,8 @@ func (a *App) Handler() http.Handler {
 	}
 	views := &view.Views{
 		Store:       a.Store,
-		Definitions: wf.Definitions,
+		Definitions: batch.Definitions,
+		Diagrams:    diagrams(),
 		Base:        "workflows/",
 		Detail:      a.batchLink,
 		Cancel:      a.Store.CancelRun,
