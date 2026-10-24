@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-24
+
+ - A batch is a sitting of scanning over many loads of the bed (the batch-lifecycle epic, story A): New batch takes a title and starts the first load; each load has its own page, workflow (`scan_load`, a child of the batch’s) and description, pre-filled from the title; the batch page lists its loads, takes another and finishes scanning once every load is through. photo.yaml, the master’s XMP and the bag record the load with the batch. Load pages live at `batches/<id>/loads/<n>`; batches staged before this release are not read
+
+### Changed
+
+- A batch is a sitting of scanning over many loads of the bed (the batch-lifecycle epic, story A): New batch takes a title and starts the first load; each load has its own page, workflow (`scan_load`, a child of the batch’s) and description, pre-filled from the title; the batch page lists its loads, takes another and finishes scanning once every load is through. photo.yaml, the master’s XMP and the bag record the load with the batch. Load pages live at `batches/<id>/loads/<n>`; batches staged before this release are not read (#38)
+
 ## [0.10.0] - 2026-10-24
 
  - The New batch form’s Credit field has two buttons that insert `©` and `CC BY 4.0` at the cursor; A working batch’s page no longer redraws itself every 3 s: it polls a progress line naming the step running, how long it has run and, judged from the batches before (the detail pass by ppi and area scanned), about how long it should take

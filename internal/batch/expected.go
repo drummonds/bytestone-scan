@@ -10,12 +10,12 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 )
 
-// Expected is how long step should take for b, judged from the batches
-// run before it: the detail pass from batches scanned at the same ppi, by
+// Expected is how long step should take for load b, judged from the loads
+// run before it: the detail pass from loads scanned at the same ppi, by
 // the area each scanned; any other step from how long it last took. The
 // median of the last few is taken. ok is false with nothing to judge from.
-func Expected(ctx context.Context, store wf.Store, root string, b *Batch, step string) (d time.Duration, ok bool) {
-	runs, err := store.ListRuns(ctx, wf.RunFilter{Types: []wf.WorkflowType{Workflow}, Limit: 20})
+func Expected(ctx context.Context, store wf.Store, root string, b *Load, step string) (d time.Duration, ok bool) {
+	runs, err := store.ListRuns(ctx, wf.RunFilter{Types: []wf.WorkflowType{LoadWorkflow}, Limit: 20})
 	if err != nil {
 		return 0, false
 	}
@@ -39,8 +39,8 @@ func Expected(ctx context.Context, store wf.Store, root string, b *Batch, step s
 			}
 			v := time.Duration(s.DurationNs).Seconds()
 			if area > 0 {
-				past, err := Open(root, r.Key)
-				if err != nil || past.ScanPPI != b.ScanPPI {
+				past, err := OpenLoad(root, r.Key)
+				if err != nil || past.batch.ScanPPI != b.batch.ScanPPI {
 					continue
 				}
 				p, _, err := past.pass()

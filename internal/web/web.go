@@ -106,27 +106,39 @@ func (a *App) Handler() http.Handler {
 		}
 		render(w, "Batch "+b.ID, a.batchPage(r, b))
 	})
-	mux.HandleFunc("GET /batches/{id}/progress", func(w http.ResponseWriter, r *http.Request) {
-		b, err := batch.Open(a.Staging, r.PathValue("id"))
+	// load opens the load a request names, writing a 404 when there is none.
+	load := func(w http.ResponseWriter, r *http.Request) (*batch.Load, bool) {
+		l, err := batch.OpenLoad(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
 		if err != nil {
 			http.NotFound(w, r)
+			return nil, false
+		}
+		return l, true
+	}
+	mux.HandleFunc("GET /batches/{id}/loads/{n}", func(w http.ResponseWriter, r *http.Request) {
+		if l, ok := load(w, r); ok {
+			render(w, fmt.Sprintf("Batch %s, load %d", l.Batch, l.N), a.loadPage(r, l))
+		}
+	})
+	mux.HandleFunc("GET /batches/{id}/loads/{n}/progress", func(w http.ResponseWriter, r *http.Request) {
+		l, ok := load(w, r)
+		if !ok {
 			return
 		}
-		busy, step, since := a.busyWith(b.ID)
+		busy, step, since := a.busyWith(l.Key())
 		if !busy {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		io.WriteString(w, a.progress(r.Context(), b, step, since))
+		io.WriteString(w, a.progress(r.Context(), l, step, since))
 	})
-	servePNG := func(w http.ResponseWriter, r *http.Request, draw func(b *batch.Batch) (image.Image, error)) {
-		b, err := batch.Open(a.Staging, r.PathValue("id"))
-		if err != nil {
-			http.NotFound(w, r)
+	servePNG := func(w http.ResponseWriter, r *http.Request, draw func(l *batch.Load) (image.Image, error)) {
+		l, ok := load(w, r)
+		if !ok {
 			return
 		}
-		img, err := draw(b)
+		img, err := draw(l)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -135,16 +147,16 @@ func (a *App) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-store") // redrawn after every adjustment
 		png.Encode(w, img)
 	}
-	mux.HandleFunc("GET /batches/{id}/prints.png", func(w http.ResponseWriter, r *http.Request) {
-		servePNG(w, r, (*batch.Batch).Annotated)
+	mux.HandleFunc("GET /batches/{id}/loads/{n}/prints.png", func(w http.ResponseWriter, r *http.Request) {
+		servePNG(w, r, (*batch.Load).Annotated)
 	})
-	mux.HandleFunc("GET /batches/{id}/regions/{n}", func(w http.ResponseWriter, r *http.Request) {
-		n, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("n"), ".png"))
+	mux.HandleFunc("GET /batches/{id}/loads/{n}/regions/{print}", func(w http.ResponseWriter, r *http.Request) {
+		p, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("print"), ".png"))
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		servePNG(w, r, func(b *batch.Batch) (image.Image, error) { return b.CloseUp(n - 1) })
+		servePNG(w, r, func(l *batch.Load) (image.Image, error) { return l.CloseUp(p - 1) })
 	})
 
 	mux.HandleFunc("GET /photos/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -189,20 +201,29 @@ func (a *App) Handler() http.Handler {
 	return mux
 }
 
-// batchLink is what a batch's workflow page adds below its steps.
+// batchLink is what a batch's or a load's workflow page adds below its steps.
 func (a *App) batchLink(_ *http.Request, run wf.RunRecord, _ []wf.StepResult, _ string) template.HTML {
-	if run.WorkflowType != batch.Workflow {
-		return ""
+	switch run.WorkflowType {
+	case batch.Workflow:
+		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="batches/%s">Batch %s: its loads</a></p>`,
+			html.EscapeString(run.Key), html.EscapeString(run.Key)))
+	case batch.LoadWorkflow:
+		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="%s">Load %s: prints and photos</a></p>`,
+			loadURL(run.Key), html.EscapeString(run.Key)))
 	}
-	return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="batches/%s">Batch %s: prints and photos</a></p>`,
-		html.EscapeString(run.Key), html.EscapeString(run.Key)))
+	return ""
 }
 
-// batchPage is a batch's details, where its workflow stands and what the
-// operator can do there; busy reports that a step is running.
+// loadURL is the page of the load with key, <batch id>/<n>.
+func loadURL(key string) string {
+	id, n, _ := strings.Cut(key, "/")
+	return "batches/" + html.EscapeString(id) + "/loads/" + html.EscapeString(n)
+}
+
+// batchPage is a batch's details, its loads and what the operator can do
+// next: scan another load, or finish scanning.
 func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	c := lofigui.NewContext()
-	busy, waiting := a.state(r, c, b)
 	c.HTML(fmt.Sprintf(`<h1 class="title">Batch %s</h1>
 <p class="subtitle">%s</p>
 <table class="table"><tbody>
@@ -211,11 +232,62 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 <tr><th>Credit</th><td>%s</td></tr>
 <tr><th>Scanned at</th><td>%d ppi</td></tr>
 <tr><th>Started</th><td>%s</td></tr>
-</tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Description),
+</tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		b.ScanPPI, b.Created.Local().Format("2 Jan 2006 15:04")))
+	loads, err := b.Loads()
+	if err != nil {
+		c.HTML(`<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`)
+		return c.Buffer()
+	}
+	var t strings.Builder
+	t.WriteString(`<h2 class="title is-5">Loads</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints</th><th>Where</th></tr></thead><tbody>`)
+	for _, l := range loads {
+		where := "not started"
+		if busy, step, _ := a.busyWith(l.Key()); busy {
+			where = "working: " + step
+		} else if run, waiting := a.where(r.Context(), l); run != nil {
+			where = string(run.Status)
+			if waiting != "" {
+				where = "waiting at " + waiting
+			}
+		}
+		prints, _, _ := l.Found()
+		fmt.Fprintf(&t, `<tr><td><a href="%s">Load %d</a></td><td>%s</td><td>%d</td><td>%s</td></tr>`,
+			loadURL(l.Key()), l.N, html.EscapeString(l.Description), len(prints), html.EscapeString(where))
+	}
+	t.WriteString(`</tbody></table>`)
+	c.HTML(t.String())
+	if b.Finished() {
+		c.HTML(`<div class="notification is-success">Finished: every load is through.</div>`)
+		return c.Buffer()
+	}
+	c.HTML(fmt.Sprintf(`<div class="buttons"><a class="button is-primary" href="batches/%s/loads/new">Scan another load</a> `+
+		`<form action="batches/%s/finish" method="post" style="display:inline"><button class="button" type="submit">Finish scanning</button></form></div>`,
+		html.EscapeString(b.ID), html.EscapeString(b.ID)))
+	return c.Buffer()
+}
 
-	prints, ids, err := b.Found()
+// loadPage is a load's details, where its workflow stands and what the
+// operator can do there.
+func (a *App) loadPage(r *http.Request, l *batch.Load) string {
+	c := lofigui.NewContext()
+	busy, waiting := a.state(r, c, l)
+	b := l.Sitting()
+	c.HTML(fmt.Sprintf(`<h1 class="title">Load %d of <a href="batches/%s">batch %s</a></h1>
+<p class="subtitle">%s</p>
+<table class="table"><tbody>
+<tr><th>Batch</th><td>%s</td></tr>
+<tr><th>Home</th><td>%s (%s)</td></tr>
+<tr><th>Provenance</th><td>%s</td></tr>
+<tr><th>Credit</th><td>%s</td></tr>
+<tr><th>Scanned at</th><td>%d ppi</td></tr>
+<tr><th>Started</th><td>%s</td></tr>
+</tbody></table>`, l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), html.EscapeString(b.Title),
+		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
+		b.ScanPPI, l.Created.Local().Format("2 Jan 2006 15:04")))
+
+	prints, ids, err := l.Found()
 	if err != nil {
 		c.HTML(`<p>No preview yet.</p>`)
 		return c.Buffer()
@@ -236,11 +308,11 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
-	c.HTML(fmt.Sprintf(`<figure><img src="batches/%s/prints.png" alt="The bed, with the prints found">
-<figcaption class="help">Preview, 150 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, html.EscapeString(b.ID)))
+	c.HTML(fmt.Sprintf(`<figure><img src="%s/prints.png" alt="The bed, with the prints found">
+<figcaption class="help">Preview, 150 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, loadURL(l.Key())))
 	if waiting == "confirm" && !busy {
 		for i, p := range prints {
-			c.HTML(regionEditor(b, i, p))
+			c.HTML(regionEditor(l, i, p))
 		}
 	}
 	return c.Buffer()
@@ -292,9 +364,10 @@ func (a *App) decode(id pid.ID, path string) (*master.Image, error) {
 func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master.Image) string {
 	c := lofigui.NewContext()
 	s := p.Front
+	key := fmt.Sprintf("%s/%d", p.Batch, p.Load)
 	c.HTML(fmt.Sprintf(`<h1 class="title">Photo %s</h1>
-<p class="subtitle">%s — <a href="batches/%s">batch %s</a></p>`,
-		id, html.EscapeString(p.Description), html.EscapeString(p.Batch), html.EscapeString(p.Batch)))
+<p class="subtitle">%s — <a href="batches/%s">batch %s</a>, <a href="%s">load %d</a></p>`,
+		id, html.EscapeString(p.Description), html.EscapeString(p.Batch), html.EscapeString(p.Batch), loadURL(key), p.Load))
 
 	fitW := min(img.W, FitWidth)
 	fitH := img.H * fitW / img.W
@@ -333,13 +406,13 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		corner, corner, float64(corner)*25.4/float64(s.MasterPPI)))
 	c.HTML(`</div><div class="column">`)
 
-	// while the batch waits at the quality check, the margins can be moved
-	if b, err := batch.Open(a.Staging, p.Batch); err == nil && a.running() != b.ID {
-		if _, waiting := a.where(r.Context(), b); waiting == "check quality" {
-			prints, ids, _ := b.Found()
+	// while the load waits at the quality check, the margins can be moved
+	if l, err := batch.OpenLoad(a.Staging, key); err == nil && a.running() != l.Key() {
+		if _, waiting := a.where(r.Context(), l); waiting == "check quality" {
+			prints, ids, _ := l.Found()
 			for i, pid := range ids {
 				if pid == id && i < len(prints) {
-					c.HTML(rescanEditor(b, i, prints[i]))
+					c.HTML(rescanEditor(l, i, prints[i]))
 				}
 			}
 		}
