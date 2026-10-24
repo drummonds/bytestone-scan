@@ -42,8 +42,8 @@ func TestPeopleAreListedByName(t *testing.T) {
 		t.Errorf("People() = %v, want %v", people, want)
 	}
 	// b does not parse, d has no name; both are left out, each named
-	if len(warnings) != 2 || !strings.Contains(warnings[0], "b.yaml") || !strings.Contains(warnings[1], "d.yaml") {
-		t.Errorf("warnings = %q, want one naming b.yaml, one d.yaml", warnings)
+	if len(warnings) != 2 || !strings.Contains(warnings[0], "0/0b") || !strings.Contains(warnings[1], "0/0d") {
+		t.Errorf("warnings = %q, want one naming 0/0b, one 0/0d", warnings)
 	}
 }
 

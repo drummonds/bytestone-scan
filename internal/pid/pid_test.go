@@ -33,3 +33,30 @@ func TestParseRejects(t *testing.T) {
 		}
 	}
 }
+
+func TestDir(t *testing.T) {
+	cases := []struct {
+		id  ID
+		dir string
+	}{
+		{0, "0/00"},
+		{1, "0/01"},
+		{1000, "0/z8"},
+		{1024, "1/01/00"},
+		{20000000000, "3/0j/m1/fj/00"},
+	}
+	for _, c := range cases {
+		if got := c.id.Dir(); got != c.dir {
+			t.Errorf("%d.Dir() = %q, want %q", c.id, got, c.dir)
+		}
+		id, err := ParseDir(c.dir)
+		if err != nil || id != c.id {
+			t.Errorf("ParseDir(%q) = %d, %v; want %d", c.dir, id, err, c.id)
+		}
+	}
+	for _, bad := range []string{"", "00", "0/0", "1/00", "0/00/00", "x/00", "0/0100"} {
+		if _, err := ParseDir(bad); err == nil {
+			t.Errorf("ParseDir(%q) accepted", bad)
+		}
+	}
+}
