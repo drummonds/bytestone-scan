@@ -354,11 +354,15 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
+	cut := ""
+	if l.Confirmed() {
+		cut = ", cut to the regions"
+	}
 	c.HTML(fmt.Sprintf(`<figure><img src="%s/prints.png" alt="The bed, with the prints found">
-<figcaption class="help">Preview, 150 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, scanURL(l.Key())))
+<figcaption class="help">Preview, 150 ppi%s, with the regions found: green as found, red to review.</figcaption></figure>`, scanURL(l.Key()), cut))
 	if _, err := os.Stat(filepath.Join(l.Dir(), "backs.png")); err == nil {
 		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="%s/backs.png" alt="The bed turned over, with the fronts' regions">
-<figcaption class="help">The backs, 150 ppi, with the fronts' regions: each back was scanned where its front lay.</figcaption></figure>`, scanURL(l.Key())))
+<figcaption class="help">The backs, 150 ppi%s, with the fronts' regions: each back was scanned where its front lay.</figcaption></figure>`, scanURL(l.Key()), cut))
 	}
 	if waiting == "confirm" && !busy {
 		for i, p := range prints {
@@ -426,6 +430,9 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 <input type="image" name="at" src="photos/%s/fit.jpg" width="%d" height="%d" alt="The master" style="max-width:100%%;height:auto">
 </form>
 <p class="help">Master, %d ppi, %d × %d px, shown scaled to fit. Click it to see master pixels at 1:1.</p>`, id, id, fitW, fitH, s.MasterPPI, img.W, img.H))
+	if p.Caption != "" {
+		c.HTML(fmt.Sprintf(`<p class="photo-caption title is-4 mt-3 mb-1">%s</p><p class="subtitle is-6">%s</p>`, html.EscapeString(p.Caption), html.EscapeString(p.Description)))
+	}
 	if ax, err := strconv.Atoi(r.URL.Query().Get("at.x")); err == nil {
 		ay, _ := strconv.Atoi(r.URL.Query().Get("at.y"))
 		mx, my := ax*img.W/fitW, ay*img.H/fitH
@@ -599,12 +606,13 @@ func (a *App) describeSection(id pid.ID, p batch.Photo) string {
 		backField = fmt.Sprintf(`<div class="field"><label class="label">What the back says</label><div class="control"><textarea class="textarea is-small" name="back" rows="3">%s</textarea></div></div>`, value("back"))
 	}
 	fmt.Fprintf(&b, `<form action="photos/%s/describe" method="post" class="box">
+<div class="field"><label class="label">Caption</label><div class="control"><input class="input is-small" name="caption" value="%s" placeholder="What the picture shows, in your own words"></div></div>
 <div class="field"><label class="label">Date taken</label><div class="control"><input class="input is-small" name="date" value="%s" placeholder="1952, 1952-07 or 1952-07-14"></div>
 <label class="checkbox"><input type="checkbox" name="approximate"%s> approximate</label></div>
 <div class="field"><label class="label">Photographer</label><div class="control"><input class="input is-small" name="photographer" value="%s"></div></div>
 %s<div class="field"><label class="label">Source</label><div class="control"><div class="select is-small"><select name="source">%s</select></div></div></div>
 <div class="buttons"><button class="button is-primary is-small" type="submit">Save</button> <button class="button is-small" type="submit" name="skip" value="1">Nothing known</button></div>
-</form>`, id, value("date taken"), approx, value("photographer"), backField, sources.String())
+</form>`, id, html.EscapeString(p.Caption), value("date taken"), approx, value("photographer"), backField, sources.String())
 	if p.Described != nil {
 		b.WriteString(`<p class="help">Described; can be changed until the photo is archived.</p>`)
 	}

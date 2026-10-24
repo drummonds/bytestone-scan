@@ -158,7 +158,7 @@ func (a *App) newBatch(msg string, e entered) string {
 // prefilled is a fresh form: provenance and credit are the latest
 // batch's, since a shoebox is many scans of the bed.
 func (a *App) prefilled() entered {
-	e := entered{ppi: 1200}
+	e := entered{ppi: 2400}
 	if latest, err := batch.Latest(a.Staging); err == nil && latest != nil {
 		e.provenance, e.credit = latest.Provenance, latest.Credit
 	}
@@ -322,9 +322,10 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			http.NotFound(w, r)
 			return
 		}
-		var d batch.PhotoDescription
+		// the caption is not a claim: "nothing known" keeps it
+		d := batch.PhotoDescription{Caption: r.FormValue("caption")}
 		if r.FormValue("skip") == "" {
-			d = batch.PhotoDescription{Date: r.FormValue("date"), Approximate: r.FormValue("approximate") != "",
+			d = batch.PhotoDescription{Caption: d.Caption, Date: r.FormValue("date"), Approximate: r.FormValue("approximate") != "",
 				Photographer: r.FormValue("photographer"), Back: r.FormValue("back"), Source: r.FormValue("source")}
 		}
 		if err := a.start(l, func() error { return l.DescribePhoto(id, d) }); err != nil {

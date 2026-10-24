@@ -491,3 +491,44 @@ func TestTheClosedNoticeCountsThePhotos(t *testing.T) {
 	act(t, a, h, "/batches/20261020-1/finish", nil)
 	page(t, h, "/batches/20261020-1", "Closed on", "1 photo held by the archive", "1 rejected as a duplicate", `href="photos/`+two.String()+`"`, "30 days")
 }
+
+// #67: a fresh batch form starts at 2400 ppi, the least noise, averaged
+// 4 × 4 down to the 600 ppi master; what the operator picked stays
+// picked when the form comes back with an error.
+func TestNewBatchStartsAt2400PPI(t *testing.T) {
+	h := live(t, &batchtest.Scanner{}).Handler()
+	page(t, h, "/batches/new", `<option value="2400" selected>`)
+	w := post(t, h, "/batches", url.Values{"title": {""}, "person": {"a"}, "ppi": {"1200"}, "credit": {"© Example"}})
+	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), `<option value="1200" selected>`) {
+		t.Errorf("form returned with an error: %d, 1200 ppi not kept:\n%s", w.Code, w.Body)
+	}
+}
+
+// #66: the describe form takes a caption first, what the picture shows;
+// the photo page shows it under the picture as its title, the scan's
+// description beneath. Blank means no caption and the page is as before.
+func TestACaptionTitlesThePhoto(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"War photos"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	body := get(t, h, "/photos/0").Body.String()
+	if c, d := strings.Index(body, `name="caption"`), strings.Index(body, `name="date"`); c < 0 || c > d {
+		t.Errorf("the caption field is not first on the form: caption at %d, date at %d", c, d)
+	}
+	if strings.Contains(body, "photo-caption") {
+		t.Error("a photo without a caption shows one")
+	}
+	act(t, a, h, "/photos/0/describe", url.Values{"caption": {"Air Raid Wardens"}, "skip": {"1"}})
+	body = get(t, h, "/photos/0").Body.String()
+	if c := strings.Index(body, `class="photo-caption`); c < 0 || strings.Index(body[c:], "Air Raid Wardens") < 0 || strings.Index(body[c:], "Air Raid Wardens") > strings.Index(body[c:], "War photos") {
+		t.Errorf("the caption is not shown as the title with the description beneath:\n%s", body)
+	}
+	page(t, h, "/photos/0", `value="Air Raid Wardens"`)
+	act(t, a, h, "/photos/0/describe", url.Values{"caption": {"  "}, "date": {"1952"}})
+	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "photo-caption") {
+		t.Error("a caption cleared to blank is still shown")
+	}
+}

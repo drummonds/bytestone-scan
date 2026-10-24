@@ -125,12 +125,14 @@ type Person struct {
 
 // Photo is an archived photo's photo.yaml: what is known of one print at
 // capture. Its provenance and credit are its batch's, its description its
-// scan's.
+// scan's; its caption, what the picture shows in the archivist's own
+// words, is its own, and not a claim.
 type Photo struct {
 	ID          pid.ID `yaml:"id"`
 	Batch       string `yaml:"batch"`
 	Scan        int    `yaml:"scan,omitempty"`
 	Description string `yaml:"description"`
+	Caption     string `yaml:"caption,omitempty"`
 	Home        Person `yaml:"home"`
 	Provenance  string `yaml:"provenance,omitempty"`
 	Credit      string `yaml:"credit"`
@@ -152,10 +154,12 @@ type Claim struct {
 	Read        string `yaml:"read"`   // transcribed: by a person
 }
 
-// PhotoDescription is what the operator says of a photo: the date taken
-// as an ISO 8601 prefix (1952, 1952-07, 1952-07-14), the photographer and
-// what the back says, all from Source. Every field may be blank.
+// PhotoDescription is what the operator says of a photo: its caption,
+// what the picture shows, then the claims: the date taken as an ISO 8601
+// prefix (1952, 1952-07, 1952-07-14), the photographer and what the back
+// says, all from Source. Every field may be blank.
 type PhotoDescription struct {
+	Caption      string
 	Date         string
 	Approximate  bool
 	Photographer string
@@ -686,11 +690,17 @@ func (b *Scan) Adjust(n int, e find.Edge, mm float64) error {
 	return writeYAML(b.path("prints.yaml"), f)
 }
 
+// Confirmed reports whether the operator has confirmed the prints found.
+func (b *Scan) Confirmed() bool {
+	_, err := os.Stat(b.path("confirmed"))
+	return err == nil
+}
+
 // editable reads the prints for an edit, refusing once they are confirmed
 // or when there is no print n.
 func (b *Scan) editable(n int) (found, error) {
 	var f found
-	if _, err := os.Stat(b.path("confirmed")); err == nil {
+	if b.Confirmed() {
 		return f, fmt.Errorf("scan %s: the prints are confirmed; go back to the prints to change them", b.Key())
 	}
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
@@ -814,7 +824,7 @@ func (b *Scan) DescribePhoto(id pid.ID, d PhotoDescription) error {
 		return fmt.Errorf("photo %s: %w", id, err)
 	}
 	now := time.Now().UTC()
-	photo.Claims, photo.Described = claims, &now
+	photo.Caption, photo.Claims, photo.Described = oneLine(d.Caption), claims, &now
 	return writeYAML(b.masterPath(id, "yaml"), photo)
 }
 
