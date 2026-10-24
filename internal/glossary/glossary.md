@@ -15,6 +15,7 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Region | Where a print lies on the bed, with a margin, found from the preview; square to the print, turned with it up to 10° |
 | Bounds | The rectangle square to the bed that covers a region: what the detail pass scans and the master covers |
 | Preview | The 150 ppi bed scan regions are found from |
+| Background | The lid or black card behind the prints on the preview, as a field: its level estimated per row and per column of the bed, so the lid's shading is background wherever it falls. A pixel over 14 levels from it on any channel is print; a speck under 1 mm is noise |
 | Detail pass | One pass of the scanner over every region in the scan: the fronts pass at the scan ppi, then, the prints turned over in place, the backs pass at 300 ppi over the same regions |
 | Scan ppi | The resolution of the fronts pass: 600, 1200 or 2400. Backs are scanned at 300 |
 | Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches |
