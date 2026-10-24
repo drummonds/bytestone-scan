@@ -28,18 +28,31 @@ type Print struct {
 // Scanner serves a bed with prints on the white lid.
 type Scanner struct {
 	Prints      []Print
+	Backs       []Print // what the bed shows turned to the back; the Prints again when empty
 	Previews    int
 	Details     int
 	FailDetails int   // fail this many detail passes first
 	CloseErr    error // the scan's stream fails as it closes, as scanimage exiting badly does
 	LastPPI     int   // the ppi of the last detail pass
+	side        string
+}
+
+// TurnTo turns the prints to show side, front or back, to the glass.
+func (f *Scanner) TurnTo(side string) { f.side = side }
+
+// shown is what lies on the bed: the backs when turned to them and given.
+func (f *Scanner) shown() []Print {
+	if f.side == "back" && f.Backs != nil {
+		return f.Backs
+	}
+	return f.Prints
 }
 
 func (f *Scanner) Name() string       { return "Fake Scanner" }
 func (f *Scanner) Settings() []string { return []string{"colour correction off"} }
 
 func (f *Scanner) valueAt(xmm, ymm float64) uint16 {
-	for _, p := range f.Prints {
+	for _, p := range f.shown() {
 		// into the print's frame, unturned about its centre
 		cx, cy := (p.X0+p.X1)/2, (p.Y0+p.Y1)/2
 		s, c := math.Sincos(p.Angle * math.Pi / 180)

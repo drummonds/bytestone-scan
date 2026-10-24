@@ -59,6 +59,23 @@ type Pass struct {
 // bounds within the bed, since the scanner scans only rectangles square
 // to the bed.
 func New(prints []find.Print, bed find.Rect, scanPPI int) (Pass, error) {
+	return pass(prints, bed, scanPPI, func(pr find.Print) (Master, error) { return MasterFor(pr.Print, scanPPI) })
+}
+
+// BackPPI is the resolution a back is scanned and kept at: the format
+// statement's level for the handwriting, stamps and backprint on it.
+const BackPPI = 300
+
+// Backs is the pass over the backs of prints turned over in place: each
+// back is scanned where its front's region lies, at BackPPI, and kept
+// unaveraged.
+func Backs(prints []find.Print, bed find.Rect) (Pass, error) {
+	return pass(prints, bed, BackPPI, func(find.Print) (Master, error) { return Master{PPI: BackPPI, Factor: 1}, nil })
+}
+
+// pass covers every print's region on the bed in one scan at scanPPI,
+// each print's master as masterFor says.
+func pass(prints []find.Print, bed find.Rect, scanPPI int, masterFor func(find.Print) (Master, error)) (Pass, error) {
 	if len(prints) == 0 {
 		return Pass{}, errors.New("no prints to scan")
 	}
@@ -69,7 +86,7 @@ func New(prints []find.Print, bed find.Rect, scanPPI int) (Pass, error) {
 	}
 	px := func(mm float64) int { return int(math.Round(mm / mmPerInch * float64(scanPPI))) }
 	for _, pr := range prints {
-		m, err := MasterFor(pr.Print, scanPPI)
+		m, err := masterFor(pr)
 		if err != nil {
 			return Pass{}, err
 		}

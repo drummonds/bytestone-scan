@@ -75,6 +75,20 @@ func (b *Load) Annotated() (image.Image, error) {
 	return annotate(img, prints, PreviewPPI), nil
 }
 
+// AnnotatedBacks is the backs preview with the fronts' regions drawn on
+// it: where each back was scanned.
+func (b *Load) AnnotatedBacks() (image.Image, error) {
+	img, err := readPNG(b.path("backs.png"))
+	if err != nil {
+		return nil, err
+	}
+	prints, _, err := b.Found()
+	if err != nil {
+		return nil, err
+	}
+	return annotate(img, prints, PreviewPPI), nil
+}
+
 // closeUpWidth is the width a close-up is enlarged towards, at most 4×.
 const closeUpWidth = 480
 

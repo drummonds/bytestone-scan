@@ -19,6 +19,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -54,6 +55,19 @@ type Scanner interface {
 	Name() string
 	// Settings are the fixed settings of every pass, as recorded with a master.
 	Settings() []string
+}
+
+// Turnable is a scanner that can be told which side of the prints the
+// operator has turned to the glass. The real scanner scans whatever lies
+// on the bed and has no need of it; the fakes serve that side.
+type Turnable interface {
+	TurnTo(side string)
+}
+
+func turnTo(s Scanner, side string) {
+	if t, ok := s.(Turnable); ok {
+		t.TurnTo(side)
+	}
 }
 
 // Description is what the operator says about a batch before scanning.
@@ -110,6 +124,15 @@ type Photo struct {
 	Provenance  string `yaml:"provenance,omitempty"`
 	Credit      string `yaml:"credit"`
 	Front       Side   `yaml:"front"`
+	Back        *Side  `yaml:"back,omitempty"` // once the backs are scanned
+}
+
+// side is the photo's front or back.
+func (p Photo) side(name string) Side {
+	if name == "back" && p.Back != nil {
+		return *p.Back
+	}
+	return p.Front
 }
 
 // Side is the capture of one side of a print.
@@ -362,13 +385,24 @@ func (l *Load) path(name string) string { return filepath.Join(l.Dir(), name) }
 // Sitting is the batch the load belongs to.
 func (l *Load) Sitting() *Batch { return l.batch }
 
-// done reports whether the load's workflow has completed.
+// done reports whether the load's workflow and every one of its photos'
+// have completed.
 func (l *Load) done(ctx context.Context, store wf.Store) (bool, error) {
 	run, err := store.FindRunByKey(ctx, LoadWorkflow, l.Key())
+	if err != nil || run == nil || run.Status != wf.StatusCompleted {
+		return false, err
+	}
+	_, ids, err := l.Found()
 	if err != nil {
 		return false, err
 	}
-	return run != nil && run.Status == wf.StatusCompleted, nil
+	for _, id := range ids {
+		pr, err := store.FindRunByKey(ctx, PhotoWorkflow, id.String())
+		if err != nil || pr == nil || pr.Status != wf.StatusCompleted {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // Confirm accepts the prints found on the preview.
@@ -460,7 +494,7 @@ func (b *Load) Remove(n int) error {
 // batch goes back to confirm, the edge moves, and the prints are confirmed
 // again, so the next tick rescans them. A move that cannot happen is
 // refused before anything is undone.
-func (b *Load) Reshape(ctx context.Context, runner *wf.Runner, n int, e find.Edge, mm float64) error {
+func (b *Load) Reshape(ctx context.Context, store wf.Store, n int, e find.Edge, mm float64) error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
@@ -471,7 +505,7 @@ func (b *Load) Reshape(ctx context.Context, runner *wf.Runner, n int, e find.Edg
 	if _, err := f.Prints[n].Region.Move(e, mm, f.Bed); err != nil {
 		return fmt.Errorf("print %d: %w", n+1, err)
 	}
-	if err := b.Redo(ctx, runner, "confirm", 0); err != nil {
+	if err := b.Redo(ctx, store, "confirm", 0); err != nil {
 		return err
 	}
 	if err := b.Adjust(n, e, mm); err != nil {
@@ -480,24 +514,48 @@ func (b *Load) Reshape(ctx context.Context, runner *wf.Runner, n int, e find.Edg
 	return b.Confirm()
 }
 
-// Accept passes the masters at the quality check.
+// Accept passes the masters at the quality check, once both sides are
+// scanned.
 func (b *Load) Accept() error {
 	if _, err := os.Stat(b.path("masters")); err != nil {
 		return fmt.Errorf("load %s: no masters to accept yet", b.Key())
 	}
+	if _, err := os.Stat(b.path("backs.png")); err != nil {
+		return fmt.Errorf("load %s: the backs are not scanned yet", b.Key())
+	}
 	return os.WriteFile(b.path("accepted"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
 
-// Redo sends the batch back to the step named from, which and every later
+// Turned records that the operator has turned the prints over in place,
+// once the fronts are scanned: the next tick scans the backs.
+func (b *Load) Turned() error {
+	if _, err := os.Stat(b.path("masters")); err != nil {
+		return fmt.Errorf("load %s: the fronts are not scanned yet", b.Key())
+	}
+	return os.WriteFile(b.path("turned"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+// Redo sends the load back to the step named from, which and every later
 // step run again on the next tick. A ppi other than 0 changes the batch's
 // scan ppi first. What the operator decided at the steps cleared is
-// cleared with them: the confirmation, the acceptance, and, when the
-// prints are found again, their photo ids.
-func (b *Load) Redo(ctx context.Context, runner *wf.Runner, from string, ppi int) error {
+// cleared with them: the confirmation, the turning over, the acceptance,
+// and, when the prints are found again, their photo ids. The load's
+// photos go back with it: to developing the front when the fronts are
+// scanned again, to awaiting the back when the backs are; a photo whose
+// prints are found again is orphaned, its run cancelled. Nothing is
+// redone once a photo is archived.
+func (b *Load) Redo(ctx context.Context, store wf.Store, from string, ppi int) error {
 	if ppi != 0 && ppi != 600 && ppi != 1200 && ppi != 2400 {
 		return fmt.Errorf("scan ppi %d, want 600, 1200 or 2400", ppi)
 	}
-	stages := b.Stages(nil, nil)
+	_, ids, _ := b.Found()
+	for _, id := range ids {
+		if archive.Complete(b.archive(), id) {
+			return fmt.Errorf("load %s: photo %s is archived and final; nothing before packaging can be redone", b.Key(), id)
+		}
+	}
+	runner := wf.NewRunner(store, nil)
+	stages := b.Stages(ctx, store, nil, nil)
 	if _, err := runner.Rewind(ctx, LoadWorkflow, b.Key(), from, stages); err != nil {
 		return err
 	}
@@ -506,6 +564,27 @@ func (b *Load) Redo(ctx context.Context, runner *wf.Runner, from string, ppi int
 		if st.Name == from {
 			for _, later := range stages[i:] {
 				cleared[later.Name] = true
+			}
+		}
+	}
+	// the photos' runs follow the load back
+	for _, id := range ids {
+		pr, err := store.FindRunByKey(ctx, PhotoWorkflow, id.String())
+		if err != nil || pr == nil {
+			continue
+		}
+		switch {
+		case cleared["find prints"]:
+			if err := store.CancelRun(ctx, pr.ID); err != nil {
+				return err
+			}
+		case cleared["fronts"]:
+			if _, err := runner.Rewind(ctx, PhotoWorkflow, id.String(), "develop front", b.photoStages(id, nil)); err != nil {
+				return err
+			}
+		case cleared["backs"]:
+			if _, err := runner.Rewind(ctx, PhotoWorkflow, id.String(), "awaiting back", b.photoStages(id, nil)); err != nil {
+				return err
 			}
 		}
 	}
@@ -527,25 +606,59 @@ func (b *Load) Redo(ctx context.Context, runner *wf.Runner, from string, ppi int
 			return err
 		}
 	}
-	for step, marker := range map[string]string{"confirm": "confirmed", "check quality": "accepted", "detail pass": "masters"} {
+	for step, markers := range map[string][]string{"confirm": {"confirmed"}, "check quality": {"accepted"}, "fronts": {"masters"}, "backs": {"turned", "backs.png"}} {
 		if cleared[step] {
-			if err := os.RemoveAll(b.path(marker)); err != nil {
-				return err
-			}
-		}
-	}
-	if cleared["develop"] {
-		// the master is about to change: this recipe's renditions of it go,
-		// an older recipe's stay on record
-		if _, ids, err := b.Found(); err == nil {
-			for _, id := range ids {
-				if err := os.RemoveAll(b.Renditions(id)); err != nil {
+			for _, m := range markers {
+				if err := os.RemoveAll(b.path(m)); err != nil {
 					return err
 				}
 			}
 		}
 	}
+	if cleared["backs"] && !cleared["fronts"] {
+		for _, id := range ids {
+			if err := os.Remove(b.masterPath(id, "back")); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			var photo Photo
+			if err := readYAML(b.masterPath(id, "yaml"), &photo); err == nil && photo.Back != nil {
+				photo.Back = nil
+				if err := writeYAML(b.masterPath(id, "yaml"), photo); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	// a master about to change takes this recipe's renditions of it with
+	// it; an older recipe's stay on record
+	for _, id := range ids {
+		switch {
+		case cleared["fronts"]:
+			if err := os.RemoveAll(b.Renditions(id)); err != nil {
+				return err
+			}
+		case cleared["backs"]:
+			if err := os.RemoveAll(filepath.Join(b.Renditions(id), "back")); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+// masterPath is where the load keeps one of a photo's files before it is
+// archived: its front ("front"), its back ("back") or its record ("yaml").
+func (b *Load) masterPath(id pid.ID, what string) string {
+	name := id.String()
+	switch what {
+	case "back":
+		name += ".back.tif"
+	case "yaml":
+		name += ".yaml"
+	default:
+		name += ".tif"
+	}
+	return filepath.Join(b.path("masters"), name)
 }
 
 // Run ticks the load's workflow once: it runs until it completes, fails
@@ -565,8 +678,10 @@ func (b *Load) Run(ctx context.Context, store wf.Store, s Scanner, now func() ti
 	if _, err := runner.StartChild(ctx, parent.ID, LoadWorkflow, b.Key(), date); err != nil {
 		return nil, err
 	}
-	stages := b.Stages(s, now)
-	if progress != nil {
+	watched := func(stages []wf.Stage) []wf.Stage {
+		if progress == nil {
+			return stages
+		}
 		for i := range stages {
 			name, run := stages[i].Name, stages[i].Run
 			if run == nil {
@@ -577,12 +692,67 @@ func (b *Load) Run(ctx context.Context, store wf.Store, s Scanner, now func() ti
 				return run(ctx)
 			}
 		}
+		return stages
 	}
-	return runner.RunPipeline(ctx, LoadWorkflow, b.Key(), date, stages)
+	rec, err := runner.RunPipeline(ctx, LoadWorkflow, b.Key(), date, watched(b.Stages(ctx, store, s, now)))
+	if err != nil {
+		return rec, err
+	}
+	// then each photo the load has started, as far as it can go
+	_, ids, _ := b.Found()
+	for _, id := range ids {
+		pr, err := store.FindRunByKey(ctx, PhotoWorkflow, id.String())
+		if err != nil || pr == nil {
+			continue
+		}
+		if _, err := runner.RunPipeline(ctx, PhotoWorkflow, id.String(), date, watched(b.photoStages(id, now))); err != nil {
+			return rec, err
+		}
+	}
+	return rec, nil
+}
+
+// photoStages are one photo's workflow steps: each side developed as it
+// comes, then archived once the load's masters are accepted.
+func (b *Load) photoStages(id pid.ID, now func() time.Time) []wf.Stage {
+	return []wf.Stage{
+		{Name: "develop front", Run: func(context.Context) error { return b.develop(id, "front") }},
+		{Name: "awaiting back", Until: func(context.Context) (bool, error) {
+			_, err := os.Stat(b.masterPath(id, "back"))
+			return err == nil, nil
+		}},
+		{Name: "develop back", Run: func(context.Context) error { return b.develop(id, "back") }},
+		{Name: "accepted", Until: func(context.Context) (bool, error) {
+			_, err := os.Stat(b.path("accepted"))
+			return err == nil, nil
+		}},
+		// An archived photo is never altered, so nothing before packaging can be redone after it.
+		{Name: "package", Run: func(context.Context) error { return b.pack(id, now) }, Final: true},
+	}
+}
+
+// startPhotos starts a photo workflow for each print, under the load's run.
+func (b *Load) startPhotos(ctx context.Context, store wf.Store) error {
+	_, ids, err := b.Found()
+	if err != nil {
+		return err
+	}
+	run, err := store.FindRunByKey(ctx, LoadWorkflow, b.Key())
+	if err != nil || run == nil {
+		return fmt.Errorf("load %s: no run to start its photos under: %v", b.Key(), err)
+	}
+	date := wf.NewBusinessDate(b.Created.Year(), b.Created.Month(), b.Created.Day())
+	runner := wf.NewRunner(store, nil)
+	for _, id := range ids {
+		if _, err := runner.StartChild(ctx, run.ID, PhotoWorkflow, id.String(), date); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Stages are the load's workflow steps, in order.
-func (b *Load) Stages(s Scanner, now func() time.Time) []wf.Stage {
+func (b *Load) Stages(ctx context.Context, store wf.Store, s Scanner, now func() time.Time) []wf.Stage {
 	return []wf.Stage{
 		{Name: "describe", Run: func(context.Context) error {
 			_, err := os.Stat(b.path("load.yaml"))
@@ -612,14 +782,25 @@ func (b *Load) Stages(s Scanner, now func() time.Time) []wf.Stage {
 			},
 			Run: b.reserveIDs,
 		},
-		{Name: "detail pass", Run: func(ctx context.Context) error { return b.detailPass(ctx, s, now) }},
-		{Name: "develop", Run: func(context.Context) error { return b.develop() }},
+		{Name: "fronts", Run: func(ctx context.Context) error {
+			turnTo(s, "front")
+			return b.detailPass(ctx, s, now)
+		}},
+		{Name: "photos", Run: func(context.Context) error { return b.startPhotos(ctx, store) }},
+		{Name: "backs",
+			Until: func(context.Context) (bool, error) {
+				_, err := os.Stat(b.path("turned"))
+				return err == nil, nil
+			},
+			Run: func(ctx context.Context) error {
+				turnTo(s, "back")
+				return b.backsPass(ctx, s, now)
+			},
+		},
 		{Name: "check quality", Until: func(context.Context) (bool, error) {
 			_, err := os.Stat(b.path("accepted"))
 			return err == nil, nil
 		}},
-		// An archived photo is never altered, so nothing before packaging can be redone after it.
-		{Name: "package", Run: func(context.Context) error { return b.pack(now) }, Final: true},
 	}
 }
 
@@ -661,8 +842,8 @@ func (b *Load) pass() (plan.Pass, found, error) {
 	return p, f, err
 }
 
-// detailPass scans every region once and writes each master, with its
-// photo.yaml, into the batch's masters directory.
+// detailPass scans every region once and writes each front's master, with
+// its photo.yaml, into the load's masters directory.
 func (b *Load) detailPass(ctx context.Context, s Scanner, now func() time.Time) error {
 	p, f, err := b.pass()
 	if err != nil {
@@ -696,17 +877,102 @@ func (b *Load) detailPass(ctx context.Context, s Scanner, now func() time.Time) 
 				Scanner: s.Name(), Settings: s.Settings(),
 			},
 		}
-		name := photo.ID.String()
-		if err := writeAtomic(filepath.Join(dir, name+".tif"), func(w io.Writer) error {
+		if err := writeAtomic(b.masterPath(photo.ID, "front"), func(w io.Writer) error {
 			return master.Encode(w, img, master.Options{PPI: m.PPI, XMP: xmp(photo, "front")})
 		}); err != nil {
 			return err
 		}
-		if err := writeYAML(filepath.Join(dir, name+".yaml"), photo); err != nil {
+		if err := writeYAML(b.masterPath(photo.ID, "yaml"), photo); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// backsPass scans the backs of the prints, turned over in place: a preview
+// to see where each back lies, then every front's region once more at
+// BackPPI, each back's master written beside its front's at 8 bits.
+func (b *Load) backsPass(ctx context.Context, s Scanner, now func() time.Time) error {
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return err
+	}
+	preview, err := s.Preview(ctx)
+	if err != nil {
+		return err
+	}
+	if err := writeAtomic(b.path("backs.png"), func(w io.Writer) error { return png.Encode(w, preview) }); err != nil {
+		return err
+	}
+	backs := find.Prints(preview, PreviewPPI)
+	p, err := plan.Backs(f.Prints, f.Bed)
+	if err != nil {
+		return err
+	}
+	captured := now().UTC()
+	rc, err := s.Detail(ctx, p.Area, p.ScanPPI)
+	if err != nil {
+		return err
+	}
+	imgs, err := detailpass.Read(rc, p.Regions)
+	if cerr := rc.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	for i, img := range imgs {
+		var photo Photo
+		if err := readYAML(b.masterPath(f.IDs[i], "yaml"), &photo); err != nil {
+			return err
+		}
+		side := backOf(f.Prints[i], backs, f.Bed)
+		side.Captured, side.ScanPPI, side.MasterPPI, side.Averaging = captured, p.ScanPPI, p.Masters[i].PPI, p.Masters[i].Factor
+		side.Scanner, side.Settings = s.Name(), s.Settings()
+		photo.Back = &side
+		if err := writeAtomic(b.masterPath(photo.ID, "back"), func(w io.Writer) error {
+			return master.Encode(w, img, master.Options{PPI: side.MasterPPI, Depth: 8, XMP: xmp(photo, "back")})
+		}); err != nil {
+			return err
+		}
+		if err := writeYAML(b.masterPath(photo.ID, "yaml"), photo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// backTolerance is how far a back's size may differ from its front's, in
+// mm, before it is flagged: a print turned over in place keeps its size.
+const backTolerance = 5.0
+
+// backOf is the side record of front's back: the print found on the
+// backs preview within the front's region, flagged when its size says it
+// is not the same print; or, none found, the front's own print mirrored
+// in its region, flagged for a look.
+func backOf(front find.Print, backs []find.Print, bed find.Rect) Side {
+	side := Side{Region: front.Region, Bounds: front.Region.On(bed)}
+	var best *find.Print
+	for i := range backs {
+		c := &backs[i]
+		if front.Region.Contains(c.Print.CX, c.Print.CY) && (best == nil || c.Print.W*c.Print.H > best.Print.W*best.Print.H) {
+			best = c
+		}
+	}
+	if best == nil {
+		m := front.Print
+		m.CX, m.Angle = 2*front.Region.CX-m.CX, -m.Angle
+		side.Print, side.Review = m, true
+		side.Warning = "no print found on the backs preview within the front's region: the back is taken to lie where the front did"
+		return side
+	}
+	side.Print, side.Skew, side.Fill = best.Print, best.Skew, best.Fill
+	if math.Abs(best.Print.W-front.Print.W) > backTolerance || math.Abs(best.Print.H-front.Print.H) > backTolerance {
+		side.Review = true
+		side.Warning = fmt.Sprintf("back %.0f × %.0f mm, front %.0f × %.0f mm: was the print turned over in place?",
+			best.Print.W, best.Print.H, front.Print.W, front.Print.H)
+	}
+	return side
 }
 
 // Renditions is where the photo id's renditions at the current recipe
@@ -715,60 +981,54 @@ func (b *Load) Renditions(id pid.ID) string {
 	return filepath.Join(b.root, "renditions", id.String(), strconv.Itoa(rendition.Version))
 }
 
-// develop makes each master's renditions at the current recipe, skipping
-// a photo already developed at it.
-func (b *Load) develop() error {
-	var f found
-	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+// renditionsOf is where one side's renditions at the current recipe are
+// kept: the front's in the photo's directory, the back's under it.
+func (b *Load) renditionsOf(id pid.ID, side string) string {
+	if side == "back" {
+		return filepath.Join(b.Renditions(id), "back")
+	}
+	return b.Renditions(id)
+}
+
+// develop makes one side's renditions at the current recipe, unless it is
+// developed at it already.
+func (b *Load) develop(id pid.ID, side string) error {
+	dir := b.renditionsOf(id, side)
+	if _, err := rendition.Load(dir); err == nil {
+		return nil
+	}
+	var photo Photo
+	if err := readYAML(b.masterPath(id, "yaml"), &photo); err != nil {
 		return err
 	}
-	for _, id := range f.IDs {
-		dir := b.Renditions(id)
-		if _, err := rendition.Load(dir); err == nil {
-			continue
-		}
-		var photo Photo
-		name := filepath.Join(b.path("masters"), id.String())
-		if err := readYAML(name+".yaml", &photo); err != nil {
-			return err
-		}
-		tif, err := os.ReadFile(name + ".tif")
-		if err != nil {
-			return err
-		}
-		img, err := master.Decode(bytes.NewReader(tif))
-		if err != nil {
-			return fmt.Errorf("photo %s: %w", id, err)
-		}
-		side := photo.Front
-		r, imgs := rendition.Develop(img, side.Print.InImage(side.Bounds, side.MasterPPI), side.MasterPPI)
-		sum := sha256.Sum256(tif)
-		r.Master = hex.EncodeToString(sum[:])
-		if err := rendition.Save(dir, r, imgs); err != nil {
-			return fmt.Errorf("photo %s: %w", id, err)
-		}
+	tif, err := os.ReadFile(b.masterPath(id, side))
+	if err != nil {
+		return err
+	}
+	img, err := master.Decode(bytes.NewReader(tif))
+	if err != nil {
+		return fmt.Errorf("photo %s %s: %w", id, side, err)
+	}
+	s := photo.side(side)
+	r, imgs := rendition.Develop(img, s.Print.InImage(s.Bounds, s.MasterPPI), s.MasterPPI)
+	sum := sha256.Sum256(tif)
+	r.Master = hex.EncodeToString(sum[:])
+	if err := rendition.Save(dir, r, imgs); err != nil {
+		return fmt.Errorf("photo %s %s: %w", id, side, err)
 	}
 	return nil
 }
 
-// pack archives each print's master and photo.yaml as a photo, skipping
-// photos already complete, then clears the batch's masters.
-func (b *Load) pack(now func() time.Time) error {
-	var f found
-	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
-		return err
-	}
-	dir := b.path("masters")
-	for _, id := range f.IDs {
-		if archive.Complete(b.archive(), id) {
-			continue
-		}
+// pack archives the photo's masters and photo.yaml, unless it is complete
+// already, then clears them from the load.
+func (b *Load) pack(id pid.ID, now func() time.Time) error {
+	if !archive.Complete(b.archive(), id) {
 		ph, err := archive.Create(b.archive(), id)
 		if err != nil {
 			return err
 		}
-		for _, file := range [][2]string{{id.String() + ".tif", "front.tif"}, {id.String() + ".yaml", "photo.yaml"}} {
-			if err := ph.Add(file[1], copyFrom(filepath.Join(dir, file[0]))); err != nil {
+		for _, file := range [][2]string{{"front", "front.tif"}, {"back", "back.tif"}, {"yaml", "photo.yaml"}} {
+			if err := ph.Add(file[1], copyFrom(b.masterPath(id, file[0]))); err != nil {
 				return err
 			}
 		}
@@ -776,7 +1036,12 @@ func (b *Load) pack(now func() time.Time) error {
 			return err
 		}
 	}
-	return os.RemoveAll(dir)
+	for _, what := range []string{"front", "back", "yaml"} {
+		if err := os.Remove(b.masterPath(id, what)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyFrom(path string) func(io.Writer) error {

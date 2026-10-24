@@ -72,7 +72,7 @@ func TestABatchIsASittingOfLoads(t *testing.T) {
 		if err := l.Confirm(); err != nil {
 			t.Fatal(err)
 		}
-		run(t, l, store, s)
+		scanned(t, l, store, s)
 		if err := l.Accept(); err != nil {
 			t.Fatal(err)
 		}

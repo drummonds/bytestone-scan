@@ -100,7 +100,7 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 </div></div>
 <div class="field"><label class="label">Scan at</label>
 <div class="control"><div class="select"><select name="ppi">%s</select></div></div>
-<p class="help">The detail pass scans at this ppi and is averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick.</p>
+<p class="help">The fronts are scanned at this ppi and averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick. The backs are scanned at 300 ppi.</p>
 <p class="help">600 ppi takes about 15 s for a 7 × 5 inch print, 1200 about 75 s, 2400 about 2½ minutes.</p></div>
 <button class="button is-primary" type="submit">Scan the preview</button>
 </form>
@@ -274,17 +274,20 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			http.Redirect(w, r, "/"+loadURL(l.Key()), http.StatusSeeOther)
 		})
 	}
-	runner := func() *wf.Runner { return wf.NewRunner(a.Store, nil) }
 	act("preview", func(r *http.Request, l *batch.Load) error {
-		return l.Redo(r.Context(), runner(), "preview", 0)
+		return l.Redo(r.Context(), a.Store, "preview", 0)
 	})
 	act("prints", func(r *http.Request, l *batch.Load) error {
-		return l.Redo(r.Context(), runner(), "confirm", 0)
+		return l.Redo(r.Context(), a.Store, "confirm", 0)
 	})
 	act("confirm", func(r *http.Request, l *batch.Load) error { return l.Confirm() })
 	act("rescan", func(r *http.Request, l *batch.Load) error {
 		ppi, _ := strconv.Atoi(r.FormValue("ppi"))
-		return l.Redo(r.Context(), runner(), "detail pass", ppi)
+		return l.Redo(r.Context(), a.Store, "fronts", ppi)
+	})
+	act("backs", func(r *http.Request, l *batch.Load) error { return l.Turned() })
+	act("rescan-backs", func(r *http.Request, l *batch.Load) error {
+		return l.Redo(r.Context(), a.Store, "backs", 0)
 	})
 	act("accept", func(r *http.Request, l *batch.Load) error { return l.Accept() })
 	act("retry", func(r *http.Request, l *batch.Load) error { return nil })
@@ -293,7 +296,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		if err != nil {
 			return err
 		}
-		return l.Reshape(r.Context(), runner(), n-1, edge, by)
+		return l.Reshape(r.Context(), a.Store, n-1, edge, by)
 	})
 
 	// Editing the regions needs no scanner, only that no step is running on
@@ -402,11 +405,15 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
 			button("confirm", "Confirm and scan", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
+	case waiting == "backs":
+		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then scan the backs.</div><div class="buttons">` +
+			button("backs", "Scan the backs", "is-primary") + button("prints", "Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
-		c.HTML(`<div class="notification is-warning">Check each photo's quality, then accept or send the load back.</div><div class="buttons">` +
+		c.HTML(`<div class="notification is-warning">Check each photo's quality, front and back, then accept or send the load back.</div><div class="buttons">` +
 			button("accept", "Accept and archive", "is-primary") +
 			fmt.Sprintf(`<form action="%s/rescan" method="post" style="display:inline"><div class="select"><select name="ppi">%s</select></div> <button class="button" type="submit">Rescan at</button></form> `,
 				loadURL(l.Key()), ppiOptions(l.Sitting().ScanPPI)) +
+			button("rescan-backs", "Rescan the backs", "") +
 			button("prints", "Back to the prints", "") + `</div>`)
 	default:
 		c.HTML(`<div class="notification">` + html.EscapeString(string(run.Status)) + `</div>` +
