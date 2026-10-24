@@ -16,6 +16,25 @@ func TestPersonInTheRegister(t *testing.T) {
 	}
 }
 
+// The register used to be flat, <id>.yaml under people/. A record still in
+// that form is read when the person has no directory; the directory wins
+// when both exist.
+func TestPersonInAFlatRecord(t *testing.T) {
+	r := Register{Dir: "testdata/people"}
+	for _, tc := range []struct {
+		id   pid.ID
+		want string
+	}{
+		{15, "Flat Example"}, // f.yaml only
+		{10, "Ada Example"},  // 0/0a/person.yaml over a.yaml
+	} {
+		name, err := r.Person(tc.id)
+		if err != nil || name != tc.want {
+			t.Errorf("Person(%s) = %q, %v, want %q", tc.id, name, err, tc.want)
+		}
+	}
+}
+
 func TestPersonRefusals(t *testing.T) {
 	r := Register{Dir: "testdata/people"}
 	for _, tc := range []struct {
@@ -37,7 +56,8 @@ func TestPeopleAreListedByName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Person{{14, "Aaron Example"}, {10, "Ada Example"}} // e, a
+	// e, a (its directory record wins over a.yaml), f (a flat record only)
+	want := []Person{{14, "Aaron Example"}, {10, "Ada Example"}, {15, "Flat Example"}}
 	if !reflect.DeepEqual(people, want) {
 		t.Errorf("People() = %v, want %v", people, want)
 	}
