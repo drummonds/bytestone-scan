@@ -18,7 +18,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 )
 
 func live(t *testing.T, s *batchtest.Scanner) *App {
@@ -27,7 +27,7 @@ func live(t *testing.T, s *batchtest.Scanner) *App {
 		Staging: t.TempDir(),
 		Store:   wf.NewMemStore(),
 		Scanner: s,
-		People:  register.Register{Dir: "testdata/people"},
+		People:  registertest.Example,
 		Now:     func() time.Time { return time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC) },
 	}
 }
@@ -180,15 +180,14 @@ func TestNewBatchSaysTheScanIsAveragedDownToTheMaster(t *testing.T) {
 }
 
 func TestNewBatchChoosesTheHomePersonByName(t *testing.T) {
-	h := live(t, &batchtest.Scanner{}).Handler()
+	a := live(t, &batchtest.Scanner{})
+	a.People = registertest.List{{ID: 11, Name: "Zak Example"}, {ID: 10, Name: "Ada Example"}}
+	h := a.Handler()
 	body := get(t, h, "/batches/new").Body.String()
 	ada := strings.Index(body, `<option value="a">Ada Example (a)</option>`)
 	zak := strings.Index(body, `<option value="b">Zak Example (b)</option>`)
 	if ada < 0 || zak < ada {
 		t.Errorf("want Ada (a) then Zak (b) offered as home person:\n%s", body)
-	}
-	if !strings.Contains(body, "0/0d") {
-		t.Error("the record with no name is not warned of")
 	}
 	if w := post(t, h, "/batches", url.Values{"description": {"x"}, "person": {""}, "ppi": {"600"}, "credit": {"© Example"}}); !strings.Contains(w.Body.String(), "choose the home person") {
 		t.Errorf("no person chosen: want it asked for:\n%s", w.Body)
@@ -222,9 +221,9 @@ func TestNewBatchIsPrefilledFromTheLatestBatch(t *testing.T) {
 
 func TestNewBatchWithNoPeopleIsRefused(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
-	a.People = register.Register{Dir: t.TempDir()}
+	a.People = registertest.List{}
 	w := get(t, a.Handler(), "/batches/new")
-	if body := w.Body.String(); !strings.Contains(body, a.People.Dir) || strings.Contains(body, "<form") {
+	if body := w.Body.String(); !strings.Contains(body, a.People.String()) || strings.Contains(body, "<form") {
 		t.Errorf("new batch with no people: want the register named and no form:\n%s", body)
 	}
 }

@@ -44,11 +44,11 @@ Bag is not a term: it is the format a Photo is kept in.
 
 ### New batch: home person
 
-| Register | Shown |
+| Register (read through the archive service, life-weaver#23) | Shown |
 |---|---|
 | people | one option each, `Name (id)`, sorted by name |
-| a record with no name | left out, with a warning naming its file |
-| no people | the form refused, naming the register directory |
+| no people | the form refused, naming the service |
+| the service not answering | the form refused, naming the service and how to start it |
 
 | Input | Result |
 |---|---|
