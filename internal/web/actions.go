@@ -158,7 +158,7 @@ func (a *App) newBatch(msg string, e entered) string {
 // prefilled is a fresh form: provenance and credit are the latest
 // batch's, since a shoebox is many scans of the bed.
 func (a *App) prefilled() entered {
-	e := entered{ppi: 1200}
+	e := entered{ppi: 2400}
 	if latest, err := batch.Latest(a.Staging); err == nil && latest != nil {
 		e.provenance, e.credit = latest.Provenance, latest.Credit
 	}
