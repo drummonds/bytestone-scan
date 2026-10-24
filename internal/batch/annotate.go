@@ -17,7 +17,7 @@ import (
 
 // annotate draws each print's region on the preview with its number:
 // green when it looks right, red when it needs review.
-func annotate(preview image.Image, prints []find.Print, ppi int) image.Image {
+func annotate(preview image.Image, prints []find.Print, ppi int) *image.RGBA {
 	out := image.NewRGBA(preview.Bounds())
 	draw.Draw(out, out.Bounds(), preview, preview.Bounds().Min, draw.Src)
 	mm := 25.4 / float64(ppi)
@@ -59,10 +59,34 @@ func line(img *image.RGBA, x0, y0, x1, y1 float64, col color.RGBA) {
 	}
 }
 
+// cutMM is the margin round the regions the preview is cut to once the
+// prints are confirmed (#64).
+const cutMM = 10.0
+
+// cut is the annotated preview as the scan page shows it: the whole bed
+// until the prints are confirmed, since the operator is judging what the
+// finder missed as much as what it found; from confirm on, the rectangle
+// that covers every region with cutMM round it, square to the bed, so the
+// page is not mostly blank bed. The stored preview is untouched.
+func (b *Scan) cut(img *image.RGBA, prints []find.Print) image.Image {
+	if !b.Confirmed() || len(prints) == 0 {
+		return img
+	}
+	cover := prints[0].Region.Bounds()
+	for _, p := range prints[1:] {
+		r := p.Region.Bounds()
+		cover = find.Rect{X0: min(cover.X0, r.X0), Y0: min(cover.Y0, r.Y0), X1: max(cover.X1, r.X1), Y1: max(cover.Y1, r.Y1)}
+	}
+	mm := 25.4 / float64(PreviewPPI)
+	px := func(v float64) int { return int(v / mm) }
+	return img.SubImage(image.Rect(px(cover.X0-cutMM), px(cover.Y0-cutMM), px(cover.X1+cutMM), px(cover.Y1+cutMM)).Intersect(img.Bounds()))
+}
+
 // Preview is the batch's preview of the bed.
 func (b *Scan) Preview() (image.Image, error) { return readPNG(b.path("preview.png")) }
 
-// Annotated is the preview with each print's region as it stands.
+// Annotated is the preview with each print's region as it stands, cut to
+// the regions once they are confirmed.
 func (b *Scan) Annotated() (image.Image, error) {
 	img, err := b.Preview()
 	if err != nil {
@@ -72,11 +96,11 @@ func (b *Scan) Annotated() (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	return annotate(img, prints, PreviewPPI), nil
+	return b.cut(annotate(img, prints, PreviewPPI), prints), nil
 }
 
 // AnnotatedBacks is the backs preview with the fronts' regions drawn on
-// it: where each back was scanned.
+// it: where each back was scanned; cut to the regions like the preview.
 func (b *Scan) AnnotatedBacks() (image.Image, error) {
 	img, err := readPNG(b.path("backs.png"))
 	if err != nil {
@@ -86,7 +110,7 @@ func (b *Scan) AnnotatedBacks() (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	return annotate(img, prints, PreviewPPI), nil
+	return b.cut(annotate(img, prints, PreviewPPI), prints), nil
 }
 
 // closeUpWidth is the width a close-up is enlarged towards, at most 4×.

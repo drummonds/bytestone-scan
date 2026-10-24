@@ -686,11 +686,17 @@ func (b *Scan) Adjust(n int, e find.Edge, mm float64) error {
 	return writeYAML(b.path("prints.yaml"), f)
 }
 
+// Confirmed reports whether the operator has confirmed the prints found.
+func (b *Scan) Confirmed() bool {
+	_, err := os.Stat(b.path("confirmed"))
+	return err == nil
+}
+
 // editable reads the prints for an edit, refusing once they are confirmed
 // or when there is no print n.
 func (b *Scan) editable(n int) (found, error) {
 	var f found
-	if _, err := os.Stat(b.path("confirmed")); err == nil {
+	if b.Confirmed() {
 		return f, fmt.Errorf("scan %s: the prints are confirmed; go back to the prints to change them", b.Key())
 	}
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
