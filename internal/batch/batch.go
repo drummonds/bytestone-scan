@@ -520,7 +520,7 @@ func (b *Load) Accept() error {
 	if _, err := os.Stat(b.path("masters")); err != nil {
 		return fmt.Errorf("load %s: no masters to accept yet", b.Key())
 	}
-	if _, err := os.Stat(b.path("backs.png")); err != nil {
+	if _, err := os.Stat(b.path("backs.png")); err != nil && !b.BacksSkipped() {
 		return fmt.Errorf("load %s: the backs are not scanned yet", b.Key())
 	}
 	return os.WriteFile(b.path("accepted"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
@@ -533,6 +533,22 @@ func (b *Load) Turned() error {
 		return fmt.Errorf("load %s: the fronts are not scanned yet", b.Key())
 	}
 	return os.WriteFile(b.path("turned"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+// NoBacks records that the prints have nothing on their backs, once the
+// fronts are scanned: the backs are skipped and each photo goes on
+// without one.
+func (b *Load) NoBacks() error {
+	if _, err := os.Stat(b.path("masters")); err != nil {
+		return fmt.Errorf("load %s: the fronts are not scanned yet", b.Key())
+	}
+	return os.WriteFile(b.path("no-backs"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+// BacksSkipped reports whether the operator said the backs are blank.
+func (b *Load) BacksSkipped() bool {
+	_, err := os.Stat(b.path("no-backs"))
+	return err == nil
 }
 
 // Redo sends the load back to the step named from, which and every later
@@ -606,7 +622,7 @@ func (b *Load) Redo(ctx context.Context, store wf.Store, from string, ppi int) e
 			return err
 		}
 	}
-	for step, markers := range map[string][]string{"confirm": {"confirmed"}, "check quality": {"accepted"}, "fronts": {"masters"}, "backs": {"turned", "backs.png"}} {
+	for step, markers := range map[string][]string{"confirm": {"confirmed"}, "check quality": {"accepted"}, "fronts": {"masters"}, "backs": {"turned", "no-backs", "backs.png"}} {
 		if cleared[step] {
 			for _, m := range markers {
 				if err := os.RemoveAll(b.path(m)); err != nil {
@@ -719,9 +735,14 @@ func (b *Load) photoStages(id pid.ID, now func() time.Time) []wf.Stage {
 		{Name: "develop front", Run: func(context.Context) error { return b.develop(id, "front") }},
 		{Name: "awaiting back", Until: func(context.Context) (bool, error) {
 			_, err := os.Stat(b.masterPath(id, "back"))
-			return err == nil, nil
+			return err == nil || b.BacksSkipped(), nil
 		}},
-		{Name: "develop back", Run: func(context.Context) error { return b.develop(id, "back") }},
+		{Name: "develop back", Run: func(context.Context) error {
+			if _, err := os.Stat(b.masterPath(id, "back")); err != nil && b.BacksSkipped() {
+				return nil
+			}
+			return b.develop(id, "back")
+		}},
 		{Name: "accepted", Until: func(context.Context) (bool, error) {
 			_, err := os.Stat(b.path("accepted"))
 			return err == nil, nil
@@ -790,9 +811,12 @@ func (b *Load) Stages(ctx context.Context, store wf.Store, s Scanner, now func()
 		{Name: "backs",
 			Until: func(context.Context) (bool, error) {
 				_, err := os.Stat(b.path("turned"))
-				return err == nil, nil
+				return err == nil || b.BacksSkipped(), nil
 			},
 			Run: func(ctx context.Context) error {
+				if b.BacksSkipped() {
+					return nil
+				}
 				turnTo(s, "back")
 				return b.backsPass(ctx, s, now)
 			},
@@ -1028,6 +1052,9 @@ func (b *Load) pack(id pid.ID, now func() time.Time) error {
 			return err
 		}
 		for _, file := range [][2]string{{"front", "front.tif"}, {"back", "back.tif"}, {"yaml", "photo.yaml"}} {
+			if _, err := os.Stat(b.masterPath(id, file[0])); err != nil && file[0] == "back" {
+				continue // a blank back was not scanned: its absence is the record
+			}
 			if err := ph.Add(file[1], copyFrom(b.masterPath(id, file[0]))); err != nil {
 				return err
 			}

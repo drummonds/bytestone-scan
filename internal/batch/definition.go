@@ -47,7 +47,7 @@ var Definitions = []wf.Definition{
 			{Name: "confirm", Description: "Waits for the operator to accept the prints, then reserves a photo id for each", Source: src},
 			{Name: "fronts", Description: "One scan over every print's front, averaged down to each master's ppi and written as 16-bit master TIFFs", Source: src},
 			{Name: "photos", Description: "A photo workflow is started for each print", Source: src, Child: PhotoWorkflow, Many: true},
-			{Name: "backs", Description: "Waits for the operator to turn the prints over in place, then previews the bed to see where each back lies and scans the fronts' regions once more at 300 ppi, 8 bits; a back whose size differs from its front's is flagged for review", Source: src},
+			{Name: "backs", Description: "Waits for the operator to turn the prints over in place, or to say the backs are blank; then previews the bed to see where each back lies and scans the fronts' regions once more at 300 ppi, 8 bits; a back whose size differs from its front's is flagged for review", Source: src},
 			{Name: "check quality", Description: "Waits for the operator to accept the masters, or to send the load back a step", Source: src},
 		},
 	},

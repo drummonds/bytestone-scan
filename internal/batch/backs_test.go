@@ -248,3 +248,57 @@ func TestRescanTheBacksOrTheFronts(t *testing.T) {
 		t.Errorf("orphaned photo run: %s, want cancelled", pr.Status)
 	}
 }
+
+// A load of prints with nothing on their backs skips the backs: the
+// photos go on without one, and the bag has no back.tif. The backs can
+// still be scanned after all.
+func TestBacksCanBeSkipped(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	scanner := twoSided()
+	b := describe(t, root)
+	if err := b.NoBacks(); err == nil {
+		t.Error("backs skipped before the fronts were scanned")
+	}
+	run(t, b, store, scanner)
+	b.Confirm()
+	run(t, b, store, scanner)
+	if err := b.NoBacks(); err != nil {
+		t.Fatal(err)
+	}
+	rec := run(t, b, store, scanner)
+	if steps := runnertest.Steps(t, store, rec.ID); steps["check quality"] != wf.StatusWaiting || steps["backs"] != wf.StatusCompleted || scanner.Details != 1 || scanner.Previews != 1 {
+		t.Fatalf("after skipping the backs: %v, %d passes, %d previews", steps, scanner.Details, scanner.Previews)
+	}
+	if _, err := os.Stat(b.path("backs.png")); err == nil {
+		t.Error("a backs preview without a backs pass")
+	}
+	var photo Photo
+	readYAML(filepath.Join(b.path("masters"), "0.yaml"), &photo)
+	if photo.Back != nil {
+		t.Errorf("photo has a back: %+v", photo.Back)
+	}
+	if pr := photoRun(t, store, 0); runnertest.Steps(t, store, pr.ID)["accepted"] != wf.StatusWaiting {
+		t.Errorf("photo not waiting to be accepted: %v", runnertest.Steps(t, store, pr.ID))
+	}
+	// the backs can be scanned after all
+	redo(t, b, store, "backs", 0)
+	if rec := run(t, b, store, scanner); runnertest.Steps(t, store, rec.ID)["backs"] != wf.StatusWaiting {
+		t.Fatal("not waiting for the prints to be turned after a redo of the backs")
+	}
+	b.NoBacks()
+	run(t, b, store, scanner)
+	b.Accept()
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
+		t.Fatalf("%s %s", rec.Status, rec.Error)
+	}
+	if pr := photoRun(t, store, 0); pr.Status != wf.StatusCompleted {
+		t.Errorf("photo: %s %s", pr.Status, pr.Error)
+	}
+	manifest, _ := os.ReadFile(filepath.Join(root, "archive", "0", "manifest-sha256.txt"))
+	if strings.Contains(string(manifest), "back.tif") || !strings.Contains(string(manifest), "data/front.tif") {
+		t.Errorf("manifest:\n%s", manifest)
+	}
+	if _, err := os.Stat(b.path("masters/0.yaml")); err == nil {
+		t.Error("photo's record left in the load after archiving")
+	}
+}
