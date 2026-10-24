@@ -34,13 +34,13 @@ func scanned(t *testing.T) (*App, *batch.Batch) {
 		{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 60000},
 	}}
 	clock := func() time.Time { return now }
-	if _, err := b.Run(context.Background(), runner, s, clock); err != nil {
+	if _, err := b.Run(context.Background(), runner, s, clock, nil); err != nil {
 		t.Fatal(err)
 	}
 	b.Confirm()
-	b.Run(context.Background(), runner, s, clock)
+	b.Run(context.Background(), runner, s, clock, nil)
 	b.Accept()
-	if rec, err := b.Run(context.Background(), runner, s, clock); err != nil || rec.Status != wf.StatusCompleted {
+	if rec, err := b.Run(context.Background(), runner, s, clock, nil); err != nil || rec.Status != wf.StatusCompleted {
 		t.Fatalf("batch: %+v, %v", rec, err)
 	}
 	return &App{Staging: root, Store: store}, b

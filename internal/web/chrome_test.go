@@ -41,7 +41,7 @@ func TestAboutHasTheGlossary(t *testing.T) {
 }
 
 func TestTheNavbarSaysWhenTheScannerIsBusy(t *testing.T) {
-	sc := slow{&batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}, make(chan struct{})}
+	sc := hold(&batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}})
 	a := live(t, sc.Scanner)
 	a.Scanner = sc
 	h := a.Handler()
