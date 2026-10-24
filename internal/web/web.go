@@ -24,11 +24,12 @@ import (
 	"git.bytestone.uk/hum3/gobank-workflow/view"
 	"git.bytestone.uk/hum3/lofigui"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/quality"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
@@ -43,7 +44,7 @@ type App struct {
 	Staging string
 	Store   wf.Store
 	Scanner batch.Scanner
-	People  register.Register
+	Archive archive.Service
 	Now     func() time.Time
 
 	mu     sync.Mutex // the last master decoded, since a page and its images all want it
@@ -150,6 +151,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /batches/{id}/loads/{n}/prints.png", func(w http.ResponseWriter, r *http.Request) {
 		servePNG(w, r, (*batch.Load).Annotated)
 	})
+	mux.HandleFunc("GET /batches/{id}/loads/{n}/backs.png", func(w http.ResponseWriter, r *http.Request) {
+		servePNG(w, r, (*batch.Load).AnnotatedBacks)
+	})
 	mux.HandleFunc("GET /batches/{id}/loads/{n}/regions/{print}", func(w http.ResponseWriter, r *http.Request) {
 		p, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("print"), ".png"))
 		if err != nil {
@@ -184,8 +188,9 @@ func (a *App) Handler() http.Handler {
 			png.Encode(w, quality.Crop(img, image.Pt(x, y), min(max(size, 32), 1024)))
 		}
 	})
-	// a photo's renditions: one directory per recipe version, served as files
-	mux.HandleFunc("GET /photos/{id}/renditions/{version}/{file}", func(w http.ResponseWriter, r *http.Request) {
+	// a photo's renditions: one directory per recipe version, the back's
+	// under it, served as files
+	renditionFile := func(w http.ResponseWriter, r *http.Request, side string) {
 		id, err := pid.Parse(r.PathValue("id"))
 		version, verr := strconv.Atoi(r.PathValue("version"))
 		file := r.PathValue("file")
@@ -194,7 +199,13 @@ func (a *App) Handler() http.Handler {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store") // remade when the master is
-		http.ServeFile(w, r, filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(version), file))
+		http.ServeFile(w, r, filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(version), side, file))
+	}
+	mux.HandleFunc("GET /photos/{id}/renditions/{version}/{file}", func(w http.ResponseWriter, r *http.Request) {
+		renditionFile(w, r, "")
+	})
+	mux.HandleFunc("GET /photos/{id}/renditions/{version}/back/{file}", func(w http.ResponseWriter, r *http.Request) {
+		renditionFile(w, r, "back")
 	})
 	mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) { render(w, "About", a.about()) })
 	a.actions(mux, render)
@@ -210,6 +221,9 @@ func (a *App) batchLink(_ *http.Request, run wf.RunRecord, _ []wf.StepResult, _ 
 	case batch.LoadWorkflow:
 		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="%s">Load %s: prints and photos</a></p>`,
 			loadURL(run.Key), html.EscapeString(run.Key)))
+	case batch.PhotoWorkflow:
+		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="photos/%s">Photo %s</a></p>`,
+			html.EscapeString(run.Key), html.EscapeString(run.Key)))
 	}
 	return ""
 }
@@ -258,6 +272,15 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
+	if at, ok := b.Purged(); ok {
+		c.HTML(fmt.Sprintf(`<div class="notification">Purged on %s: the work files of this batch are gone; its photos are held by the archive.</div>`, at.Local().Format("2 Jan 2006")))
+		return c.Buffer()
+	}
+	if at, ok := b.Closed(); ok {
+		c.HTML(fmt.Sprintf(`<div class="notification is-success">Closed on %s: every load is through and every photo is held by the archive, or rejected by it. The work files are purged %d days after closing, or sooner when staging is short of space.</div>`,
+			at.Local().Format("2 Jan 2006"), int(batch.DefaultGrace.Hours()/24)))
+		return c.Buffer()
+	}
 	if b.Finished() {
 		c.HTML(`<div class="notification is-success">Finished: every load is through.</div>`)
 		return c.Buffer()
@@ -293,23 +316,35 @@ func (a *App) loadPage(r *http.Request, l *batch.Load) string {
 		return c.Buffer()
 	}
 	var t strings.Builder
-	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Photo</th></tr></thead><tbody>`)
+	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Photo</th><th>Back</th></tr></thead><tbody>`)
 	for i, p := range prints {
-		photo := "—"
+		photo, back := "—", "—"
 		if i < len(ids) {
 			photo = fmt.Sprintf(`<a href="photos/%s">%s</a>`, ids[i], ids[i])
+			if rec, _, err := batch.FindPhoto(a.Staging, ids[i]); err == nil && rec.Back != nil {
+				back = fmt.Sprintf("%.0f × %.0f mm", rec.Back.Print.W, rec.Back.Print.H)
+				if rec.Back.Review {
+					back = `<span class="tag is-danger">review</span> ` + html.EscapeString(rec.Back.Warning)
+				}
+			} else if l.BacksSkipped() {
+				back = "none"
+			}
 		}
 		review := ""
 		if p.Review {
 			review = ` <span class="tag is-danger">review</span>`
 		}
-		fmt.Fprintf(&t, `<tr><td>%d%s</td><td>%.0f × %.0f mm</td><td>%.0f, %.0f mm</td><td>%.1f°</td><td>%.3f</td><td>%s</td></tr>`,
-			i+1, review, p.Print.W, p.Print.H, p.Print.Bounds().X0, p.Print.Bounds().Y0, p.Skew, p.Fill, photo)
+		fmt.Fprintf(&t, `<tr><td>%d%s</td><td>%.0f × %.0f mm</td><td>%.0f, %.0f mm</td><td>%.1f°</td><td>%.3f</td><td>%s</td><td>%s</td></tr>`,
+			i+1, review, p.Print.W, p.Print.H, p.Print.Bounds().X0, p.Print.Bounds().Y0, p.Skew, p.Fill, photo, back)
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
 	c.HTML(fmt.Sprintf(`<figure><img src="%s/prints.png" alt="The bed, with the prints found">
 <figcaption class="help">Preview, 150 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, loadURL(l.Key())))
+	if _, err := os.Stat(filepath.Join(l.Dir(), "backs.png")); err == nil {
+		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="%s/backs.png" alt="The bed turned over, with the fronts' regions">
+<figcaption class="help">The backs, 150 ppi, with the fronts' regions: each back was scanned where its front lay.</figcaption></figure>`, loadURL(l.Key())))
+	}
 	if waiting == "confirm" && !busy {
 		for i, p := range prints {
 			c.HTML(regionEditor(l, i, p))
@@ -393,6 +428,19 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 			c.HTML(`<p class="has-text-danger">` + html.EscapeString(f) + `</p>`)
 		}
 	}
+	// the back, once scanned: its rendition and what the backs preview said
+	if p.Back != nil {
+		c.HTML(`<h2 class="title is-5 mt-5">Back</h2>`)
+		if rec, err := rendition.Load(filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(rendition.Version), "back")); err == nil {
+			c.HTML(fmt.Sprintf(`<figure><img src="photos/%s/renditions/%d/back/display.jpg" alt="The back" style="max-width:100%%;height:auto">
+<figcaption class="help">Back, %d ppi, 8 bits, rendition recipe %d, %d × %d px.</figcaption></figure>`,
+				id, rec.Version, p.Back.MasterPPI, rec.Version, rec.Display.W, rec.Display.H))
+		}
+		c.HTML(fmt.Sprintf(`<p class="help">Back %.1f × %.1f mm, scanned where the front lay.</p>`, p.Back.Print.W, p.Back.Print.H))
+		if p.Back.Warning != "" {
+			c.HTML(`<p class="has-text-danger">` + html.EscapeString(p.Back.Warning) + `</p>`)
+		}
+	}
 
 	// the master's corners show its edges at full resolution: whether the
 	// print is cut, or the margin too generous
@@ -455,9 +503,97 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	for _, row := range rows {
 		fmt.Fprintf(&t, "<tr><th>%s</th><td>%s</td></tr>", row[0], row[1])
 	}
-	t.WriteString(`</tbody></table></div></div>`)
+	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
+	c.HTML(a.describeSection(id, p))
+	c.HTML(a.archiveSection(id))
+	c.HTML(`</div></div>`)
 	return c.Buffer()
+}
+
+// archiveSection is where the photo stands with the archive.
+func (a *App) archiveSection(id pid.ID) string {
+	d, err := batch.DepositOf(a.Staging, id)
+	switch {
+	case err != nil:
+		return `<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">` + html.EscapeString(err.Error()) + `</p>`
+	case d == nil:
+		return `<h2 class="title is-6 mt-4">Archive</h2><p class="help">Not yet deposited.</p>`
+	case d.Status == "duplicate":
+		return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Rejected by the archive: %s is a duplicate of item <code>%s</code> (home %s). The photo ends here; its bag stays in staging.</p>`,
+			html.EscapeString(d.File), d.DuplicateOf, d.Home)
+	}
+	return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p>Held by the archive since %s: item <code>%s</code>, home %s, %d files, checksums matching.</p>`,
+		d.At.Local().Format("2 Jan 2006 15:04"), id, d.Home, len(d.Payload))
+}
+
+// describeSection is what is known of the photo: a form until it is
+// archived, then the record.
+func (a *App) describeSection(id pid.ID, p batch.Photo) string {
+	claim := func(kind string) *batch.Claim {
+		for i := range p.Claims {
+			if p.Claims[i].Kind == kind {
+				return &p.Claims[i]
+			}
+		}
+		return nil
+	}
+	value := func(kind string) string {
+		if c := claim(kind); c != nil {
+			return html.EscapeString(c.Value)
+		}
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<h2 class="title is-6 mt-4">What is known</h2>`)
+	if bag.Complete(filepath.Join(a.Staging, "bags"), id) {
+		if len(p.Claims) == 0 {
+			b.WriteString(`<p class="help">Nothing known when the photo was described.</p>`)
+		}
+		b.WriteString(`<table class="table is-narrow"><tbody>`)
+		for _, c := range p.Claims {
+			note := ""
+			if c.Approximate {
+				note = " (approximate)"
+			}
+			fmt.Fprintf(&b, `<tr><th>%s</th><td>%s%s</td><td class="has-text-grey">%s, %s</td></tr>`,
+				html.EscapeString(c.Kind), html.EscapeString(c.Value), note, html.EscapeString(c.Source), html.EscapeString(c.Read))
+		}
+		b.WriteString(`</tbody></table>`)
+		return b.String()
+	}
+	approx, source := "", "back"
+	if c := claim("date taken"); c != nil && c.Approximate {
+		approx = " checked"
+	}
+	if len(p.Claims) > 0 {
+		source = p.Claims[0].Source
+	} else if p.Back == nil {
+		source = "family"
+	}
+	var sources strings.Builder
+	for _, s := range []string{"back", "front", "family"} {
+		sel := ""
+		if s == source {
+			sel = " selected"
+		}
+		sources.WriteString(fmt.Sprintf(`<option value="%s"%s>%s</option>`, s, sel, map[string]string{"back": "the back of the print", "front": "the front of the print", "family": "a relative's word"}[s]))
+	}
+	backField := ""
+	if p.Back != nil {
+		backField = fmt.Sprintf(`<div class="field"><label class="label">What the back says</label><div class="control"><textarea class="textarea is-small" name="back" rows="3">%s</textarea></div></div>`, value("back"))
+	}
+	fmt.Fprintf(&b, `<form action="photos/%s/describe" method="post" class="box">
+<div class="field"><label class="label">Date taken</label><div class="control"><input class="input is-small" name="date" value="%s" placeholder="1952, 1952-07 or 1952-07-14"></div>
+<label class="checkbox"><input type="checkbox" name="approximate"%s> approximate</label></div>
+<div class="field"><label class="label">Photographer</label><div class="control"><input class="input is-small" name="photographer" value="%s"></div></div>
+%s<div class="field"><label class="label">Source</label><div class="control"><div class="select is-small"><select name="source">%s</select></div></div></div>
+<div class="buttons"><button class="button is-primary is-small" type="submit">Save</button> <button class="button is-small" type="submit" name="skip" value="1">Nothing known</button></div>
+</form>`, id, value("date taken"), approx, value("photographer"), backField, sources.String())
+	if p.Described != nil {
+		b.WriteString(`<p class="help">Described; can be changed until the photo is archived.</p>`)
+	}
+	return b.String()
 }
 
 // orUnknown shows a provenance, or that none was known.

@@ -19,24 +19,33 @@ import (
 	"golang.org/x/image/tiff"
 	"gopkg.in/yaml.v3"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
-
-var reg = registertest.Example
 
 var now = time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
 
 func clock() time.Time { return now }
 
+// archives are the stand-in archive services the tests' batches are
+// described against and deposited to: one per staging root, as in life.
+var archives = map[string]*archivetest.Fake{}
+
+func service(root string) *archivetest.Fake {
+	if archives[root] == nil {
+		archives[root] = archivetest.Example()
+	}
+	return archives[root]
+}
+
 // sitting describes a batch under root.
 func sitting(t *testing.T, root string) *Batch {
 	t.Helper()
-	b, err := Describe(root, reg, Description{Text: "SS Bonita and crew", Person: 10, ScanPPI: 600,
+	b, err := Describe(root, service(root), Description{Text: "SS Bonita and crew", Person: 10, ScanPPI: 600,
 		Provenance: "  Aunt Jean's shoebox,\n envelope marked 1950s ", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +65,7 @@ func describe(t *testing.T, root string) *Load {
 
 func run(t *testing.T, b *Load, store wf.Store, s Scanner) *wf.RunRecord {
 	t.Helper()
-	rec, err := b.Run(context.Background(), store, s, clock, nil)
+	rec, err := b.Run(context.Background(), Env{Store: store, Scanner: s, Archive: service(b.root), Now: clock}, nil)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -79,7 +88,7 @@ func TestDescribe(t *testing.T) {
 	}
 	for _, tc := range cases {
 		root := t.TempDir()
-		b, err := Describe(root, reg, tc.d, now)
+		b, err := Describe(root, service(root), tc.d, now)
 		if tc.want == "" {
 			if err != nil {
 				t.Errorf("%s: %v", tc.name, err)
@@ -102,7 +111,7 @@ func TestDescribe(t *testing.T) {
 // batch is where the next one's provenance and credit come from.
 func TestProvenanceIsOptional(t *testing.T) {
 	root := t.TempDir()
-	b, err := Describe(root, reg, Description{Text: "loose", Person: 10, ScanPPI: 600, Credit: "© Example"}, now)
+	b, err := Describe(root, service(root), Description{Text: "loose", Person: 10, ScanPPI: 600, Credit: "© Example"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +126,8 @@ func TestLatestBatch(t *testing.T) {
 	if b, err := Latest(root); b != nil || err != nil {
 		t.Fatalf("no batches: %v, %v, want nil, nil", b, err)
 	}
-	first, _ := Describe(root, reg, Description{Text: "first", Person: 10, ScanPPI: 600, Credit: "© One"}, now)
-	later, _ := Describe(root, reg, Description{Text: "later", Person: 10, ScanPPI: 600, Provenance: "box 2", Credit: "© Two"}, now.Add(time.Hour))
+	first, _ := Describe(root, service(root), Description{Text: "first", Person: 10, ScanPPI: 600, Credit: "© One"}, now)
+	later, _ := Describe(root, service(root), Description{Text: "later", Person: 10, ScanPPI: 600, Provenance: "box 2", Credit: "© Two"}, now.Add(time.Hour))
 	if first == nil || later == nil {
 		t.Fatal("describe failed")
 	}
@@ -161,9 +170,8 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 	if err := b.Confirm(); err != nil {
 		t.Fatal(err)
 	}
-	if rec = run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
-		t.Fatalf("after confirm: %s, want waiting for the quality check", rec.Status)
-	}
+	scanned(t, b, store, scanner)
+	rec, _ = store.FindRunByKey(context.Background(), LoadWorkflow, b.Key())
 	// Story 003: each master is developed before the quality check
 	for i := range scanner.Prints {
 		id := pid.ID(i)
@@ -180,6 +188,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 			t.Error(err)
 		}
 	}
+	described(t, b)
 	if err := b.Accept(); err != nil {
 		t.Fatal(err)
 	}
@@ -188,16 +197,24 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		t.Fatalf("after accept: %s, want completed", rec.Status)
 	}
 	steps := runnertest.Steps(t, store, rec.ID)
-	for _, name := range []string{"describe", "preview", "find prints", "confirm", "detail pass", "develop", "check quality", "package"} {
+	for _, name := range []string{"describe", "preview", "find prints", "confirm", "fronts", "photos", "backs", "check quality"} {
 		if steps[name] != wf.StatusCompleted {
 			t.Errorf("step %s: %s", name, steps[name])
 		}
 	}
+	for i := range scanner.Prints {
+		steps := runnertest.Steps(t, store, photoRun(t, store, pid.ID(i)).ID)
+		for _, name := range []string{"develop front", "awaiting back", "develop back", "accepted", "describe", "package", "deposit", "receipt"} {
+			if steps[name] != wf.StatusCompleted {
+				t.Errorf("photo %d step %s: %s", i, name, steps[name])
+			}
+		}
+	}
 
-	arc := filepath.Join(root, "archive")
+	arc := filepath.Join(root, "bags")
 	for i, p := range scanner.Prints {
 		id := pid.ID(i)
-		if !archive.Complete(arc, id) {
+		if !bag.Complete(arc, id) {
 			t.Fatalf("photo %s not complete", id)
 		}
 		f, err := os.Open(filepath.Join(arc, id.String(), "data", "front.tif"))
@@ -256,21 +273,20 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	run(t, b, store, scanner)
 	b.Confirm()
 
-	if _, err := b.Run(context.Background(), store, scanner, clock, nil); err == nil || !strings.Contains(err.Error(), "USB") {
+	if _, err := b.Run(context.Background(), Env{Store: store, Scanner: scanner, Archive: service(root), Now: clock}, nil); err == nil || !strings.Contains(err.Error(), "USB") {
 		t.Fatalf("failed detail pass: error %v", err)
 	}
-	if archive.Complete(filepath.Join(root, "archive"), 0) {
+	if bag.Complete(filepath.Join(root, "bags"), 0) {
 		t.Error("photo archived after a failed detail pass")
 	}
-	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
-		t.Fatalf("retry: %s, want waiting for the quality check", rec.Status)
-	}
+	scanned(t, b, store, scanner)
+	described(t, b)
 	b.Accept()
 	run(t, b, store, scanner)
-	if scanner.Previews != 1 || scanner.Details != 2 {
-		t.Errorf("previews %d, details %d; want 1 and 2", scanner.Previews, scanner.Details)
+	if scanner.Previews != 2 || scanner.Details != 3 {
+		t.Errorf("previews %d, details %d; want 2 and 3", scanner.Previews, scanner.Details)
 	}
-	if !archive.Complete(filepath.Join(root, "archive"), 0) {
+	if !bag.Complete(filepath.Join(root, "bags"), 0) {
 		t.Error("photo not archived after the retry")
 	}
 }
@@ -282,10 +298,10 @@ func TestScannerExitingBadlyFailsTheDetailPass(t *testing.T) {
 	b := describe(t, root)
 	run(t, b, store, scanner)
 	b.Confirm()
-	if _, err := b.Run(context.Background(), store, scanner, clock, nil); err == nil || !strings.Contains(err.Error(), "exit status 9") {
+	if _, err := b.Run(context.Background(), Env{Store: store, Scanner: scanner, Archive: service(root), Now: clock}, nil); err == nil || !strings.Contains(err.Error(), "exit status 9") {
 		t.Errorf("error %v, want the scanner's", err)
 	}
-	if archive.Complete(filepath.Join(root, "archive"), 0) {
+	if bag.Complete(filepath.Join(root, "bags"), 0) {
 		t.Error("photo archived from a scan that failed")
 	}
 }
@@ -312,7 +328,8 @@ func TestEveryStepHasADefinition(t *testing.T) {
 		stages []wf.Stage
 	}{
 		{Workflow, b.Stages(context.Background(), nil)},
-		{LoadWorkflow, (&Load{batch: b}).Stages(nil, clock)},
+		{LoadWorkflow, (&Load{batch: b}).Stages(context.Background(), Env{})},
+		{PhotoWorkflow, (&Load{batch: b}).photoStages(0, Env{})},
 	} {
 		var def *wf.Definition
 		for i := range Definitions {
@@ -345,13 +362,14 @@ func TestFindPhoto(t *testing.T) {
 	b := describe(t, root)
 	run(t, b, store, scanner)
 	b.Confirm()
-	run(t, b, store, scanner)
+	scanned(t, b, store, scanner)
 
-	// before packaging, the master is in the batch
+	// before packaging, the master is in the load
 	photo, path, err := FindPhoto(root, 0)
 	if err != nil || photo.ID != 0 || filepath.Base(path) != "0.tif" {
 		t.Errorf("before packaging, FindPhoto(0) = %+v, %q, %v", photo, path, err)
 	}
+	described(t, b)
 	b.Accept()
 	run(t, b, store, scanner)
 
@@ -367,7 +385,8 @@ func TestFindPhoto(t *testing.T) {
 	}
 }
 
-// prepared is a batch whose detail pass is done, waiting for the quality check.
+// prepared is a load whose fronts and backs are scanned, waiting for the
+// quality check.
 func prepared(t *testing.T, scanner *batchtest.Scanner) (string, *Load, wf.Store) {
 	t.Helper()
 	root := t.TempDir()
@@ -377,22 +396,47 @@ func prepared(t *testing.T, scanner *batchtest.Scanner) (string, *Load, wf.Store
 	if err := b.Confirm(); err != nil {
 		t.Fatal(err)
 	}
+	scanned(t, b, store, scanner)
+	return root, b, store
+}
+
+// scanned takes a confirmed load through its fronts and backs to the
+// quality check.
+func scanned(t *testing.T, b *Load, store wf.Store, scanner Scanner) {
+	t.Helper()
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
+		t.Fatalf("%s, want waiting for the prints to be turned", rec.Status)
+	}
+	if err := b.Turned(); err != nil {
+		t.Fatal(err)
+	}
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
 		t.Fatalf("%s, want waiting for the quality check", rec.Status)
 	}
-	return root, b, store
+}
+
+// described says nothing is known of each of the load's photos, so that
+// they can be archived once accepted.
+func described(t *testing.T, b *Load) {
+	t.Helper()
+	_, ids, _ := b.Found()
+	for _, id := range ids {
+		if err := b.DescribePhoto(id, PhotoDescription{}); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func redo(t *testing.T, b *Load, store wf.Store, from string, ppi int) {
 	t.Helper()
-	if err := b.Redo(context.Background(), wf.NewRunner(store, nil), from, ppi); err != nil {
+	if err := b.Redo(context.Background(), store, from, ppi); err != nil {
 		t.Fatalf("redo from %s: %v", from, err)
 	}
 }
 
 func TestRedoFromThePreviewAfterMovingPrints(t *testing.T) {
 	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
-	root, b, store := prepared(t, scanner)
+	_, b, store := prepared(t, scanner)
 
 	scanner.Prints = append(scanner.Prints, batchtest.Print{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000})
 	redo(t, b, store, "preview", 0)
@@ -403,28 +447,26 @@ func TestRedoFromThePreviewAfterMovingPrints(t *testing.T) {
 	if len(prints) != 2 || len(ids) != 0 {
 		t.Errorf("after the redo: %d prints, %d ids; want 2 prints waiting to be confirmed", len(prints), len(ids))
 	}
-	if scanner.Previews != 2 || scanner.Details != 1 {
-		t.Errorf("previews %d, details %d; want 2 and 1", scanner.Previews, scanner.Details)
-	}
-	if _, err := os.Stat(filepath.Join(root, "archive", "0.partial")); !os.IsNotExist(err) {
-		t.Error("photo id 0's reservation was not released")
+	if scanner.Previews != 3 || scanner.Details != 2 {
+		t.Errorf("previews %d, details %d; want 3 and 2", scanner.Previews, scanner.Details)
 	}
 	b.Confirm()
 	run(t, b, store, scanner)
-	if _, ids, _ = b.Found(); len(ids) != 2 || ids[0] != 0 || ids[1] != 1 {
-		t.Errorf("ids %v after confirming again, want 0, 1", ids)
+	// the first id stays reserved with the archive; the prints found again get the next
+	if _, ids, _ = b.Found(); len(ids) != 2 || ids[0] != 1 || ids[1] != 2 {
+		t.Errorf("ids %v after confirming again, want 1, 2", ids)
 	}
 }
 
 func TestRedoTheDetailPassAtAnotherPPI(t *testing.T) {
 	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	root, b, store := prepared(t, scanner)
-	redo(t, b, store, "detail pass", 1200)
+	redo(t, b, store, "fronts", 1200)
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
-		t.Fatalf("%s, want waiting for the quality check", rec.Status)
+		t.Fatalf("%s, want waiting for the prints to be turned", rec.Status)
 	}
-	if scanner.LastPPI != 1200 || scanner.Previews != 1 {
-		t.Errorf("rescanned at %d ppi with %d previews; want 1200 and 1", scanner.LastPPI, scanner.Previews)
+	if scanner.LastPPI != 1200 || scanner.Previews != 2 {
+		t.Errorf("rescanned at %d ppi with %d previews; want 1200 and 2", scanner.LastPPI, scanner.Previews)
 	}
 	again, _ := Open(root, b.Batch)
 	if again.ScanPPI != 1200 {
@@ -442,14 +484,14 @@ func TestRedoTheDetailPassAtAnotherPPI(t *testing.T) {
 	}
 }
 
-// Story 003, "Develop": going back to the detail pass clears this version's
+// Story 003, "Develop": going back to the fronts clears this version's
 // renditions; an older version's stay on record.
-func TestRedoTheDetailPassClearsTheRenditions(t *testing.T) {
+func TestRedoTheFrontsClearsTheRenditions(t *testing.T) {
 	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	root, b, store := prepared(t, scanner)
 	old := filepath.Join(root, "renditions", "0", "0")
 	os.MkdirAll(old, 0o755)
-	redo(t, b, store, "detail pass", 0)
+	redo(t, b, store, "fronts", 0)
 	if _, err := os.Stat(b.Renditions(0)); err == nil {
 		t.Error("renditions of this version survive a redo of the detail pass")
 	}
@@ -461,12 +503,13 @@ func TestRedoTheDetailPassClearsTheRenditions(t *testing.T) {
 func TestRedoRefusals(t *testing.T) {
 	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	_, b, store := prepared(t, scanner)
-	if err := b.Redo(context.Background(), wf.NewRunner(store, nil), "detail pass", 300); err == nil {
+	if err := b.Redo(context.Background(), store, "fronts", 300); err == nil {
 		t.Error("redo at 300 ppi accepted")
 	}
+	described(t, b)
 	b.Accept()
 	run(t, b, store, scanner)
-	err := b.Redo(context.Background(), wf.NewRunner(store, nil), "detail pass", 0)
+	err := b.Redo(context.Background(), store, "fronts", 0)
 	if err == nil || !strings.Contains(err.Error(), "final") {
 		t.Errorf("redo once archived: %v, want a refusal", err)
 	}
@@ -609,25 +652,22 @@ func TestReshapeFromTheQualityCheck(t *testing.T) {
 	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	root, b, store := prepared(t, scanner)
 	before, _, _ := FindPhoto(root, 0)
-	runner := wf.NewRunner(store, nil)
-	if err := b.Reshape(context.Background(), runner, 0, find.Right, -0.5); err != nil {
+	if err := b.Reshape(context.Background(), store, 0, find.Right, -0.5); err != nil {
 		t.Fatal(err)
 	}
-	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
-		t.Fatalf("%s, want back at the quality check", rec.Status)
-	}
+	scanned(t, b, store, scanner)
 	after, _, err := FindPhoto(root, 0)
 	if err != nil || !same(after.Front.Region.Bounds().X1, before.Front.Region.Bounds().X1-0.5) {
 		t.Errorf("region %+v after the reshape, from %+v (%v)", after.Front.Region, before.Front.Region, err)
 	}
-	if scanner.Details != 2 || scanner.Previews != 1 {
-		t.Errorf("details %d, previews %d; want 2 and 1", scanner.Details, scanner.Previews)
+	if scanner.Details != 4 || scanner.Previews != 3 {
+		t.Errorf("details %d, previews %d; want 4 and 3: the fronts and backs again", scanner.Details, scanner.Previews)
 	}
 	if _, ids, _ := b.Found(); len(ids) != 1 || ids[0] != 0 {
 		t.Errorf("ids %v, want the photo id kept", ids)
 	}
 	// a move that cannot happen leaves the batch where it was
-	if err := b.Reshape(context.Background(), runner, 0, find.Bottom, -30); err == nil {
+	if err := b.Reshape(context.Background(), store, 0, find.Bottom, -30); err == nil {
 		t.Error("reshape under 20 mm accepted")
 	}
 	if _, err := os.Stat(filepath.Join(b.Dir(), "masters")); err != nil {
@@ -699,7 +739,7 @@ func TestExpectedDurationOfAStep(t *testing.T) {
 	// and detail pass took as given.
 	past := func(ppi int, w, h float64, preview, detail time.Duration) {
 		t.Helper()
-		past, err := Describe(root, reg, Description{Text: "past", Person: 10, ScanPPI: ppi, Credit: "c"}, now)
+		past, err := Describe(root, service(root), Description{Text: "past", Person: 10, ScanPPI: ppi, Credit: "c"}, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -713,7 +753,7 @@ func TestExpectedDurationOfAStep(t *testing.T) {
 		if err := store.CreateRun(ctx, &wf.RunRecord{ID: b.Key(), WorkflowType: LoadWorkflow, Key: b.Key(), Status: wf.StatusCompleted, StartedAt: now, CreatedAt: now}); err != nil {
 			t.Fatal(err)
 		}
-		for name, d := range map[string]time.Duration{"preview": preview, "detail pass": detail} {
+		for name, d := range map[string]time.Duration{"preview": preview, "fronts": detail} {
 			if err := store.RecordStep(ctx, &wf.StepResult{ID: b.Key() + name, RunID: b.Key(), StepName: name, Status: wf.StatusCompleted, DurationNs: int64(d)}); err != nil {
 				t.Fatal(err)
 			}
@@ -733,9 +773,9 @@ func TestExpectedDurationOfAStep(t *testing.T) {
 		step string
 		want time.Duration
 	}{
-		{"preview", 12 * time.Second},     // the median of 10, 14 and 12
-		{"detail pass", 60 * time.Second}, // 4800 mm² at the median 12.5 ms per mm²
-		{"find prints", 0},                // never timed
+		{"preview", 12 * time.Second}, // the median of 10, 14 and 12
+		{"fronts", 60 * time.Second},  // 4800 mm² at the median 12.5 ms per mm²
+		{"find prints", 0},            // never timed
 	} {
 		got, ok := Expected(ctx, store, root, b, c.step)
 		if ok != (c.want != 0) || got != c.want {

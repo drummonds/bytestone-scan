@@ -17,10 +17,12 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
 func live(t *testing.T, s *batchtest.Scanner) *App {
@@ -29,7 +31,7 @@ func live(t *testing.T, s *batchtest.Scanner) *App {
 		Staging: t.TempDir(),
 		Store:   wf.NewMemStore(),
 		Scanner: s,
-		People:  registertest.Example,
+		Archive: archivetest.Example(),
 		Now:     func() time.Time { return time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC) },
 	}
 }
@@ -74,16 +76,19 @@ func TestABatchFromStartToTheArchive(t *testing.T) {
 	page(t, h, loc, "<td>2</td>") // the second print is in the table
 
 	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
 	page(t, h, loc, "Accept", "Rescan at", `href="photos/0"`, `href="photos/1"`)
 	page(t, h, "/photos/1", "Master, 600 ppi,") // the quality page works before packaging
 
 	act(t, a, h, loc+"/rescan", url.Values{"ppi": {"1200"}})
-	if s.LastPPI != 1200 || s.Details != 2 {
-		t.Errorf("rescan: last ppi %d after %d passes, want 1200 after 2", s.LastPPI, s.Details)
+	if s.LastPPI != 1200 || s.Details != 3 {
+		t.Errorf("rescan: last ppi %d after %d passes, want 1200 after 3", s.LastPPI, s.Details)
 	}
+	act(t, a, h, loc+"/backs", nil)
 
+	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
-	if !archive.Complete(filepath.Join(a.Staging, "archive"), 0) || !archive.Complete(filepath.Join(a.Staging, "archive"), 1) {
+	if !bag.Complete(filepath.Join(a.Staging, "bags"), 0) || !bag.Complete(filepath.Join(a.Staging, "bags"), 1) {
 		t.Error("photos not archived after accept")
 	}
 	page(t, h, loc, "Done")
@@ -97,7 +102,7 @@ func TestRetryAfterAFailure(t *testing.T) {
 	act(t, a, h, loc+"/confirm", nil)
 	page(t, h, loc, "USB disconnected", "Retry")
 	act(t, a, h, loc+"/retry", nil)
-	page(t, h, loc, "Accept")
+	page(t, h, loc, "Scan the backs")
 }
 
 func TestNewBatchRefusals(t *testing.T) {
@@ -190,7 +195,7 @@ func TestNewBatchSaysTheScanIsAveragedDownToTheMaster(t *testing.T) {
 
 func TestNewBatchChoosesTheHomePersonByName(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
-	a.People = registertest.List{{ID: 11, Name: "Zak Example"}, {ID: 10, Name: "Ada Example"}}
+	a.Archive = archivetest.New(archive.Person{ID: 11, Name: "Zak Example"}, archive.Person{ID: 10, Name: "Ada Example"})
 	h := a.Handler()
 	body := get(t, h, "/batches/new").Body.String()
 	ada := strings.Index(body, `<option value="a">Ada Example (a)</option>`)
@@ -230,9 +235,9 @@ func TestNewBatchIsPrefilledFromTheLatestBatch(t *testing.T) {
 
 func TestNewBatchWithNoPeopleIsRefused(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
-	a.People = registertest.List{}
+	a.Archive = archivetest.New()
 	w := get(t, a.Handler(), "/batches/new")
-	if body := w.Body.String(); !strings.Contains(body, a.People.String()) || strings.Contains(body, "<form") {
+	if body := w.Body.String(); !strings.Contains(body, a.Archive.String()) || strings.Contains(body, "<form") {
 		t.Errorf("new batch with no people: want the register named and no form:\n%s", body)
 	}
 }
@@ -307,14 +312,162 @@ func TestABatchOfLoads(t *testing.T) {
 
 	for _, loc := range []string{one, two} {
 		act(t, a, h, loc+"/confirm", nil)
+		act(t, a, h, loc+"/backs", nil)
+		describeAll(t, a, h, loc)
 		act(t, a, h, loc+"/accept", nil)
 	}
 	if loc := act(t, a, h, "/batches/20261020-1/finish", nil); loc != "/batches/20261020-1" {
 		t.Errorf("finish went to %s", loc)
 	}
-	page(t, h, "/batches/20261020-1", "Finished")
+	page(t, h, "/batches/20261020-1", "Closed")
 	if w := get(t, h, "/batches/20261020-1/loads/new"); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("a finished batch offered another load: %d", w.Code)
 	}
 	page(t, h, "/photos/1", "the second envelope", `href="batches/20261020-1"`, `href="batches/20261020-1/loads/2"`)
+}
+
+// Story 039: after the fronts the load asks for the prints to be turned
+// over, scans the backs where the fronts lay, shows where each back lay
+// and flags one that differs; the photo page shows the back; the backs
+// can be scanned again.
+func TestTheBacksOfALoad(t *testing.T) {
+	s := &batchtest.Scanner{
+		Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}},
+		Backs:  []batchtest.Print{{X0: 22, Y0: 20, X1: 62, Y1: 50, Value: 50000}, {X0: 90, Y0: 25, X1: 115, Y1: 60, Value: 50000}},
+	}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"two sided"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	page(t, h, loc, "Turn each print over", "Scan the backs")
+	if w := post(t, h, loc+"/accept", nil); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "backs") {
+		t.Errorf("accepted before the backs: %d %s", w.Code, w.Body)
+	}
+	act(t, a, h, loc+"/backs", nil)
+	if s.LastPPI != 300 || s.Details != 2 {
+		t.Errorf("backs: last ppi %d after %d passes, want 300 after 2", s.LastPPI, s.Details)
+	}
+	page(t, h, loc, "Accept and archive", "Rescan the backs", loc[1:]+"/backs.png", "was the print turned over in place?")
+	if w := get(t, h, loc+"/backs.png"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/png" {
+		t.Errorf("backs.png: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+	page(t, h, "/photos/1", "Back", "photos/1/renditions/1/back/display.jpg", "was the print turned over in place?", "300 ppi")
+	if w := get(t, h, "/photos/1/renditions/1/back/display.jpg"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/jpeg" {
+		t.Errorf("back rendition: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+
+	act(t, a, h, loc+"/rescan-backs", nil)
+	page(t, h, loc, "Scan the backs")
+	act(t, a, h, loc+"/backs", nil)
+	describeAll(t, a, h, loc)
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "Done")
+	page(t, h, "/photos/1", "Back", "photos/1/renditions/1/back/display.jpg")
+	if s.Details != 3 {
+		t.Errorf("%d passes, want 3", s.Details)
+	}
+}
+
+// Prints with blank backs: the operator skips the backs and the load goes
+// on to the quality check without a back.
+func TestSkippingTheBacks(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"blank backs"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	page(t, h, loc, "Scan the backs", "No backs")
+	act(t, a, h, loc+"/no-backs", nil)
+	page(t, h, loc, "Accept and archive", "Rescan the backs", "<td>none</td>")
+	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "renditions/1/back/") {
+		t.Error("a back shown for a photo without one")
+	}
+	describeAll(t, a, h, loc)
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "Done")
+	if s.Details != 1 || s.Previews != 1 {
+		t.Errorf("%d passes, %d previews; want 1 and 1", s.Details, s.Previews)
+	}
+}
+
+// Story 040: the photo page takes the photo's description while the load
+// is being checked: the date taken, the photographer and what the back
+// says. A photo not described waits after accept, and the load page says
+// so; once archived the description is shown and fixed.
+func TestDescribingAPhoto(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"Rothesay"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	page(t, h, "/photos/0", `name="date"`, `name="approximate"`, `name="photographer"`, `name="back"`, `name="source"`, "Nothing known")
+	if w := post(t, h, "/photos/0/describe", url.Values{"date": {"July 1952"}}); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "1952-07") {
+		t.Errorf("a date that is not an ISO 8601 prefix: %d %s", w.Code, w.Body)
+	}
+	if loc := act(t, a, h, "/photos/0/describe", url.Values{"date": {"1952-07"}, "approximate": {"on"}, "photographer": {"Jerome Ltd"}, "back": {"Mum &amp; Dad"}, "source": {"back"}}); loc != "/photos/0" {
+		t.Errorf("describe went to %s", loc)
+	}
+	page(t, h, "/photos/0", `value="1952-07"`, "checked", `value="Jerome Ltd"`, "Mum &amp;amp; Dad")
+
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "1 photo waiting to be described", `href="photos/1"`)
+	page(t, h, "/photos/0", "1952-07", "Jerome Ltd", "approximate")
+	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, `name="date"`) {
+		t.Error("an archived photo's description is still a form")
+	}
+	act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}})
+	page(t, h, loc, "Done")
+	page(t, h, "/photos/1", "Nothing known")
+}
+
+// Story 041: once accepted and described, each photo is bagged, deposited
+// with the archive service and receipted; the photo page shows the
+// archive's answer, and a duplicate the archive refused is shown as such.
+func TestPhotosAreDepositedWithTheArchive(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	fake := a.Archive.(*archivetest.Fake)
+	fake.Next = 40
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"deposited"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	one, two := pid.ID(40), pid.ID(41)
+	page(t, h, loc, `href="photos/`+one.String()+`"`, `href="photos/`+two.String()+`"`)
+	page(t, h, "/photos/"+one.String(), "Not yet deposited")
+	act(t, a, h, loc+"/backs", nil)
+	fake.RejectAs[two] = 7
+	describeAll(t, a, h, loc)
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "Done", "1 photo held by the archive", "1 rejected as a duplicate", `href="photos/`+two.String()+`"`)
+	page(t, h, "/photos/"+one.String(), "Held by the archive", "3 files")
+	page(t, h, "/photos/"+two.String(), "Rejected by the archive", "duplicate of item <code>7</code>", "data/front.tif")
+	if rec, _ := fake.Receipt(one); rec.Status != "held" {
+		t.Errorf("the archive does not hold %s: %+v", one, rec)
+	}
+	page(t, h, "/about", "Archive service")
+}
+
+// Story 042: the batch page says when the batch closed and when its work
+// files were purged.
+func TestTheBatchPageSaysClosedAndPurged(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"closing"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	describeAll(t, a, h, loc)
+	act(t, a, h, loc+"/accept", nil)
+	act(t, a, h, "/batches/20261020-1/finish", nil)
+	page(t, h, "/batches/20261020-1", "Closed", "held by the archive", "30 days")
+	p := &batch.Purger{Root: a.Staging, Now: func() time.Time { return time.Now().Add(31 * 24 * time.Hour) }, Grace: 30 * 24 * time.Hour,
+		Threshold: 1, Free: func(string) (uint64, error) { return 1 << 40, nil }}
+	if purged, err := p.Sweep(); err != nil || len(purged) != 1 {
+		t.Fatalf("sweep: %v %v", purged, err)
+	}
+	page(t, h, "/batches/20261020-1", "Purged")
+	if w := get(t, h, loc); w.Code != http.StatusNotFound {
+		t.Errorf("a purged load's page: %d", w.Code)
+	}
 }

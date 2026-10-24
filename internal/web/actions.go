@@ -14,10 +14,10 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/lofigui"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 )
 
 // worker runs one load's step at a time in the background: there is one
@@ -50,7 +50,7 @@ func (a *App) start(l *batch.Load, prepare func() error) error {
 	a.work.step, a.work.stepAt = "", a.work.started
 	a.work.running.Go(func() {
 		// a failure is recorded on the run, where the load page reads it
-		l.Run(context.Background(), a.Store, a.Scanner, a.Now, func(step string) {
+		l.Run(context.Background(), a.env(), func(step string) {
 			a.work.mu.Lock()
 			a.work.step, a.work.stepAt = step, time.Now()
 			a.work.mu.Unlock()
@@ -64,6 +64,11 @@ func (a *App) start(l *batch.Load, prepare func() error) error {
 
 // wait blocks until no step is running.
 func (a *App) wait() { a.work.running.Wait() }
+
+// env is what the loads' workflows run with.
+func (a *App) env() batch.Env {
+	return batch.Env{Store: a.Store, Scanner: a.Scanner, Archive: a.Archive, Now: a.Now}
+}
 
 // running is the key of the load a step is running for, or empty.
 func (a *App) running() string {
@@ -100,7 +105,7 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 </div></div>
 <div class="field"><label class="label">Scan at</label>
 <div class="control"><div class="select"><select name="ppi">%s</select></div></div>
-<p class="help">The detail pass scans at this ppi and is averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick.</p>
+<p class="help">The fronts are scanned at this ppi and averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick. The backs are scanned at 300 ppi.</p>
 <p class="help">600 ppi takes about 15 s for a 7 × 5 inch print, 1200 about 75 s, 2400 about 2½ minutes.</p></div>
 <button class="button is-primary" type="submit">Scan the preview</button>
 </form>
@@ -142,7 +147,7 @@ func newLoad(b *batch.Batch, msg, description string) string {
 // newBatch is the New batch page: msg above the form, and the form holding
 // what was entered. With no one in the register there is no form.
 func (a *App) newBatch(msg string, e entered) string {
-	people, err := a.People.People()
+	people, err := a.Archive.People()
 	if err != nil {
 		return `<h1 class="title">New batch</h1><div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
 	}
@@ -160,7 +165,7 @@ func (a *App) prefilled() entered {
 	return e
 }
 
-func personOptions(people []register.Person, selected string) string {
+func personOptions(people []archive.Person, selected string) string {
 	var s strings.Builder
 	s.WriteString(`<option value="">Choose…</option>`)
 	for _, p := range people {
@@ -212,7 +217,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		var b *batch.Batch
 		if err == nil {
-			b, err = batch.Describe(a.Staging, a.People, batch.Description{
+			b, err = batch.Describe(a.Staging, a.Archive, batch.Description{
 				Text: e.title, Person: person, ScanPPI: e.ppi, Provenance: e.provenance, Credit: e.credit}, a.Now())
 		}
 		if err != nil {
@@ -274,17 +279,21 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			http.Redirect(w, r, "/"+loadURL(l.Key()), http.StatusSeeOther)
 		})
 	}
-	runner := func() *wf.Runner { return wf.NewRunner(a.Store, nil) }
 	act("preview", func(r *http.Request, l *batch.Load) error {
-		return l.Redo(r.Context(), runner(), "preview", 0)
+		return l.Redo(r.Context(), a.Store, "preview", 0)
 	})
 	act("prints", func(r *http.Request, l *batch.Load) error {
-		return l.Redo(r.Context(), runner(), "confirm", 0)
+		return l.Redo(r.Context(), a.Store, "confirm", 0)
 	})
 	act("confirm", func(r *http.Request, l *batch.Load) error { return l.Confirm() })
 	act("rescan", func(r *http.Request, l *batch.Load) error {
 		ppi, _ := strconv.Atoi(r.FormValue("ppi"))
-		return l.Redo(r.Context(), runner(), "detail pass", ppi)
+		return l.Redo(r.Context(), a.Store, "fronts", ppi)
+	})
+	act("backs", func(r *http.Request, l *batch.Load) error { return l.Turned() })
+	act("no-backs", func(r *http.Request, l *batch.Load) error { return l.NoBacks() })
+	act("rescan-backs", func(r *http.Request, l *batch.Load) error {
+		return l.Redo(r.Context(), a.Store, "backs", 0)
 	})
 	act("accept", func(r *http.Request, l *batch.Load) error { return l.Accept() })
 	act("retry", func(r *http.Request, l *batch.Load) error { return nil })
@@ -293,7 +302,36 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		if err != nil {
 			return err
 		}
-		return l.Reshape(r.Context(), runner(), n-1, edge, by)
+		return l.Reshape(r.Context(), a.Store, n-1, edge, by)
+	})
+
+	// Describing a photo prepares its load's photos to go on, then ticks them.
+	mux.HandleFunc("POST /photos/{id}/describe", func(w http.ResponseWriter, r *http.Request) {
+		id, err := pid.Parse(r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		p, _, err := batch.FindPhoto(a.Staging, id)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		l, err := batch.OpenLoad(a.Staging, fmt.Sprintf("%s/%d", p.Batch, p.Load))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		var d batch.PhotoDescription
+		if r.FormValue("skip") == "" {
+			d = batch.PhotoDescription{Date: r.FormValue("date"), Approximate: r.FormValue("approximate") != "",
+				Photographer: r.FormValue("photographer"), Back: r.FormValue("back"), Source: r.FormValue("source")}
+		}
+		if err := a.start(l, func() error { return l.DescribePhoto(id, d) }); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/photos/"+id.String(), http.StatusSeeOther)
 	})
 
 	// Editing the regions needs no scanner, only that no step is running on
@@ -398,15 +436,28 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 		c.HTML(`<div class="notification is-danger">Failed: ` + html.EscapeString(run.Error) + `</div>` +
 			`<div class="buttons">` + button("retry", "Retry", "is-primary") + `</div>`)
 	case run.Status == wf.StatusCompleted:
-		c.HTML(`<div class="notification is-success">Done: every photo is archived.</div>`)
+		if waiting := a.undescribed(r.Context(), l); len(waiting) > 0 {
+			var links []string
+			for _, id := range waiting {
+				links = append(links, fmt.Sprintf(`<a href="photos/%s">%s</a>`, id, id))
+			}
+			c.HTML(fmt.Sprintf(`<div class="notification is-warning">Accepted. %d %s waiting to be described: %s. Say what is known of each on its page, or that nothing is.</div>`,
+				len(waiting), plural(len(waiting), "photo", "photos"), strings.Join(links, ", ")))
+		} else {
+			c.HTML(a.outcome(l))
+		}
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
 			button("confirm", "Confirm and scan", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
+	case waiting == "backs":
+		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then scan the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
+			button("backs", "Scan the backs", "is-primary") + button("no-backs", "No backs", "") + button("prints", "Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
-		c.HTML(`<div class="notification is-warning">Check each photo's quality, then accept or send the load back.</div><div class="buttons">` +
+		c.HTML(`<div class="notification is-warning">Check each photo's quality, front and back, then accept or send the load back.</div><div class="buttons">` +
 			button("accept", "Accept and archive", "is-primary") +
 			fmt.Sprintf(`<form action="%s/rescan" method="post" style="display:inline"><div class="select"><select name="ppi">%s</select></div> <button class="button" type="submit">Rescan at</button></form> `,
 				loadURL(l.Key()), ppiOptions(l.Sitting().ScanPPI)) +
+			button("rescan-backs", "Rescan the backs", "") +
 			button("prints", "Back to the prints", "") + `</div>`)
 	default:
 		c.HTML(`<div class="notification">` + html.EscapeString(string(run.Status)) + `</div>` +
@@ -415,9 +466,63 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 	return false, waiting
 }
 
+// outcome is how a finished load's photos stand with the archive.
+func (a *App) outcome(l *batch.Load) string {
+	_, ids, _ := l.Found()
+	var held, pending int
+	var rejected []string
+	for _, id := range ids {
+		d, _ := batch.DepositOf(a.Staging, id)
+		switch {
+		case d == nil:
+			pending++
+		case d.Status == "duplicate":
+			rejected = append(rejected, fmt.Sprintf(`<a href="photos/%s">%s</a>`, id, id))
+		default:
+			held++
+		}
+	}
+	msg := fmt.Sprintf("Done: %d %s held by the archive", held, plural(held, "photo", "photos"))
+	class := "is-success"
+	if len(rejected) > 0 {
+		msg += fmt.Sprintf("; %d rejected as a duplicate: %s", len(rejected), strings.Join(rejected, ", "))
+		class = "is-warning"
+	}
+	if pending > 0 {
+		msg += fmt.Sprintf("; %d not yet deposited", pending)
+		class = "is-warning"
+	}
+	return `<div class="notification ` + class + `">` + msg + `.</div>`
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// undescribed are the load's photos waiting to be described.
+func (a *App) undescribed(ctx context.Context, l *batch.Load) []pid.ID {
+	_, ids, _ := l.Found()
+	var waiting []pid.ID
+	for _, id := range ids {
+		if _, step := a.whereRun(ctx, batch.PhotoWorkflow, id.String()); step == "describe" {
+			waiting = append(waiting, id)
+		}
+	}
+	return waiting
+}
+
 // where is the load's run and the step it waits at, if it is waiting.
 func (a *App) where(ctx context.Context, l *batch.Load) (*wf.RunRecord, string) {
-	run, err := a.Store.FindRunByKey(ctx, batch.LoadWorkflow, l.Key())
+	return a.whereRun(ctx, batch.LoadWorkflow, l.Key())
+}
+
+// whereRun is the run of the instance key of typ and the step it waits
+// at, if it is waiting.
+func (a *App) whereRun(ctx context.Context, typ wf.WorkflowType, key string) (*wf.RunRecord, string) {
+	run, err := a.Store.FindRunByKey(ctx, typ, key)
 	if err != nil || run == nil {
 		return nil, ""
 	}

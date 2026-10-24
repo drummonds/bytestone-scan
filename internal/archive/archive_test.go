@@ -1,237 +1,180 @@
 package archive
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"io"
-	"os"
-	"path/filepath"
-	"sort"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
-func sum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
-
-func read(t *testing.T, path string) string {
+// service is a stand-in archive service: life-weaver's GET /people and
+// GET /people/{id}, over a fixed register.
+func service(t *testing.T, people string) *httptest.Server {
 	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /people", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(people))
+	})
+	mux.HandleFunc("GET /people/{id}", func(w http.ResponseWriter, r *http.Request) {
+		switch r.PathValue("id") {
+		case "a":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"a","name":"Ada Example","short":"Ada","bio":"long"}`))
+		case "b":
+			http.Error(w, "boom", http.StatusInternalServerError)
+		default:
+			http.Error(w, "no person "+r.PathValue("id"), http.StatusNotFound)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
 }
 
-func writeString(s string) func(io.Writer) error {
-	return func(w io.Writer) error { _, err := io.WriteString(w, s); return err }
-}
+const three = `[{"id":"a","name":"Ada Example","short":"Ada","born":{"date":"1894"}},{"id":"e","name":"Aaron Example"},{"id":"f","name":"Flat Example"}]`
 
-var info = Info{
-	Batch:       "20261020-1",
-	Description: "SS Bonita at her berth",
-	Bagged:      time.Date(2026, 10, 20, 14, 30, 0, 0, time.UTC),
-}
-
-func makePhoto(t *testing.T, root string, id pid.ID) {
-	t.Helper()
-	b, err := Create(root, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Add("front.tif", writeString("TIFF bytes")); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Add("photo.yaml", writeString("id: a\n")); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Close(info); err != nil {
-		t.Fatal(err)
+func TestPersonInTheRegister(t *testing.T) {
+	r := Client{URL: service(t, three).URL}
+	name, err := r.Person(10) // "a"
+	if err != nil || name != "Ada Example" {
+		t.Errorf("Person(a) = %q, %v, want Ada Example", name, err)
 	}
 }
 
-func TestBagLayout(t *testing.T) {
-	root := t.TempDir()
-	makePhoto(t, root, 10)
-	dir := filepath.Join(root, "a")
-
-	if got, want := read(t, filepath.Join(dir, "bagit.txt")), "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n"; got != want {
-		t.Errorf("bagit.txt = %q, want %q", got, want)
-	}
-	if got := read(t, filepath.Join(dir, "data/front.tif")); got != "TIFF bytes" {
-		t.Errorf("front.tif = %q", got)
-	}
-	bagInfo := read(t, filepath.Join(dir, "bag-info.txt"))
-	for _, line := range []string{
-		"Bagging-Date: 2026-10-20",
-		"External-Description: SS Bonita at her berth",
-		"External-Identifier: a",
-		"Bytestone-Batch: 20261020-1",
-		"Payload-Oxum: 16.2", // 10 + 6 bytes in 2 files
+func TestPersonRefusals(t *testing.T) {
+	srv := service(t, three)
+	r := Client{URL: srv.URL}
+	for _, tc := range []struct {
+		id   pid.ID
+		want string
+	}{
+		{12, "not in the register"}, // "c": no record
+		{11, "boom"},                // the service fails
 	} {
-		if !strings.Contains(bagInfo, line+"\n") {
-			t.Errorf("bag-info.txt lacks %q:\n%s", line, bagInfo)
-		}
-	}
-
-	wantManifest := sum([]byte("TIFF bytes")) + "  data/front.tif\n" +
-		sum([]byte("id: a\n")) + "  data/photo.yaml\n"
-	if got := read(t, filepath.Join(dir, "manifest-sha256.txt")); got != wantManifest {
-		t.Errorf("manifest = %q, want %q", got, wantManifest)
-	}
-
-	tags := map[string]bool{}
-	for line := range strings.SplitSeq(strings.TrimSpace(read(t, filepath.Join(dir, "tagmanifest-sha256.txt"))), "\n") {
-		h, name, _ := strings.Cut(line, "  ")
-		if got := sum([]byte(read(t, filepath.Join(dir, name)))); got != h {
-			t.Errorf("tagmanifest: %s has %s, file sums to %s", name, h, got)
-		}
-		tags[name] = true
-	}
-	for _, name := range []string{"bagit.txt", "bag-info.txt", "manifest-sha256.txt"} {
-		if !tags[name] {
-			t.Errorf("tagmanifest lacks %s", name)
+		_, err := r.Person(tc.id)
+		if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), srv.URL) {
+			t.Errorf("Person(%s): %v, want an error mentioning %q and the service", tc.id, err, tc.want)
 		}
 	}
 }
 
-func TestPhotoAppearsOnlyWhenComplete(t *testing.T) {
-	root := t.TempDir()
-	b, err := Create(root, 3)
+func TestPeopleAreListedByName(t *testing.T) {
+	people, err := Client{URL: service(t, three).URL}.People()
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.Add("front.tif", writeString("x"))
-	if Complete(root, 3) {
-		t.Error("photo complete before Close")
-	}
-	if _, err := os.Stat(filepath.Join(root, "3")); !os.IsNotExist(err) {
-		t.Error("photo directory visible before Close")
-	}
-	if err := b.Close(info); err != nil {
-		t.Fatal(err)
-	}
-	if !Complete(root, 3) {
-		t.Error("photo not complete after Close")
-	}
-	entries, _ := os.ReadDir(root)
-	var names []string
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	if strings.Join(names, ",") != "3" {
-		t.Errorf("root holds %v, want only the photo", names)
+	want := []Person{{14, "Aaron Example"}, {10, "Ada Example"}, {15, "Flat Example"}}
+	if !reflect.DeepEqual(people, want) {
+		t.Errorf("People() = %v, want %v", people, want)
 	}
 }
 
-func TestCreateRefusesACompletePhoto(t *testing.T) {
-	root := t.TempDir()
-	makePhoto(t, root, 3)
-	if _, err := Create(root, 3); err == nil {
-		t.Error("Create over a complete photo succeeded")
+func TestNoPeopleIsAnError(t *testing.T) {
+	srv := service(t, `[]`)
+	if _, err := (Client{URL: srv.URL}).People(); err == nil || !strings.Contains(err.Error(), srv.URL) {
+		t.Errorf("People() of an empty register: %v, want an error naming %s", err, srv.URL)
 	}
 }
 
-func TestCreateRestartsAnUnfinishedPhoto(t *testing.T) {
-	root := t.TempDir()
-	b, _ := Create(root, 3)
-	b.Add("front.tif", writeString("half a scan"))
-	// crash: no Close
-	makePhoto(t, root, 3)
-	if got := read(t, filepath.Join(root, "3", "data/front.tif")); got != "TIFF bytes" {
-		t.Errorf("front.tif = %q, want the second attempt's", got)
-	}
-	if _, err := os.Stat(filepath.Join(root, "3", "data")); err != nil {
-		t.Fatal(err)
-	}
-	entries, _ := os.ReadDir(filepath.Join(root, "3", "data"))
-	if len(entries) != 2 {
-		t.Errorf("data holds %d files, want 2", len(entries))
-	}
-}
-
-func TestReserveTakesTheNextID(t *testing.T) {
-	root := t.TempDir()
-	var got []string
-	for range 3 {
-		id, err := Reserve(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got = append(got, id.String())
-	}
-	if strings.Join(got, ",") != "0,1,2" {
-		t.Errorf("first ids %v, want 0,1,2", got)
-	}
-
-	makePhoto(t, root, 31) // "z"
-	os.Mkdir(filepath.Join(root, "notes"), 0o755)
-	os.WriteFile(filepath.Join(root, "README"), nil, 0o644)
-	id, err := Reserve(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id.String() != "10" {
-		t.Errorf("after photo z, reserved %s, want 10 (32)", id)
-	}
-}
-
-func TestReservedIDsAreCreatable(t *testing.T) {
-	root := t.TempDir()
-	id, _ := Reserve(root)
-	makePhoto(t, root, id)
-	if !Complete(root, id) {
-		t.Error("reserved id did not become a complete photo")
-	}
-	next, _ := Reserve(root)
-	if next == id {
-		t.Error("a complete photo's id was reserved again")
-	}
-}
-
-func TestAddRefusesUnsafeNames(t *testing.T) {
-	b, _ := Create(t.TempDir(), 1)
-	for _, name := range []string{"", "../x", "a/b", ".hidden"} {
-		if err := b.Add(name, writeString("x")); err == nil {
-			t.Errorf("Add(%q) succeeded", name)
+func TestServiceNotRunningSaysHowToStartIt(t *testing.T) {
+	srv := service(t, three)
+	srv.Close()
+	r := Client{URL: srv.URL}
+	for _, err := range []error{
+		func() error { _, err := r.People(); return err }(),
+		func() error { _, err := r.Person(10); return err }(),
+	} {
+		if err == nil || !strings.Contains(err.Error(), srv.URL) || !strings.Contains(err.Error(), "life-weaver serve") {
+			t.Errorf("service down: %v, want an error naming %s and life-weaver serve", err, srv.URL)
 		}
 	}
 }
 
-func TestManifestIsSorted(t *testing.T) {
-	root := t.TempDir()
-	b, _ := Create(root, 1)
-	for _, n := range []string{"photo.yaml", "back.tif", "front.tif"} {
-		b.Add(n, writeString(n))
-	}
-	b.Close(info)
-	lines := strings.Split(strings.TrimSpace(read(t, filepath.Join(root, "1", "manifest-sha256.txt"))), "\n")
-	if !sort.SliceIsSorted(lines, func(i, j int) bool {
-		return strings.SplitN(lines[i], "  ", 2)[1] < strings.SplitN(lines[j], "  ", 2)[1]
-	}) || len(lines) != 3 {
-		t.Errorf("manifest not sorted by path: %v", lines)
+func TestStringIsTheServiceURL(t *testing.T) {
+	if s := (Client{URL: "http://localhost:8321"}).String(); s != "http://localhost:8321" {
+		t.Errorf("String() = %q", s)
 	}
 }
 
-func TestReleaseFreesAReservationButNeverAPhoto(t *testing.T) {
-	root := t.TempDir()
-	id, _ := Reserve(root)
-	if err := Release(root, id); err != nil {
-		t.Fatal(err)
+// Story 041: the client reserves item ids, deposits bags and reads
+// receipts over life-weaver's API, and tells a refusal from a failure.
+func TestReserveDepositAndReceipt(t *testing.T) {
+	mux := http.NewServeMux()
+	var got []byte
+	mux.HandleFunc("POST /people/{id}/items", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") != "a" {
+			http.Error(w, "no person", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Location", "/items/8")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"item":"8","home":"a","status":"reserved"}`))
+	})
+	mux.HandleFunc("PUT /items/{item}", func(w http.ResponseWriter, r *http.Request) {
+		got, _ = io.ReadAll(r.Body)
+		switch r.PathValue("item") {
+		case "8":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"item":"8","home":"a","status":"held","payload":{"data/front.tif":"ab12"}}`))
+		case "9":
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"status":"duplicate","duplicate_of":"3","home":"a","file":"data/front.tif"}`))
+		case "c":
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"status":"conflict"}`))
+		case "d":
+			http.Error(w, "bad bag: manifest wrong", http.StatusBadRequest)
+		default:
+			http.Error(w, "no item reserved", http.StatusNotFound)
+		}
+	})
+	mux.HandleFunc("GET /items/{item}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("item") != "8" {
+			http.Error(w, "no item", http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"item":"8","home":"a","status":"held","payload":{"data/front.tif":"ab12"}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := Client{URL: srv.URL}
+
+	id, err := c.Reserve(10)
+	if err != nil || id != 8 {
+		t.Fatalf("Reserve(a) = %s, %v", id, err)
 	}
-	if again, _ := Reserve(root); again != id {
-		t.Errorf("after release, reserved %s, want %s again", again, id)
+	if _, err := c.Reserve(12); err == nil || !strings.Contains(err.Error(), "not in the register") {
+		t.Errorf("Reserve(c): %v", err)
 	}
-	makePhoto(t, root, 5)
-	if err := Release(root, 5); err == nil {
-		t.Error("released a complete photo")
+	rec, err := c.Deposit(8, strings.NewReader("the tar"))
+	if err != nil || rec.Status != Held || rec.Payload["data/front.tif"] != "ab12" || string(got) != "the tar" {
+		t.Errorf("Deposit(8) = %+v, %v; sent %q", rec, err, got)
 	}
-	if !Complete(root, 5) {
-		t.Error("complete photo gone")
+	_, err = c.Deposit(9, strings.NewReader("x"))
+	var ref *Refusal
+	if !errors.As(err, &ref) || ref.Status != "duplicate" || ref.DuplicateOf != 3 || ref.Home != 10 || ref.File != "data/front.tif" {
+		t.Errorf("Deposit(9) = %v, want a duplicate refusal naming item 3", err)
 	}
-	if err := Release(root, 9); err != nil {
-		t.Errorf("releasing what was never reserved: %v", err)
+	if _, err := c.Deposit(12, strings.NewReader("x")); !errors.As(err, &ref) || ref.Status != "conflict" {
+		t.Errorf("Deposit(c) = %v, want a conflict refusal", err)
+	}
+	if _, err := c.Deposit(13, strings.NewReader("x")); err == nil || errors.As(err, &ref) || !strings.Contains(err.Error(), "manifest wrong") {
+		t.Errorf("Deposit(d) = %v, want the service's complaint, not a refusal", err)
+	}
+	if rec, err := c.Receipt(8); err != nil || rec.Status != Held || rec.Home != 10 {
+		t.Errorf("Receipt(8) = %+v, %v", rec, err)
+	}
+	if _, err := c.Receipt(9); err == nil {
+		t.Error("Receipt(9) of an item never reserved")
+	}
+	srv.Close()
+	if _, err := c.Deposit(8, strings.NewReader("x")); err == nil || !strings.Contains(err.Error(), "life-weaver serve") {
+		t.Errorf("service down: %v", err)
 	}
 }

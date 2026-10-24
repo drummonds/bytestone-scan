@@ -88,21 +88,24 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 	h := a.Handler()
 	loc := act(t, a, h, "/batches", url.Values{"title": {"one"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
 	page(t, h, "/photos/0", `action="`+loc[1:]+`/reshape"`, arrow(1, "right 0.5"), arrow(1, "left -0.5"))
 
 	b, _ := batch.OpenLoad(a.Staging, loadKey(loc))
 	prints, _, _ := b.Found()
 	before := prints[0].Region
 	act(t, a, h, loc+"/reshape", url.Values{"move": {"1 right -0.5"}})
-	if s.Details != 2 {
-		t.Errorf("%d detail passes, want a rescan", s.Details)
+	if s.Details != 3 {
+		t.Errorf("%d detail passes, want a rescan of the fronts", s.Details)
 	}
+	act(t, a, h, loc+"/backs", nil)
 	prints, _, _ = b.Found()
 	if got, want := prints[0].Region.Bounds().X1, before.Bounds().X1-0.5; math.Abs(got-want) > 1e-9 {
 		t.Errorf("right edge %.2f, want %.2f", got, want)
 	}
 	page(t, h, loc, "Accept")
 
+	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
 	if strings.Contains(get(t, h, "/photos/0").Body.String(), `name="move"`) {
 		t.Error("arrows on an archived photo")

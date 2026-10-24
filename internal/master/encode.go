@@ -29,8 +29,9 @@ func (m *Image) Set(x, y, c int, v uint16) { m.Pix[(y*m.W+x)*3+c] = v }
 
 // Options are what a master records beside its pixels.
 type Options struct {
-	PPI int    // resolution, pixels per inch
-	XMP []byte // XMP packet to embed; none if empty
+	PPI   int    // resolution, pixels per inch
+	XMP   []byte // XMP packet to embed; none if empty
+	Depth int    // bits per sample: 16 (the default) for a front, 8 for a back
 }
 
 // stripBytes is the target uncompressed size of a strip.
@@ -57,9 +58,17 @@ func Encode(w io.Writer, img *Image, opts Options) error {
 	if img.W <= 0 || img.H <= 0 || len(img.Pix) != img.W*img.H*3 {
 		return fmt.Errorf("master: bad image %d × %d with %d samples", img.W, img.H, len(img.Pix))
 	}
+	depth := opts.Depth
+	if depth == 0 {
+		depth = 16
+	}
+	if depth != 8 && depth != 16 {
+		return fmt.Errorf("master: %d bits per sample, want 8 or 16", depth)
+	}
 	le := binary.LittleEndian
 
-	rowBytes := img.W * 6
+	bytesPerSample := depth / 8
+	rowBytes := img.W * 3 * bytesPerSample
 	rowsPerStrip := max(1, stripBytes/rowBytes)
 	var strips [][]byte
 	row := make([]byte, rowBytes)
@@ -69,6 +78,14 @@ func Encode(w io.Writer, img *Image, opts Options) error {
 		for y := y0; y < min(y0+rowsPerStrip, img.H); y++ {
 			s := img.Pix[y*img.W*3 : (y+1)*img.W*3]
 			for i, v := range s {
+				if depth == 8 {
+					b := uint8(v >> 8)
+					if i >= 3 {
+						b -= uint8(s[i-3] >> 8) // horizontal differencing, modulo 2^8
+					}
+					row[i] = b
+					continue
+				}
 				if i >= 3 {
 					v -= s[i-3] // horizontal differencing, modulo 2^16
 				}
@@ -107,7 +124,7 @@ func Encode(w io.Writer, img *Image, opts Options) error {
 	entries := []*ifdEntry{
 		{256, tLong, 1, longs(uint32(img.W))},
 		{257, tLong, 1, longs(uint32(img.H))},
-		{258, tShort, 3, shorts(16, 16, 16)},
+		{258, tShort, 3, shorts(uint16(depth), uint16(depth), uint16(depth))},
 		{259, tShort, 1, shorts(8)},
 		{262, tShort, 1, shorts(2)},
 		{273, tLong, n, nil}, // StripOffsets, filled in below

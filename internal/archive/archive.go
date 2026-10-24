@@ -1,176 +1,198 @@
-// Package archive keeps the archive of items, flat by id. A photo is
-// kept as a BagIt bag (RFC 8493) named by its id, built under <id>.partial
-// and renamed into place when complete, so a directory named by an id is
-// always a whole photo.
+// Package archive is the client of life-weaver's archive service, the
+// keeper of the bytestone archive: the register of people behind
+// i.bytestone.uk (life-weaver#23: GET /people and GET /people/{id}), and
+// the items in each person's collection (life-weaver#33: an item id is
+// reserved under its home person, its bag deposited, a receipt read).
+// The scanner never reads or writes the archive's tree.
 package archive
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
+	"net/http"
 	"sort"
 	"strings"
-	"time"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
-const partial = ".partial"
-
-// Info is what bag-info.txt records about a photo.
-type Info struct {
-	Batch       string
-	Load        int
-	Description string
-	Bagged      time.Time
+// Service is the archive service as the scanner uses it.
+type Service interface {
+	// People is everyone in the register, sorted by name; none is an error.
+	People() ([]Person, error)
+	// Person is the name of the person with id.
+	Person(id pid.ID) (string, error)
+	// Reserve takes the next item id, homed with the person.
+	Reserve(home pid.ID) (pid.ID, error)
+	// Deposit hands the item's bag, a tar of its directory, to the archive
+	// and returns its receipt: held, with the checksums it holds. A bag the
+	// archive will not take is a *Refusal; anything else is a failure to
+	// try again.
+	Deposit(item pid.ID, bag io.Reader) (Receipt, error)
+	// Receipt is the archive's record of the item: reserved, or held.
+	Receipt(item pid.ID) (Receipt, error)
+	// String names the service, for About.
+	String() string
 }
 
-type payload struct {
-	name string
-	sum  string
-	size int64
+// Person is one person in the register.
+type Person struct {
+	ID   pid.ID
+	Name string
 }
 
-// Photo is a photo being written to the archive.
-type Photo struct {
-	root  string
-	id    pid.ID
-	dir   string
-	files []payload
+// Status is where an item stands with the archive.
+type Status string
+
+const (
+	// Reserved: the id is given out for a home person; no bag is held yet.
+	Reserved Status = "reserved"
+	// Held: the bag is in the archive, every checksum verified.
+	Held Status = "held"
+)
+
+// Receipt is the archive's answer for an item.
+type Receipt struct {
+	Item   pid.ID `json:"item"`
+	Home   pid.ID `json:"home"`
+	Status Status `json:"status"`
+	// Payload is the held bag's manifest: path within the bag → sha256.
+	Payload map[string]string `json:"payload,omitempty"`
 }
 
-func dir(root string, id pid.ID) string { return filepath.Join(root, id.String()) }
-
-// Complete reports whether the photo id is in place.
-func Complete(root string, id pid.ID) bool {
-	fi, err := os.Stat(dir(root, id))
-	return err == nil && fi.IsDir()
+// Refusal is why the archive will not hold a bag: "duplicate", a picture
+// in it being held already as part of DuplicateOf (homed with Home), or
+// "conflict", the id holding a bag with other checksums.
+type Refusal struct {
+	Status      string `json:"status"`
+	DuplicateOf pid.ID `json:"duplicate_of,omitempty"`
+	Home        pid.ID `json:"home,omitempty"`
+	File        string `json:"file,omitempty"`
 }
 
-// Reserve claims the next photo id under root: one more than the highest
-// id of any photo, complete or unfinished. It returns 0 for an empty root.
-func Reserve(root string) (pid.ID, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return 0, err
+func (r *Refusal) Error() string {
+	if r.Status == "duplicate" {
+		return fmt.Sprintf("refused as a duplicate: %s is held already as part of item %s (home %s)", r.File, r.DuplicateOf, r.Home)
 	}
-	next := pid.ID(0)
+	return "refused: the item holds a bag with other contents"
+}
+
+// Client is the archive service at URL.
+type Client struct{ URL string }
+
+// entry is what the service lists a person as, the fields the scanner uses.
+type entry struct {
+	ID   pid.ID `json:"id"`
+	Name string `json:"name"`
+}
+
+func (c Client) String() string { return c.URL }
+
+// People asks the service for every entry.
+func (c Client) People() ([]Person, error) {
+	var entries []entry
+	if err := c.call(http.MethodGet, "/people", nil, &entries); err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no people in the register at %s", c.URL)
+	}
+	people := make([]Person, 0, len(entries))
 	for _, e := range entries {
-		name := strings.TrimSuffix(e.Name(), partial)
-		id, err := pid.Parse(name)
-		if err != nil || id.String() != name || !e.IsDir() {
-			continue
-		}
-		next = max(next, id+1)
+		people = append(people, Person{e.ID, e.Name})
 	}
-	for {
-		err := os.Mkdir(dir(root, next)+partial, 0o755)
-		if err == nil {
-			return next, nil
-		}
-		if !errors.Is(err, os.ErrExist) {
-			return 0, err
-		}
-		next++
-	}
+	sort.SliceStable(people, func(i, j int) bool { return people[i].Name < people[j].Name })
+	return people, nil
 }
 
-// Create starts the photo id, discarding anything left by an unfinished
-// attempt. It refuses if the photo is already complete.
-func Create(root string, id pid.ID) (*Photo, error) {
-	if Complete(root, id) {
-		return nil, fmt.Errorf("photo %s is already complete", id)
+// Person asks the service for the person's record.
+func (c Client) Person(id pid.ID) (string, error) {
+	var e entry
+	err := c.call(http.MethodGet, "/people/"+id.String(), nil, &e)
+	if errors.Is(err, errNotFound) {
+		return "", fmt.Errorf("person %s is not in the register at %s", id, c.URL)
 	}
-	d := dir(root, id) + partial
-	if err := os.RemoveAll(d); err != nil {
-		return nil, err
+	if err != nil {
+		return "", fmt.Errorf("person %s: %w", id, err)
 	}
-	if err := os.MkdirAll(filepath.Join(d, "data"), 0o755); err != nil {
-		return nil, err
-	}
-	return &Photo{root: root, id: id, dir: d}, nil
+	return e.Name, nil
 }
 
-// Add writes one payload file, data/<name>, with write.
-func (p *Photo) Add(name string, write func(io.Writer) error) error {
-	if name == "" || strings.ContainsAny(name, `/\`) || strings.HasPrefix(name, ".") {
-		return fmt.Errorf("photo %s: bad payload name %q", p.id, name)
+// Reserve asks the service for the next item id under the person.
+func (c Client) Reserve(home pid.ID) (pid.ID, error) {
+	var r Receipt
+	err := c.call(http.MethodPost, "/people/"+home.String()+"/items", nil, &r)
+	if errors.Is(err, errNotFound) {
+		return 0, fmt.Errorf("person %s is not in the register at %s", home, c.URL)
 	}
-	f, err := os.Create(filepath.Join(p.dir, "data", name))
+	if err != nil {
+		return 0, fmt.Errorf("reserving an item for %s: %w", home, err)
+	}
+	return r.Item, nil
+}
+
+// Deposit puts the bag to the service.
+func (c Client) Deposit(item pid.ID, bag io.Reader) (Receipt, error) {
+	var r Receipt
+	err := c.call(http.MethodPut, "/items/"+item.String(), bag, &r)
+	if errors.Is(err, errNotFound) {
+		return r, fmt.Errorf("item %s is not reserved at %s", item, c.URL)
+	}
+	if err != nil {
+		return r, fmt.Errorf("depositing item %s: %w", item, err)
+	}
+	return r, nil
+}
+
+// Receipt asks the service where the item stands.
+func (c Client) Receipt(item pid.ID) (Receipt, error) {
+	var r Receipt
+	err := c.call(http.MethodGet, "/items/"+item.String(), nil, &r)
+	if errors.Is(err, errNotFound) {
+		return r, fmt.Errorf("item %s is not known at %s", item, c.URL)
+	}
+	if err != nil {
+		return r, fmt.Errorf("item %s: %w", item, err)
+	}
+	return r, nil
+}
+
+var errNotFound = errors.New("not found")
+
+// call sends body (if any) to path with method and decodes the JSON the
+// service answers into v. A 409 is returned as the *Refusal in its body.
+func (c Client) call(method, path string, body io.Reader, v any) error {
+	req, err := http.NewRequest(method, strings.TrimRight(c.URL, "/")+path, body)
 	if err != nil {
 		return err
 	}
-	h := sha256.New()
-	cw := &counter{w: io.MultiWriter(f, h)}
-	if err := write(cw); err != nil {
-		f.Close()
-		return fmt.Errorf("photo %s: writing %s: %w", p.id, name, err)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/x-tar")
 	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("the archive service at %s is not answering (start it with life-weaver serve, or task serve in life-weaver): %w", c.URL, err)
 	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	p.files = append(p.files, payload{name, hex.EncodeToString(h.Sum(nil)), cw.n})
-	return nil
-}
-
-// Close writes the bag's tag files and puts the photo in place.
-func (p *Photo) Close(info Info) error {
-	sort.Slice(p.files, func(i, j int) bool { return p.files[i].name < p.files[j].name })
-	var manifest strings.Builder
-	var octets int64
-	for _, f := range p.files {
-		fmt.Fprintf(&manifest, "%s  data/%s\n", f.sum, f.name)
-		octets += f.size
-	}
-	bagInfo := fmt.Sprintf("Bagging-Date: %s\nExternal-Identifier: %s\nExternal-Description: %s\nBytestone-Batch: %s\nBytestone-Load: %d\nPayload-Oxum: %d.%d\n",
-		info.Bagged.Format("2006-01-02"), p.id, oneLine(info.Description), info.Batch, info.Load, octets, len(p.files))
-	tags := []struct{ name, body string }{
-		{"bagit.txt", "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n"},
-		{"bag-info.txt", bagInfo},
-		{"manifest-sha256.txt", manifest.String()},
-	}
-	var tagManifest strings.Builder
-	for _, t := range tags {
-		if err := os.WriteFile(filepath.Join(p.dir, t.name), []byte(t.body), 0o644); err != nil {
-			return err
+	defer func() { _ = resp.Body.Close() }()
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusCreated:
+		if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+			return fmt.Errorf("the archive service at %s: %s: %w", c.URL, path, err)
 		}
-		h := sha256.Sum256([]byte(t.body))
-		fmt.Fprintf(&tagManifest, "%s  %s\n", hex.EncodeToString(h[:]), t.name)
+		return nil
+	case http.StatusNotFound:
+		return errNotFound
+	case http.StatusConflict:
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		var r Refusal
+		if err := json.NewDecoder(bytes.NewReader(raw)).Decode(&r); err != nil || r.Status == "" {
+			return fmt.Errorf("the archive service at %s: %s: %s", c.URL, resp.Status, strings.TrimSpace(string(raw)))
+		}
+		return &r
 	}
-	if err := os.WriteFile(filepath.Join(p.dir, "tagmanifest-sha256.txt"), []byte(tagManifest.String()), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(p.dir, dir(p.root, p.id))
-}
-
-// oneLine keeps a tag value on one line, as bag-info.txt requires.
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
-
-type counter struct {
-	w io.Writer
-	n int64
-}
-
-func (c *counter) Write(p []byte) (int, error) {
-	n, err := c.w.Write(p)
-	c.n += int64(n)
-	return n, err
-}
-
-// Release gives up a reservation, and anything an unfinished photo left
-// under it, so the id can be reserved again. A complete photo is never
-// released.
-func Release(root string, id pid.ID) error {
-	if Complete(root, id) {
-		return fmt.Errorf("photo %s is complete and cannot be released", id)
-	}
-	return os.RemoveAll(dir(root, id) + partial)
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+	return fmt.Errorf("the archive service at %s: %s: %s", c.URL, resp.Status, strings.TrimSpace(string(raw)))
 }
