@@ -468,31 +468,33 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 
 // outcome is how a finished load's photos stand with the archive.
 func (a *App) outcome(l *batch.Load) string {
-	_, ids, _ := l.Found()
-	var held, pending int
-	var rejected []string
-	for _, id := range ids {
-		d, _ := batch.DepositOf(a.Staging, id)
-		switch {
-		case d == nil:
-			pending++
-		case d.Status == "duplicate":
-			rejected = append(rejected, fmt.Sprintf(`<a href="photos/%s">%s</a>`, id, id))
-		default:
-			held++
+	o, err := l.Outcome()
+	if err != nil {
+		return `<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
+	}
+	msg, class := outcomeText(o)
+	return `<div class="notification ` + class + `">Done: ` + msg + `.</div>`
+}
+
+// outcomeText says how photos stand with the archive, the rejected ones
+// linked, and the Bulma class that colours it: success unless any is
+// rejected or not there yet.
+func outcomeText(o batch.Outcome) (msg, class string) {
+	msg = fmt.Sprintf("%d %s held by the archive", o.Held, plural(o.Held, "photo", "photos"))
+	class = "is-success"
+	if len(o.Rejected) > 0 {
+		links := make([]string, len(o.Rejected))
+		for i, id := range o.Rejected {
+			links[i] = fmt.Sprintf(`<a href="photos/%s">%s</a>`, id, id)
 		}
-	}
-	msg := fmt.Sprintf("Done: %d %s held by the archive", held, plural(held, "photo", "photos"))
-	class := "is-success"
-	if len(rejected) > 0 {
-		msg += fmt.Sprintf("; %d rejected as a duplicate: %s", len(rejected), strings.Join(rejected, ", "))
+		msg += fmt.Sprintf("; %d rejected as a duplicate: %s", len(o.Rejected), strings.Join(links, ", "))
 		class = "is-warning"
 	}
-	if pending > 0 {
-		msg += fmt.Sprintf("; %d not yet deposited", pending)
+	if o.Pending > 0 {
+		msg += fmt.Sprintf("; %d not yet deposited", o.Pending)
 		class = "is-warning"
 	}
-	return `<div class="notification ` + class + `">` + msg + `.</div>`
+	return msg, class
 }
 
 func plural(n int, one, many string) string {
