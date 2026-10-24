@@ -3,6 +3,8 @@ package batch
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"image"
 	"math"
@@ -22,6 +24,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
 var reg = register.Register{Dir: "testdata/people"}
@@ -150,6 +153,22 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 	if rec = run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
 		t.Fatalf("after confirm: %s, want waiting for the quality check", rec.Status)
 	}
+	// Story 003: each master is developed before the quality check
+	for i := range scanner.Prints {
+		id := pid.ID(i)
+		r, err := rendition.Load(b.Renditions(id))
+		if err != nil {
+			t.Fatalf("photo %s: %v", id, err)
+		}
+		tif, _ := os.ReadFile(filepath.Join(b.Dir(), "masters", id.String()+".tif"))
+		sum := sha256.Sum256(tif)
+		if r.Version != rendition.Version || r.Master != hex.EncodeToString(sum[:]) || r.Display.W == 0 {
+			t.Errorf("photo %s recipe %+v, want version %d of master %x", id, r, rendition.Version, sum)
+		}
+		if _, err := os.Stat(filepath.Join(b.Renditions(id), "display.jpg")); err != nil {
+			t.Error(err)
+		}
+	}
 	if err := b.Accept(); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +177,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		t.Fatalf("after accept: %s, want completed", rec.Status)
 	}
 	steps := runnertest.Steps(t, store, runnertest.OnlyRun(t, store).ID)
-	for _, name := range []string{"describe", "preview", "find prints", "confirm", "detail pass", "check quality", "package"} {
+	for _, name := range []string{"describe", "preview", "find prints", "confirm", "detail pass", "develop", "check quality", "package"} {
 		if steps[name] != wf.StatusCompleted {
 			t.Errorf("step %s: %s", name, steps[name])
 		}
@@ -390,9 +409,31 @@ func TestRedoTheDetailPassAtAnotherPPI(t *testing.T) {
 	if again.ScanPPI != 1200 {
 		t.Errorf("batch scan ppi %d, want 1200", again.ScanPPI)
 	}
-	photo, _, err := FindPhoto(root, 0)
+	photo, path, err := FindPhoto(root, 0)
 	if err != nil || photo.Front.ScanPPI != 1200 || photo.Front.MasterPPI != 1200 || photo.Front.Warning != "" {
 		t.Errorf("photo after the rescan: %+v, %v", photo.Front, err)
+	}
+	// Story 003: the renditions are of the new master
+	tif, _ := os.ReadFile(path)
+	sum := sha256.Sum256(tif)
+	if r, err := rendition.Load(b.Renditions(0)); err != nil || r.Master != hex.EncodeToString(sum[:]) {
+		t.Errorf("recipe after the rescan: %+v, %v; want master %x", r, err, sum)
+	}
+}
+
+// Story 003, "Develop": going back to the detail pass clears this version's
+// renditions; an older version's stay on record.
+func TestRedoTheDetailPassClearsTheRenditions(t *testing.T) {
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	root, b, store := prepared(t, scanner)
+	old := filepath.Join(root, "renditions", "0", "0")
+	os.MkdirAll(old, 0o755)
+	redo(t, b, store, "detail pass", 0)
+	if _, err := os.Stat(b.Renditions(0)); err == nil {
+		t.Error("renditions of this version survive a redo of the detail pass")
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Error("an older version's renditions were cleared")
 	}
 }
 

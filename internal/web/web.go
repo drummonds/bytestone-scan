@@ -13,6 +13,7 @@ import (
 	"image/png"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/quality"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
 const (
@@ -163,6 +165,18 @@ func (a *App) Handler() http.Handler {
 			png.Encode(w, quality.Crop(img, image.Pt(x, y), min(max(size, 32), 1024)))
 		}
 	})
+	// a photo's renditions: one directory per recipe version, served as files
+	mux.HandleFunc("GET /photos/{id}/renditions/{version}/{file}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := pid.Parse(r.PathValue("id"))
+		version, verr := strconv.Atoi(r.PathValue("version"))
+		file := r.PathValue("file")
+		if err != nil || verr != nil || (file != "display.jpg" && file != "thumb.jpg" && file != "tiny.jpg") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store") // remade when the master is
+		http.ServeFile(w, r, filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(version), file))
+	})
 	mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) { render(w, "About", a.about()) })
 	a.actions(mux, render)
 	return mux
@@ -288,6 +302,18 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="photos/%s/crop.png?x=%d&amp;y=%d" alt="Master pixels at 1:1">
 <figcaption class="help">1:1, master pixels, %d × %d centred on %d, %d.</figcaption></figure>`, id, mx, my, CropSize, CropSize, mx, my))
 	}
+	// the rendition: what people will see, made from the master by the
+	// current recipe
+	if rec, err := rendition.Load(filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(rendition.Version))); err == nil {
+		c.HTML(fmt.Sprintf(`<h2 class="title is-5 mt-5">Rendition</h2>
+<figure><img src="photos/%s/renditions/%d/display.jpg" alt="The rendition" style="max-width:100%%;height:auto">
+<figcaption class="help">Rendition, recipe %d, %d × %d px: cropped to the print, turned %.1f° (the region said %.1f°), levels %d–%d.</figcaption></figure>`,
+			id, rec.Version, rec.Version, rec.Display.W, rec.Display.H, -rec.Skew, rec.RegionSkew, rec.Black, rec.White))
+		for _, f := range rec.Flags {
+			c.HTML(`<p class="has-text-danger">` + html.EscapeString(f) + `</p>`)
+		}
+	}
+
 	// the master's corners show its edges at full resolution: whether the
 	// print is cut, or the margin too generous
 	const corner = 256
