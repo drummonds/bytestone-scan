@@ -503,3 +503,32 @@ func TestNewBatchStartsAt2400PPI(t *testing.T) {
 		t.Errorf("form returned with an error: %d, 1200 ppi not kept:\n%s", w.Code, w.Body)
 	}
 }
+
+// #66: the describe form takes a caption first, what the picture shows;
+// the photo page shows it under the picture as its title, the scan's
+// description beneath. Blank means no caption and the page is as before.
+func TestACaptionTitlesThePhoto(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"War photos"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	body := get(t, h, "/photos/0").Body.String()
+	if c, d := strings.Index(body, `name="caption"`), strings.Index(body, `name="date"`); c < 0 || c > d {
+		t.Errorf("the caption field is not first on the form: caption at %d, date at %d", c, d)
+	}
+	if strings.Contains(body, "photo-caption") {
+		t.Error("a photo without a caption shows one")
+	}
+	act(t, a, h, "/photos/0/describe", url.Values{"caption": {"Air Raid Wardens"}, "skip": {"1"}})
+	body = get(t, h, "/photos/0").Body.String()
+	if c := strings.Index(body, `class="photo-caption`); c < 0 || strings.Index(body[c:], "Air Raid Wardens") < 0 || strings.Index(body[c:], "Air Raid Wardens") > strings.Index(body[c:], "War photos") {
+		t.Errorf("the caption is not shown as the title with the description beneath:\n%s", body)
+	}
+	page(t, h, "/photos/0", `value="Air Raid Wardens"`)
+	act(t, a, h, "/photos/0/describe", url.Values{"caption": {"  "}, "date": {"1952"}})
+	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "photo-caption") {
+		t.Error("a caption cleared to blank is still shown")
+	}
+}
