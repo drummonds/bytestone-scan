@@ -14,5 +14,5 @@ Read the global instructions first; this file adds only what is repo-specific.
   touch the scanner: they use a fake that serves image files.
 - Images never go in the repo. The archive is written under the staging root
   (`staging/` locally, gitignored) until the NAS is mounted.
-- Person ids are life-weaver's (`../life-weaver/data/people/<id>.yaml`),
+- Person ids are life-weaver's (`people/<id>.yaml` in the bytestone archive, mirrored at `~/.local/share/bytestone/archive`),
   lower-case Crockford base32.
