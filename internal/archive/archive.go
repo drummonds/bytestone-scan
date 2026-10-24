@@ -27,11 +27,11 @@ type Service interface {
 	Person(id pid.ID) (string, error)
 	// Reserve takes the next item id, homed with the person.
 	Reserve(home pid.ID) (pid.ID, error)
-	// Deposit hands the item's bag, a tar of its directory, to the archive
-	// and returns its receipt: held, with the checksums it holds. A bag the
-	// archive will not take is a *Refusal; anything else is a failure to
-	// try again.
-	Deposit(item pid.ID, bag io.Reader) (Receipt, error)
+	// Deposit hands the item's deposit, a tar of bag/ and
+	// renditions/<recipe>/, to the archive and returns its receipt: held,
+	// with the checksums of the bag it holds. A deposit the archive will
+	// not take is a *Refusal; anything else is a failure to try again.
+	Deposit(item pid.ID, deposit io.Reader) (Receipt, error)
 	// Receipt is the archive's record of the item: reserved, or held.
 	Receipt(item pid.ID) (Receipt, error)
 	// String names the service, for About.
@@ -64,8 +64,10 @@ type Receipt struct {
 }
 
 // Refusal is why the archive will not hold a bag: "duplicate", a picture
-// in it being held already as part of DuplicateOf (homed with Home), or
-// "conflict", the id holding a bag with other checksums.
+// in it being held already as part of DuplicateOf (homed with Home);
+// "conflict", the id holding a bag with other checksums; or "renditions",
+// the deposit lacking File, a rendition, or its recipe naming a master
+// that is not in the bag.
 type Refusal struct {
 	Status      string `json:"status"`
 	DuplicateOf pid.ID `json:"duplicate_of,omitempty"`
@@ -74,8 +76,11 @@ type Refusal struct {
 }
 
 func (r *Refusal) Error() string {
-	if r.Status == "duplicate" {
+	switch r.Status {
+	case "duplicate":
 		return fmt.Sprintf("refused as a duplicate: %s is held already as part of item %s (home %s)", r.File, r.DuplicateOf, r.Home)
+	case "renditions":
+		return fmt.Sprintf("refused for its renditions: %s is missing or not this bag's", r.File)
 	}
 	return "refused: the item holds a bag with other contents"
 }
@@ -134,10 +139,10 @@ func (c Client) Reserve(home pid.ID) (pid.ID, error) {
 	return r.Item, nil
 }
 
-// Deposit puts the bag to the service.
-func (c Client) Deposit(item pid.ID, bag io.Reader) (Receipt, error) {
+// Deposit puts the photo's deposit to the service.
+func (c Client) Deposit(item pid.ID, deposit io.Reader) (Receipt, error) {
 	var r Receipt
-	err := c.call(http.MethodPut, "/items/"+item.String(), bag, &r)
+	err := c.call(http.MethodPut, "/items/"+item.String(), deposit, &r)
 	if errors.Is(err, errNotFound) {
 		return r, fmt.Errorf("item %s is not reserved at %s", item, c.URL)
 	}
@@ -185,10 +190,10 @@ func (c Client) call(method, path string, body io.Reader, v any) error {
 		return nil
 	case http.StatusNotFound:
 		return errNotFound
-	case http.StatusConflict:
+	case http.StatusConflict, http.StatusBadRequest:
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		var r Refusal
-		if err := json.NewDecoder(bytes.NewReader(raw)).Decode(&r); err != nil || r.Status == "" {
+		if err := json.NewDecoder(bytes.NewReader(raw)).Decode(&r); err != nil || r.Status == "" || (resp.StatusCode == http.StatusBadRequest && r.Status != "renditions") {
 			return fmt.Errorf("the archive service at %s: %s: %s", c.URL, resp.Status, strings.TrimSpace(string(raw)))
 		}
 		return &r

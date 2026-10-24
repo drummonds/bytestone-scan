@@ -30,6 +30,9 @@ type Fake struct {
 	RejectAs map[pid.ID]pid.ID
 	// Down makes every call fail, as a service not running does.
 	Down bool
+	// Renditions are the rendition files each held item's deposit carried,
+	// relative to renditions/: <recipe>/display.jpg and so on.
+	Renditions map[pid.ID][]string
 
 	mu    sync.Mutex
 	items map[pid.ID]*item
@@ -42,7 +45,7 @@ type item struct {
 
 // New is a fake over people, item ids counting from 0.
 func New(people ...archive.Person) *Fake {
-	return &Fake{Register: people, RejectAs: map[pid.ID]pid.ID{}, items: map[pid.ID]*item{}}
+	return &Fake{Register: people, RejectAs: map[pid.ID]pid.ID{}, Renditions: map[pid.ID][]string{}, items: map[pid.ID]*item{}}
 }
 
 // Example is a fake over two people, Ada (a) and Aaron (e) Example.
@@ -116,12 +119,15 @@ func receipt(id pid.ID, it *item) archive.Receipt {
 	return r
 }
 
-// Deposit takes the bag as the real service would: it must be a tar of a
-// whole bag whose manifest is right and whose External-Identifier is the
-// item; the same bag twice is one item; other contents under a held id
-// are a conflict; a picture held already under another item is a
-// duplicate.
-func (f *Fake) Deposit(id pid.ID, bag io.Reader) (archive.Receipt, error) {
+// Deposit takes the deposit as the real service would: it must be a tar
+// of bag/, a bag of this item with its manifest right, and
+// renditions/<recipe>/, the front's display.jpg, thumb.jpg, tiny.jpg and
+// recipe.yaml, the back's under back/ when the bag has a back.tif, each
+// recipe naming a master in the bag. Then life-weaver's deposit table: a
+// bag held already is held again if its manifest is the same, a conflict
+// if not; a deposit without its renditions is refused; a picture held
+// under another item is a duplicate; otherwise it is held.
+func (f *Fake) Deposit(id pid.ID, deposit io.Reader) (archive.Receipt, error) {
 	if f.Down {
 		return archive.Receipt{}, errDown
 	}
@@ -131,7 +137,7 @@ func (f *Fake) Deposit(id pid.ID, bag io.Reader) (archive.Receipt, error) {
 	if it == nil {
 		return archive.Receipt{}, fmt.Errorf("item %s is not reserved (a stand-in)", id)
 	}
-	payload, err := readBag(id, bag)
+	payload, renditions, err := readDeposit(id, deposit)
 	if err != nil {
 		return archive.Receipt{}, err
 	}
@@ -140,6 +146,9 @@ func (f *Fake) Deposit(id pid.ID, bag io.Reader) (archive.Receipt, error) {
 			return archive.Receipt{}, &archive.Refusal{Status: "conflict"}
 		}
 		return receipt(id, it), nil
+	}
+	if missing := renditionsMissing(payload, renditions); missing != "" {
+		return archive.Receipt{}, &archive.Refusal{Status: "renditions", File: missing}
 	}
 	if of, ok := f.RejectAs[id]; ok {
 		home := it.home
@@ -156,7 +165,48 @@ func (f *Fake) Deposit(id pid.ID, bag io.Reader) (archive.Receipt, error) {
 		}
 	}
 	it.payload = payload
+	names := make([]string, 0, len(renditions))
+	for name := range renditions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	f.Renditions[id] = names
 	return receipt(id, it), nil
+}
+
+// renditionsMissing is the first rendition file a deposit lacks, or whose
+// recipe names a master not in the bag; "" when it has them all. The
+// renditions are at one recipe: <recipe>/<file>, the back's under back/.
+func renditionsMissing(payload, renditions map[string]string) string {
+	recipe := ""
+	for name := range renditions {
+		recipe, _, _ = strings.Cut(name, "/")
+		break
+	}
+	if recipe == "" {
+		return "renditions/"
+	}
+	sides := []string{""}
+	if _, ok := payload["data/back.tif"]; ok {
+		sides = append(sides, "back/")
+	}
+	for _, side := range sides {
+		for _, file := range []string{"display.jpg", "thumb.jpg", "tiny.jpg", "recipe.yaml"} {
+			name := recipe + "/" + side + file
+			body, ok := renditions[name]
+			if !ok {
+				return "renditions/" + name
+			}
+			if file == "recipe.yaml" {
+				_, master, _ := strings.Cut(body, "master:")
+				master, _, _ = strings.Cut(master, "\n")
+				if !hasSum(payload, strings.TrimSpace(master)) {
+					return "renditions/" + name
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func isPicture(name string) bool {
@@ -188,10 +238,11 @@ func same(a, b map[string]string) bool {
 	return true
 }
 
-// readBag reads the tar, verifies the manifest over its payload and that
-// the bag is the item's, and returns the payload manifest.
-func readBag(id pid.ID, r io.Reader) (map[string]string, error) {
-	sums := map[string]string{}
+// readDeposit reads the tar, verifies the bag's manifest over its payload
+// and that the bag is the item's, and returns the payload manifest and
+// the rendition files, relative to renditions/, with their contents.
+func readDeposit(id pid.ID, r io.Reader) (map[string]string, map[string]string, error) {
+	sums, renditions := map[string]string{}, map[string]string{}
 	var manifest, info string
 	tr := tar.NewReader(r)
 	for {
@@ -200,46 +251,48 @@ func readBag(id pid.ID, r io.Reader) (map[string]string, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("bad bag: not a tar: %w", err)
+			return nil, nil, fmt.Errorf("bad bag: not a tar: %w", err)
 		}
 		name := path.Clean(h.Name)
 		if strings.HasPrefix(name, "..") || path.IsAbs(name) {
-			return nil, fmt.Errorf("bad bag: %s is outside the bag", h.Name)
+			return nil, nil, fmt.Errorf("bad bag: %s is outside the deposit", h.Name)
 		}
 		body, err := io.ReadAll(tr)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		switch {
-		case name == "manifest-sha256.txt":
+		case name == "bag/manifest-sha256.txt":
 			manifest = string(body)
-		case name == "bag-info.txt":
+		case name == "bag/bag-info.txt":
 			info = string(body)
-		case strings.HasPrefix(name, "data/"):
+		case strings.HasPrefix(name, "bag/data/"):
 			sum := sha256.Sum256(body)
-			sums[name] = hex.EncodeToString(sum[:])
+			sums[strings.TrimPrefix(name, "bag/")] = hex.EncodeToString(sum[:])
+		case strings.HasPrefix(name, "renditions/"):
+			renditions[strings.TrimPrefix(name, "renditions/")] = string(body)
 		}
 	}
 	if manifest == "" {
-		return nil, errors.New("bad bag: no manifest")
+		return nil, nil, errors.New("bad bag: no manifest under bag/")
 	}
 	if !strings.Contains(info, "External-Identifier: "+id.String()+"\n") {
-		return nil, fmt.Errorf("bad bag: not identified as item %s", id)
+		return nil, nil, fmt.Errorf("bad bag: not identified as item %s", id)
 	}
 	payload := map[string]string{}
 	sc := bufio.NewScanner(strings.NewReader(manifest))
 	for sc.Scan() {
 		fields := strings.Fields(sc.Text())
 		if len(fields) != 2 {
-			return nil, errors.New("bad bag: a manifest line is not <sum> <path>")
+			return nil, nil, errors.New("bad bag: a manifest line is not <sum> <path>")
 		}
 		if sums[fields[1]] != strings.ToLower(fields[0]) {
-			return nil, fmt.Errorf("bad bag: %s does not match its manifest", fields[1])
+			return nil, nil, fmt.Errorf("bad bag: %s does not match its manifest", fields[1])
 		}
 		payload[fields[1]] = strings.ToLower(fields[0])
 	}
 	if len(payload) == 0 || len(payload) != len(sums) {
-		return nil, errors.New("bad bag: the manifest and the payload differ")
+		return nil, nil, errors.New("bad bag: the manifest and the payload differ")
 	}
-	return payload, nil
+	return payload, renditions, nil
 }

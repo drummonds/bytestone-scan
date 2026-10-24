@@ -14,9 +14,32 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 )
 
-// bagOf is a tar of a bag holding the payload files given, its manifest
-// right.
+// bagOf is a deposit of a bag holding the payload files given, its
+// manifest right, with the renditions a photo's deposit carries (story
+// 055): the front's at recipe 1 and, when the bag has a back.tif, the
+// back's under back/.
 func bagOf(id string, files map[string]string) *bytes.Buffer {
+	renditions := map[string]string{}
+	for _, side := range []string{"", "back/"} {
+		master := "front.tif"
+		if side != "" {
+			if _, ok := files["back.tif"]; !ok {
+				continue
+			}
+			master = "back.tif"
+		}
+		sum := sha256.Sum256([]byte(files[master]))
+		renditions[side+"recipe.yaml"] = "version: 1\nmaster: " + hex.EncodeToString(sum[:]) + "\n"
+		for _, n := range []string{"display.jpg", "thumb.jpg", "tiny.jpg"} {
+			renditions[side+n] = "jpeg of " + master
+		}
+	}
+	return depositOf(id, files, renditions)
+}
+
+// depositOf is a deposit of the bag's payload files and the renditions
+// given, under renditions/1/.
+func depositOf(id string, files, renditions map[string]string) *bytes.Buffer {
 	var manifest strings.Builder
 	names := make([]string, 0, len(files))
 	for n := range files {
@@ -33,11 +56,14 @@ func bagOf(id string, files map[string]string) *bytes.Buffer {
 		_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg})
 		_, _ = tw.Write([]byte(body))
 	}
-	write("bagit.txt", "BagIt-Version: 1.0\n")
-	write("bag-info.txt", "External-Identifier: "+id+"\n")
-	write("manifest-sha256.txt", manifest.String())
+	write("bag/bagit.txt", "BagIt-Version: 1.0\n")
+	write("bag/bag-info.txt", "External-Identifier: "+id+"\n")
+	write("bag/manifest-sha256.txt", manifest.String())
 	for _, n := range names {
-		write("data/"+n, files[n])
+		write("bag/data/"+n, files[n])
+	}
+	for n, body := range renditions {
+		write("renditions/1/"+n, body)
 	}
 	_ = tw.Close()
 	return &buf
@@ -94,8 +120,61 @@ func TestTheFakeFollowsTheDepositTable(t *testing.T) {
 	if _, err := f.Deposit(three, bagOf(three.String(), map[string]string{"front.tif": "new"})); !errors.As(err, &ref) || ref.DuplicateOf != one {
 		t.Errorf("RejectAs: %v", err)
 	}
+	// story 055: a deposit carries the renditions, or is refused
+	four, _ := f.Reserve(14)
+	pixels := map[string]string{"front.tif": "four", "back.tif": "four's back", "photo.yaml": "batch: z"}
+	whole := bagOf(four.String(), pixels)
+	withSum := func(master string) string {
+		sum := sha256.Sum256([]byte(master))
+		return "version: 1\nmaster: " + hex.EncodeToString(sum[:]) + "\n"
+	}
+	for name, dep := range map[string]*bytes.Buffer{
+		"no renditions":           depositOf(four.String(), pixels, nil),
+		"no thumb":                depositOf(four.String(), pixels, map[string]string{"display.jpg": "j", "tiny.jpg": "j", "recipe.yaml": withSum("four"), "back/display.jpg": "j", "back/thumb.jpg": "j", "back/tiny.jpg": "j", "back/recipe.yaml": withSum("four's back")}),
+		"no back":                 depositOf(four.String(), pixels, map[string]string{"display.jpg": "j", "thumb.jpg": "j", "tiny.jpg": "j", "recipe.yaml": withSum("four")}),
+		"another master's recipe": depositOf(four.String(), pixels, map[string]string{"display.jpg": "j", "thumb.jpg": "j", "tiny.jpg": "j", "recipe.yaml": withSum("other"), "back/display.jpg": "j", "back/thumb.jpg": "j", "back/tiny.jpg": "j", "back/recipe.yaml": withSum("four's back")}),
+	} {
+		if _, err := f.Deposit(four, dep); !errors.As(err, &ref) || ref.Status != "renditions" || ref.File == "" {
+			t.Errorf("%s: %v, want a renditions refusal naming the file", name, err)
+		}
+	}
+	if rec, _ := f.Receipt(four); rec.Status != archive.Reserved {
+		t.Errorf("after a renditions refusal the id is still reserved: %+v", rec)
+	}
+	if rec, err := f.Deposit(four, whole); err != nil || rec.Status != archive.Held || len(rec.Payload) != 3 {
+		t.Fatalf("whole: %+v %v", rec, err)
+	}
+	if got := f.Renditions[four]; len(got) != 8 {
+		t.Errorf("renditions placed for %s: %v, want the front's four and the back's four", four, got)
+	}
+	// held already with the same manifest: held, whatever the renditions
+	if rec, err := f.Deposit(four, depositOf(four.String(), pixels, nil)); err != nil || rec.Status != archive.Held {
+		t.Errorf("the same bag again without renditions: %+v %v, want held", rec, err)
+	}
+	// a bag at the root of the tar is not a deposit
+	if _, err := f.Deposit(four, oldBag(four.String(), pixels)); err == nil || errors.As(err, &ref) {
+		t.Errorf("a bare bag: %v, want a plain error", err)
+	}
 	f.Down = true
 	if _, err := f.Reserve(10); err == nil {
 		t.Error("the fake answered while down")
 	}
+}
+
+// oldBag is the story 041 deposit: the bag at the root of the tar.
+func oldBag(id string, files map[string]string) *bytes.Buffer {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	write := func(name, body string) {
+		_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg})
+		_, _ = tw.Write([]byte(body))
+	}
+	write("bagit.txt", "BagIt-Version: 1.0\n")
+	write("bag-info.txt", "External-Identifier: "+id+"\n")
+	write("manifest-sha256.txt", "")
+	for n, body := range files {
+		write("data/"+n, body)
+	}
+	_ = tw.Close()
+	return &buf
 }
