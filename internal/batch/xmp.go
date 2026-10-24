@@ -41,6 +41,7 @@ func xmp(p Photo, side string) []byte {
     xmlns:xmp="http://ns.adobe.com/xap/1.0/"
     xmlns:bs="https://bytestone.uk/ns/scan/1.0/">
    <dc:identifier>` + p.ID.String() + `</dc:identifier>
+   <dc:rights>` + esc(p.Credit) + `</dc:rights>
    <xmp:CreateDate>` + p.Front.Captured.UTC().Format(time.RFC3339) + `</xmp:CreateDate>
    <xmp:CreatorTool>bytestone-scan</xmp:CreatorTool>
    <bs:side>` + side + `</bs:side>

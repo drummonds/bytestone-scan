@@ -56,9 +56,9 @@ func TestABatchFromStartToTheArchive(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	a := live(t, s)
 	h := a.Handler()
-	page(t, h, "/batches/new", `name="description"`, `name="person"`, `name="ppi"`)
+	page(t, h, "/batches/new", `name="description"`, `name="person"`, `name="ppi"`, `name="provenance"`, `name="credit"`)
 
-	loc := act(t, a, h, "/batches", url.Values{"description": {"SS Bonita"}, "person": {"a"}, "ppi": {"600"}})
+	loc := act(t, a, h, "/batches", url.Values{"description": {"SS Bonita"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	if loc != "/batches/20261020-1" {
 		t.Fatalf("new batch went to %q", loc)
 	}
@@ -91,7 +91,7 @@ func TestRetryAfterAFailure(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}, FailDetails: 1}
 	a := live(t, s)
 	h := a.Handler()
-	loc := act(t, a, h, "/batches", url.Values{"description": {"SS Bonita"}, "person": {"a"}, "ppi": {"600"}})
+	loc := act(t, a, h, "/batches", url.Values{"description": {"SS Bonita"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
 	page(t, h, loc, "USB disconnected", "Retry")
 	act(t, a, h, loc+"/retry", nil)
@@ -102,10 +102,11 @@ func TestNewBatchRefusals(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
 	h := a.Handler()
 	for _, f := range []url.Values{
-		{"description": {""}, "person": {"a"}, "ppi": {"600"}},
-		{"description": {"x"}, "person": {"c"}, "ppi": {"600"}},
-		{"description": {"x"}, "person": {""}, "ppi": {"600"}},
-		{"description": {"x"}, "person": {"a"}, "ppi": {"300"}},
+		{"description": {""}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}},
+		{"description": {"x"}, "person": {"c"}, "ppi": {"600"}, "credit": {"© Example"}},
+		{"description": {"x"}, "person": {""}, "ppi": {"600"}, "credit": {"© Example"}},
+		{"description": {"x"}, "person": {"a"}, "ppi": {"300"}, "credit": {"© Example"}},
+		{"description": {"x"}, "person": {"a"}, "ppi": {"600"}, "credit": {" "}},
 	} {
 		if w := post(t, h, "/batches", f); w.Code != http.StatusUnprocessableEntity {
 			t.Errorf("new batch %v: %d, want 422", f, w.Code)
@@ -133,11 +134,11 @@ func TestOneStepAtATime(t *testing.T) {
 	a := live(t, sc.Scanner)
 	a.Scanner = sc
 	h := a.Handler()
-	w := post(t, h, "/batches", url.Values{"description": {"first"}, "person": {"a"}, "ppi": {"600"}})
+	w := post(t, h, "/batches", url.Values{"description": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	loc := w.Header().Get("Location")
 	page(t, h, loc, `http-equiv="refresh"`, "Working")
 
-	if w := post(t, h, "/batches", url.Values{"description": {"second"}, "person": {"a"}, "ppi": {"600"}}); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "busy") {
+	if w := post(t, h, "/batches", url.Values{"description": {"second"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}}); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "busy") {
 		t.Errorf("second batch while scanning: %d %s", w.Code, w.Body)
 	}
 	if _, err := os.Stat(filepath.Join(a.Staging, "batches", "20261020-2")); !os.IsNotExist(err) {
@@ -153,7 +154,7 @@ func TestCancelABatchFromTheQueue(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	a := live(t, s)
 	h := a.Handler()
-	act(t, a, h, "/batches", url.Values{"description": {"abandoned"}, "person": {"a"}, "ppi": {"600"}})
+	act(t, a, h, "/batches", url.Values{"description": {"abandoned"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	runs, _ := a.Store.ListRuns(context.Background(), wf.RunFilter{})
 	if len(runs) != 1 || runs[0].Status != wf.StatusWaiting {
 		t.Fatalf("runs %+v, want one batch waiting at confirm", runs)
@@ -189,14 +190,34 @@ func TestNewBatchChoosesTheHomePersonByName(t *testing.T) {
 	if !strings.Contains(body, "d.yaml") {
 		t.Error("the record with no name is not warned of")
 	}
-	if w := post(t, h, "/batches", url.Values{"description": {"x"}, "person": {""}, "ppi": {"600"}}); !strings.Contains(w.Body.String(), "choose the home person") {
+	if w := post(t, h, "/batches", url.Values{"description": {"x"}, "person": {""}, "ppi": {"600"}, "credit": {"© Example"}}); !strings.Contains(w.Body.String(), "choose the home person") {
 		t.Errorf("no person chosen: want it asked for:\n%s", w.Body)
 	}
 	// a refused batch offers the people again, with its choice kept
-	w := post(t, h, "/batches", url.Values{"description": {""}, "person": {"b"}, "ppi": {"600"}})
+	w := post(t, h, "/batches", url.Values{"description": {""}, "person": {"b"}, "ppi": {"600"}, "credit": {"© Example"}})
 	if !strings.Contains(w.Body.String(), `<option value="b" selected>Zak Example (b)</option>`) {
 		t.Errorf("refused form does not keep the person chosen:\n%s", w.Body)
 	}
+}
+
+// Story 014: provenance and credit are typed once per shoebox, not per
+// load of the bed.
+func TestNewBatchIsPrefilledFromTheLatestBatch(t *testing.T) {
+	a := live(t, &batchtest.Scanner{})
+	h := a.Handler()
+	body := get(t, h, "/batches/new").Body.String()
+	if !strings.Contains(body, `name="provenance" value=""`) || !strings.Contains(body, `name="credit" value=""`) {
+		t.Errorf("first batch: want blank provenance and credit:\n%s", body)
+	}
+	act(t, a, h, "/batches", url.Values{"description": {"one"}, "person": {"a"}, "ppi": {"600"},
+		"provenance": {"Aunt Jean's shoebox"}, "credit": {"Drummond family collection, CC BY 4.0"}})
+	page(t, h, "/batches/new", `name="provenance" value="Aunt Jean&#39;s shoebox"`, `name="credit" value="Drummond family collection, CC BY 4.0"`)
+	// a refused form keeps what was typed, not the latest batch's
+	w := post(t, h, "/batches", url.Values{"description": {""}, "person": {"a"}, "ppi": {"600"}, "provenance": {"box two"}, "credit": {"© Other"}})
+	if !strings.Contains(w.Body.String(), `name="provenance" value="box two"`) || !strings.Contains(w.Body.String(), `name="credit" value="© Other"`) {
+		t.Errorf("refused form does not keep what was typed:\n%s", w.Body)
+	}
+	page(t, h, "/batches/20261020-1", "Provenance", "Aunt Jean&#39;s shoebox", "Credit", "Drummond family collection, CC BY 4.0")
 }
 
 func TestNewBatchWithNoPeopleIsRefused(t *testing.T) {
