@@ -13,3 +13,4 @@
 11. Colour profile from an IT8.7/2 target
 12. Film and slides on the transparency unit
 13. Faces and identifications
+14. JXL renditions alongside JPEG: a `display.jxl` beside each `display.jpg`, offered with the JPEG as the fallback; not mandatory until browser support has spread. Needs a JXL encoder (libjxl via cgo, or `cjxl`) and a line in the format statement
