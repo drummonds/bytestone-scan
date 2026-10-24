@@ -22,8 +22,9 @@ import (
 
 // Scanner is the 4990.
 type Scanner struct {
-	Command string // scanimage, or a stand-in; "scanimage" if empty
-	Device  string // SANE device; found from scanimage -L if empty
+	Command string    // scanimage, or a stand-in; "scanimage" if empty
+	Device  string    // SANE device; found from scanimage -L if empty
+	Trace   io.Writer // each pass's command line is written here, if set
 
 	once sync.Once
 	dev  string
@@ -74,7 +75,11 @@ func (s *Scanner) args(dev string, extra ...string) []string {
 	for _, f := range fixed {
 		args = append(args, strings.Fields(f)...)
 	}
-	return append(args, extra...)
+	args = append(args, extra...)
+	if s.Trace != nil {
+		fmt.Fprintln(s.Trace, s.command(), strings.Join(args, " "))
+	}
+	return args
 }
 
 // Preview scans the whole bed at 150 ppi.
