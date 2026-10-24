@@ -286,6 +286,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		return l.Redo(r.Context(), a.Store, "fronts", ppi)
 	})
 	act("backs", func(r *http.Request, l *batch.Load) error { return l.Turned() })
+	act("no-backs", func(r *http.Request, l *batch.Load) error { return l.NoBacks() })
 	act("rescan-backs", func(r *http.Request, l *batch.Load) error {
 		return l.Redo(r.Context(), a.Store, "backs", 0)
 	})
@@ -406,8 +407,8 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
 			button("confirm", "Confirm and scan", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
 	case waiting == "backs":
-		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then scan the backs.</div><div class="buttons">` +
-			button("backs", "Scan the backs", "is-primary") + button("prints", "Back to the prints", "") + `</div>`)
+		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then scan the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
+			button("backs", "Scan the backs", "is-primary") + button("no-backs", "No backs", "") + button("prints", "Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
 		c.HTML(`<div class="notification is-warning">Check each photo's quality, front and back, then accept or send the load back.</div><div class="buttons">` +
 			button("accept", "Accept and archive", "is-primary") +

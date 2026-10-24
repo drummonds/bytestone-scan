@@ -316,6 +316,8 @@ func (a *App) loadPage(r *http.Request, l *batch.Load) string {
 				if rec.Back.Review {
 					back = `<span class="tag is-danger">review</span> ` + html.EscapeString(rec.Back.Warning)
 				}
+			} else if l.BacksSkipped() {
+				back = "none"
 			}
 		}
 		review := ""

@@ -362,3 +362,24 @@ func TestTheBacksOfALoad(t *testing.T) {
 		t.Errorf("%d passes, want 3", s.Details)
 	}
 }
+
+// Prints with blank backs: the operator skips the backs and the load goes
+// on to the quality check without a back.
+func TestSkippingTheBacks(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"blank backs"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	page(t, h, loc, "Scan the backs", "No backs")
+	act(t, a, h, loc+"/no-backs", nil)
+	page(t, h, loc, "Accept and archive", "Rescan the backs", "<td>none</td>")
+	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "renditions/1/back/") {
+		t.Error("a back shown for a photo without one")
+	}
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "Done")
+	if s.Details != 1 || s.Previews != 1 {
+		t.Errorf("%d passes, %d previews; want 1 and 1", s.Details, s.Previews)
+	}
+}
