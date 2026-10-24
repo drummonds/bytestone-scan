@@ -1,9 +1,9 @@
 # Batch lifecycle: a batch of loads, deposited, closed, purged
 
-**Status:** agreed 2026-10-24 and filed: #38 batch of loads, #39 backs,
-#40 describe each photo, #41 deposit and receipt, #42 close and purge;
-life-weaver#33 is the deposit API. All aimed at the next release, in that
-order after #37
+**Status:** built, 2026-10-25: #38 batch of loads, #39 backs, #40
+describe each photo, #41 deposit and receipt, #42 close and purge, all in
+the release after v0.11.0; life-weaver#33 is the deposit API. Left for
+life-weaver: perceptual dedupe (its #33, second slice) and albums
 
 ## Why
 

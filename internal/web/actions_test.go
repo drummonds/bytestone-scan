@@ -319,7 +319,7 @@ func TestABatchOfLoads(t *testing.T) {
 	if loc := act(t, a, h, "/batches/20261020-1/finish", nil); loc != "/batches/20261020-1" {
 		t.Errorf("finish went to %s", loc)
 	}
-	page(t, h, "/batches/20261020-1", "Finished")
+	page(t, h, "/batches/20261020-1", "Closed")
 	if w := get(t, h, "/batches/20261020-1/loads/new"); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("a finished batch offered another load: %d", w.Code)
 	}
@@ -446,4 +446,28 @@ func TestPhotosAreDepositedWithTheArchive(t *testing.T) {
 		t.Errorf("the archive does not hold %s: %+v", one, rec)
 	}
 	page(t, h, "/about", "Archive service")
+}
+
+// Story 042: the batch page says when the batch closed and when its work
+// files were purged.
+func TestTheBatchPageSaysClosedAndPurged(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"closing"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	describeAll(t, a, h, loc)
+	act(t, a, h, loc+"/accept", nil)
+	act(t, a, h, "/batches/20261020-1/finish", nil)
+	page(t, h, "/batches/20261020-1", "Closed", "held by the archive", "30 days")
+	p := &batch.Purger{Root: a.Staging, Now: func() time.Time { return time.Now().Add(31 * 24 * time.Hour) }, Grace: 30 * 24 * time.Hour,
+		Threshold: 1, Free: func(string) (uint64, error) { return 1 << 40, nil }}
+	if purged, err := p.Sweep(); err != nil || len(purged) != 1 {
+		t.Fatalf("sweep: %v %v", purged, err)
+	}
+	page(t, h, "/batches/20261020-1", "Purged")
+	if w := get(t, h, loc); w.Code != http.StatusNotFound {
+		t.Errorf("a purged load's page: %d", w.Code)
+	}
 }

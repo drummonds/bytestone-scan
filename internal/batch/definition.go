@@ -23,11 +23,12 @@ var Definitions = []wf.Definition{
 			Description: "Capture prints as archival masters, each archived as a photo in the collection of the person it belongs to.",
 		},
 		Description: "One sitting of scanning: one home person, provenance, credit and scan ppi, over as many loads of the bed as the shoebox needs. " +
-			"Each load is a workflow of its own under the batch; the batch waits until the operator finishes scanning and every load is through.",
+			"Each load is a workflow of its own under the batch; the batch waits until the operator finishes scanning and every load is through, then closes.",
 		InstanceKey: "batch id",
 		Steps: []wf.Step{
 			{Name: "describe", Description: "The batch's title, home person, provenance, credit and scan ppi are recorded", Source: src},
-			{Name: "loads", Description: "A load of the bed at a time, each started by the operator; waits until scanning is finished and every load is through", Source: src, Child: LoadWorkflow, Many: true},
+			{Name: "loads", Description: "A load of the bed at a time, each started by the operator; waits until scanning is finished and every load is through: every photo held by the archive or rejected by it", Source: src, Child: LoadWorkflow, Many: true},
+			{Name: "close", Description: "The batch closes: its work files are redundant, and are purged 30 days later, or sooner when staging is short of space", Source: src},
 		},
 	},
 	{

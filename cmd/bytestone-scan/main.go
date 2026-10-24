@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "git.bytestone.uk/hum3/go-postgres"
@@ -101,6 +102,21 @@ func serve(ctx context.Context, addr, staging, service string, s batch.Scanner) 
 	go func() {
 		<-ctx.Done()
 		srv.Close()
+	}()
+	// closed batches' work files are purged at startup and daily
+	go func() {
+		for {
+			if purged, err := batch.Purge(staging); err != nil {
+				fmt.Fprintln(os.Stderr, "bytestone-scan: purge:", err)
+			} else if len(purged) > 0 {
+				fmt.Println("bytestone-scan: purged the work files of batch", strings.Join(purged, ", "))
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(24 * time.Hour):
+			}
+		}
 	}()
 	fmt.Printf("bytestone-scan: http://%s/ (staging %s, %s)\n", addr, staging, s.Name())
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
