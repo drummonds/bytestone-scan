@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-25
+
+ - The scan page shows the preview, and the backs preview, cut to the rectangle covering every region with 10 mm round it once the prints are confirmed, so the photos and the quality check are not below a page of blank bed; the whole bed is shown until confirm, when a region may be dragged anywhere on it. The stored preview.png is untouched; Finding prints is no longer fooled by the lid's shading: the background is a field, its level estimated per row and per column of the bed from the bed outside the prints, so a shaded band of bed is not taken for a print; a pixel is print when it differs from the background at its own place by over 14 levels, and the mask is opened by 1 mm first, so a hot pixel or a dust grain joins nothing; A caption for each photo: the describe form takes it first, above the date, one line saying what the picture shows in the archivist's own words ("Air Raid Wardens"); kept in photo.yaml as `caption` beside the scan's `description`, carried into the deposit, and shown on the photo page under the picture as its title with the description beneath. Not a claim; blank means no caption, and "Nothing known" keeps it; A fresh batch form starts at 2400 ppi, so fronts are scanned at 2400 and averaged 4 × 4 down to the 600 ppi archival TIFF (2 × 2 to 1200 for prints under 6 × 4 inches) unless the operator picks otherwise; a form returned with an error keeps what was picked
+
+### Added
+
+- A caption for each photo: the describe form takes it first, above the date, one line saying what the picture shows in the archivist's own words ("Air Raid Wardens"); kept in photo.yaml as `caption` beside the scan's `description`, carried into the deposit, and shown on the photo page under the picture as its title with the description beneath. Not a claim; blank means no caption, and "Nothing known" keeps it (#66)
+
+### Changed
+
+- The scan page shows the preview, and the backs preview, cut to the rectangle covering every region with 10 mm round it once the prints are confirmed, so the photos and the quality check are not below a page of blank bed; the whole bed is shown until confirm, when a region may be dragged anywhere on it. The stored preview.png is untouched (#64)
+- A fresh batch form starts at 2400 ppi, so fronts are scanned at 2400 and averaged 4 × 4 down to the 600 ppi archival TIFF (2 × 2 to 1200 for prints under 6 × 4 inches) unless the operator picks otherwise; a form returned with an error keeps what was picked (#67)
+
+### Fixed
+
+- Finding prints is no longer fooled by the lid's shading: the background is a field, its level estimated per row and per column of the bed from the bed outside the prints, so a shaded band of bed is not taken for a print; a pixel is print when it differs from the background at its own place by over 14 levels, and the mask is opened by 1 mm first, so a hot pixel or a dust grain joins nothing (#65)
+
 ## [0.14.0] - 2026-10-24
 
  - Delete a batch that will never close: a Delete button on the batch page, confirmed on its own page, cancels the batch's, its scans' and its photos' runs and removes its directory, bags and renditions from staging; refused while the archive holds a photo of the batch (finish scanning and it closes and purges), and not offered once closed. A deleted batch's id is not given out again. The new Batches page (the navbar's Queue is the work queue) lists every batch and where it stands, then the stale data no readable batch claims: batch directories in a layout this build does not read, and id directories under `bags/` and `renditions/` with no batch behind them and no answer from the archive; each deletable the same way. Nothing the archive holds is touched; Load becomes Scan: one placing of prints on the bed is a scan, in the glossary, the format statement, the screens ("Scan 1 of batch X", "Do one more scan", a Scans table on the batch page) and the code: the type `Scan`, pages at `batches/<id>/scans/<n>`, the staging directory `scans/`, the workflow type `scan` (was `scan_load`) with its stage `scans` on the batch workflow, `scan:` in photo.yaml, `bs:scan` in the master's XMP and `Bytestone-Scan` in bag-info.txt. Nothing is migrated: `scan_load` runs in the workflow database and `loads/` directories in staging are not read, since every batch so far is a test
