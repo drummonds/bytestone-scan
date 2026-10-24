@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-24
+
+ - Go 1.27.3; gobank-workflow 0.11.0 (child runs, an empty registry), go-postgres 0.11.0; `go fix` runs with fmt
+
+### Changed
+
+- Go 1.27.3; gobank-workflow 0.11.0 (child runs, an empty registry), go-postgres 0.11.0; `go fix` runs with fmt (#28)
+
 ## [0.7.0] - 2026-10-24
 
  - Each workflow definition's page shows its picture, drawn from the registry by `task diagrams` and embedded; The Workflows page lists only the workflows the scanner runs, not the engine registry's end of day and release
