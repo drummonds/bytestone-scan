@@ -124,3 +124,26 @@ func TestABatchClosesAndIsPurged(t *testing.T) {
 		t.Errorf("the default purger: %v %v", dur, err)
 	}
 }
+
+// Story 057: a batch's outcome is how its photos stand with the archive:
+// how many it holds, which it rejected as duplicates, how many are not
+// there yet.
+func TestABatchsOutcomeCountsItsPhotos(t *testing.T) {
+	ctx := context.Background()
+	root, store := t.TempDir(), wf.NewMemStore()
+	a, al := through(t, root, store, 7)
+	_, ids, _ := al.Found()
+	a.Finish(ctx, store)
+	o, err := a.Outcome()
+	if err != nil || o.Held != 1 || o.Pending != 0 || len(o.Rejected) != 1 || o.Rejected[0] != ids[0] {
+		t.Errorf("outcome %+v, %v; want 1 held, %s rejected", o, err, ids[0])
+	}
+	open := describe(t, root) // an open batch, its prints confirmed and ids reserved
+	scanner := twoSided()
+	run(t, open, store, scanner)
+	open.Confirm()
+	run(t, open, store, scanner)
+	if o, err := open.Sitting().Outcome(); err != nil || o.Held != 0 || len(o.Rejected) != 0 || o.Pending != 2 {
+		t.Errorf("an open batch's outcome %+v, %v; want 2 pending", o, err)
+	}
+}

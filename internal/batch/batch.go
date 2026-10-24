@@ -1017,6 +1017,57 @@ func DepositOf(root string, id pid.ID) (*Deposit, error) {
 	return &d, nil
 }
 
+// Outcome is how photos stand with the archive: how many it holds, which
+// it rejected as duplicates, and how many are not there yet.
+type Outcome struct {
+	Held     int
+	Rejected []pid.ID
+	Pending  int
+}
+
+// Outcome is how the load's photos stand with the archive.
+func (l *Load) Outcome() (Outcome, error) {
+	var o Outcome
+	_, ids, err := l.Found()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return o, err
+	}
+	for _, id := range ids {
+		d, err := DepositOf(l.root, id)
+		switch {
+		case err != nil:
+			return o, err
+		case d == nil:
+			o.Pending++
+		case d.Status == "duplicate":
+			o.Rejected = append(o.Rejected, id)
+		default:
+			o.Held++
+		}
+	}
+	return o, nil
+}
+
+// Outcome is how the batch's photos stand with the archive, over all its
+// loads.
+func (b *Batch) Outcome() (Outcome, error) {
+	var o Outcome
+	loads, err := b.Loads()
+	if err != nil {
+		return o, err
+	}
+	for _, l := range loads {
+		lo, err := l.Outcome()
+		if err != nil {
+			return o, err
+		}
+		o.Held += lo.Held
+		o.Rejected = append(o.Rejected, lo.Rejected...)
+		o.Pending += lo.Pending
+	}
+	return o, nil
+}
+
 func (b *Load) depositPath(id pid.ID) string {
 	return filepath.Join(b.bags(), id.String()+".deposit.yaml")
 }
