@@ -16,4 +16,6 @@ Read the global instructions first; this file adds only what is repo-specific.
   (`staging/` locally, gitignored) until the NAS is mounted.
 - Person ids are life-weaver's, lower-case Crockford base32. The register
   is read through the archive service's API (`life-weaver serve`, `-archive`
-  URL), never from the archive's tree; tests use `registertest.List`.
+  URL), never from the archive's tree; tests use `archivetest`. The
+  scanner's `internal/archive` is that service's client; `internal/bag`
+  writes the BagIt bags.

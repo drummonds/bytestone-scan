@@ -24,10 +24,10 @@ import (
 	_ "git.bytestone.uk/hum3/go-postgres"
 	"git.bytestone.uk/hum3/gobank-workflow/sqlstore"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/epson"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/recorded"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/web"
 )
 
@@ -48,14 +48,14 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		addr := fs.String("addr", "localhost:8080", "address to listen on")
-		archive := fs.String("archive", "http://localhost:8321", "the archive service (life-weaver serve), where the register of people is read")
+		service := fs.String("archive", "http://localhost:8321", "the archive service (life-weaver serve): the register of people, item ids and deposits")
 		name := fs.String("recorded", "", "run on the recording of this print under <staging>/fixtures instead of the scanner")
 		fs.Parse(os.Args[2:])
 		var s batch.Scanner = &epson.Scanner{Device: *device}
 		if *name != "" {
 			s = &recorded.Scanner{Dir: filepath.Join(*staging, "fixtures", *name)}
 		}
-		err = serve(ctx, *addr, *staging, *archive, s)
+		err = serve(ctx, *addr, *staging, *service, s)
 	case "capture":
 		name := fs.String("print", "", "the recording's name under <staging>/fixtures (required)")
 		side := fs.String("side", "front", "the side of the print lying face down: front or back")
@@ -77,7 +77,7 @@ func main() {
 }
 
 // serve runs the web UI until interrupted.
-func serve(ctx context.Context, addr, staging, archive string, s batch.Scanner) error {
+func serve(ctx context.Context, addr, staging, service string, s batch.Scanner) error {
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func serve(ctx context.Context, addr, staging, archive string, s batch.Scanner) 
 		Staging: staging,
 		Store:   store,
 		Scanner: s,
-		People:  register.Archive{URL: archive},
+		People:  archive.Archive{URL: service},
 		Now:     time.Now,
 	}
 	srv := &http.Server{Addr: addr, Handler: app.Handler()}

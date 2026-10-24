@@ -2,7 +2,7 @@
 // behind i.bytestone.uk: who a batch's home person can be. It is read
 // through the archive service's API (life-weaver#23: GET /people and
 // GET /people/{id}), never from the archive's tree.
-package register
+package archive
 
 import (
 	"encoding/json"

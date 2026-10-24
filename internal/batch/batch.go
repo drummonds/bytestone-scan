@@ -32,12 +32,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/detailpass"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/plan"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
@@ -223,7 +223,7 @@ type found struct {
 
 // Describe records a new batch under root, refusing a description the
 // story's rules reject.
-func Describe(root string, reg register.Register, d Description, now time.Time) (*Batch, error) {
+func Describe(root string, reg archive.Register, d Description, now time.Time) (*Batch, error) {
 	text, provenance, credit := oneLine(d.Text), oneLine(d.Provenance), oneLine(d.Credit)
 	if text == "" {
 		return nil, errors.New("a batch needs a title")
@@ -616,7 +616,7 @@ func (b *Load) BacksSkipped() bool {
 // what was said before, until the photo is archived. Saying nothing still
 // describes it.
 func (b *Load) DescribePhoto(id pid.ID, d PhotoDescription) error {
-	if archive.Complete(b.archive(), id) {
+	if bag.Complete(b.archive(), id) {
 		return fmt.Errorf("photo %s is archived; its record is no longer the load's to change", id)
 	}
 	var photo Photo
@@ -647,7 +647,7 @@ func (b *Load) Redo(ctx context.Context, store wf.Store, from string, ppi int) e
 	}
 	_, ids, _ := b.Found()
 	for _, id := range ids {
-		if archive.Complete(b.archive(), id) {
+		if bag.Complete(b.archive(), id) {
 			return fmt.Errorf("load %s: photo %s is archived and final; nothing before packaging can be redone", b.Key(), id)
 		}
 	}
@@ -694,7 +694,7 @@ func (b *Load) Redo(ctx context.Context, store wf.Store, from string, ppi int) e
 	if cleared["find prints"] {
 		if _, ids, err := b.Found(); err == nil {
 			for _, id := range ids {
-				if err := archive.Release(b.archive(), id); err != nil {
+				if err := bag.Release(b.archive(), id); err != nil {
 					return err
 				}
 			}
@@ -931,7 +931,7 @@ func (b *Load) reserveIDs(context.Context) error {
 		return err
 	}
 	for len(f.IDs) < len(f.Prints) {
-		id, err := archive.Reserve(b.archive())
+		id, err := bag.Reserve(b.archive())
 		if err != nil {
 			return err
 		}
@@ -1134,8 +1134,8 @@ func (b *Load) develop(id pid.ID, side string) error {
 // pack archives the photo's masters and photo.yaml, unless it is complete
 // already, then clears them from the load.
 func (b *Load) pack(id pid.ID, now func() time.Time) error {
-	if !archive.Complete(b.archive(), id) {
-		ph, err := archive.Create(b.archive(), id)
+	if !bag.Complete(b.archive(), id) {
+		ph, err := bag.Create(b.archive(), id)
 		if err != nil {
 			return err
 		}
@@ -1147,7 +1147,7 @@ func (b *Load) pack(id pid.ID, now func() time.Time) error {
 				return err
 			}
 		}
-		if err := ph.Close(archive.Info{Batch: b.Batch, Load: b.N, Description: b.Description, Bagged: now()}); err != nil {
+		if err := ph.Close(bag.Info{Batch: b.Batch, Load: b.N, Description: b.Description, Bagged: now()}); err != nil {
 			return err
 		}
 	}

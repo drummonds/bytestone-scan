@@ -1,4 +1,4 @@
-package register
+package archive
 
 import (
 	"net/http"

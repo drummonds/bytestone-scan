@@ -15,11 +15,11 @@ import (
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/detailpass"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 )
 
 var now = time.Date(2026, 10, 23, 10, 0, 0, 0, time.UTC)
@@ -195,7 +195,7 @@ func TestClosingEarlyStopsTheReplay(t *testing.T) {
 func TestABatchRunsOnTheRecording(t *testing.T) {
 	_, dir := one(t)
 	root := t.TempDir()
-	reg := registertest.Example
+	reg := archivetest.Example
 	sitting, err := batch.Describe(root, reg, batch.Description{Text: "recorded", Person: 10, ScanPPI: 600, Credit: "Example family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)

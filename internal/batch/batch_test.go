@@ -19,15 +19,15 @@ import (
 	"golang.org/x/image/tiff"
 	"gopkg.in/yaml.v3"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
-var reg = registertest.Example
+var reg = archivetest.Example
 
 var now = time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
 
@@ -205,7 +205,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 	arc := filepath.Join(root, "archive")
 	for i, p := range scanner.Prints {
 		id := pid.ID(i)
-		if !archive.Complete(arc, id) {
+		if !bag.Complete(arc, id) {
 			t.Fatalf("photo %s not complete", id)
 		}
 		f, err := os.Open(filepath.Join(arc, id.String(), "data", "front.tif"))
@@ -267,7 +267,7 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	if _, err := b.Run(context.Background(), store, scanner, clock, nil); err == nil || !strings.Contains(err.Error(), "USB") {
 		t.Fatalf("failed detail pass: error %v", err)
 	}
-	if archive.Complete(filepath.Join(root, "archive"), 0) {
+	if bag.Complete(filepath.Join(root, "archive"), 0) {
 		t.Error("photo archived after a failed detail pass")
 	}
 	scanned(t, b, store, scanner)
@@ -277,7 +277,7 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	if scanner.Previews != 2 || scanner.Details != 3 {
 		t.Errorf("previews %d, details %d; want 2 and 3", scanner.Previews, scanner.Details)
 	}
-	if !archive.Complete(filepath.Join(root, "archive"), 0) {
+	if !bag.Complete(filepath.Join(root, "archive"), 0) {
 		t.Error("photo not archived after the retry")
 	}
 }
@@ -292,7 +292,7 @@ func TestScannerExitingBadlyFailsTheDetailPass(t *testing.T) {
 	if _, err := b.Run(context.Background(), store, scanner, clock, nil); err == nil || !strings.Contains(err.Error(), "exit status 9") {
 		t.Errorf("error %v, want the scanner's", err)
 	}
-	if archive.Complete(filepath.Join(root, "archive"), 0) {
+	if bag.Complete(filepath.Join(root, "archive"), 0) {
 		t.Error("photo archived from a scan that failed")
 	}
 }

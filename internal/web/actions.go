@@ -14,10 +14,10 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/lofigui"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 )
 
 // worker runs one load's step at a time in the background: there is one
@@ -160,7 +160,7 @@ func (a *App) prefilled() entered {
 	return e
 }
 
-func personOptions(people []register.Person, selected string) string {
+func personOptions(people []archive.Person, selected string) string {
 	var s strings.Builder
 	s.WriteString(`<option value="">Choose…</option>`)
 	for _, p := range people {

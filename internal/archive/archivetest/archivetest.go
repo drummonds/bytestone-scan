@@ -1,28 +1,28 @@
-// Package registertest is a stand-in register for tests of batches and
+// Package archivetest is a stand-in archive service for tests of batches and
 // what is built on them: a fixed list of people, no archive service.
-package registertest
+package archivetest
 
 import (
 	"fmt"
 	"sort"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 )
 
 // List is a register of these people and no others.
-type List []register.Person
+type List []archive.Person
 
 // Example is the people the fixtures used to hold: Ada (a) and Aaron (e).
 var Example = List{{ID: 10, Name: "Ada Example"}, {ID: 14, Name: "Aaron Example"}}
 
 // People is the list sorted by name; an empty list is an error, as an
 // empty register is.
-func (l List) People() ([]register.Person, error) {
+func (l List) People() ([]archive.Person, error) {
 	if len(l) == 0 {
 		return nil, fmt.Errorf("no people in the register %s", l)
 	}
-	people := append([]register.Person(nil), l...)
+	people := append([]archive.Person(nil), l...)
 	sort.SliceStable(people, func(i, j int) bool { return people[i].Name < people[j].Name })
 	return people, nil
 }

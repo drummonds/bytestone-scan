@@ -25,11 +25,11 @@ import (
 	"git.bytestone.uk/hum3/lofigui"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/quality"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
@@ -44,7 +44,7 @@ type App struct {
 	Staging string
 	Store   wf.Store
 	Scanner batch.Scanner
-	People  register.Register
+	People  archive.Register
 	Now     func() time.Time
 
 	mu     sync.Mutex // the last master decoded, since a page and its images all want it
@@ -520,7 +520,7 @@ func (a *App) describeSection(id pid.ID, p batch.Photo) string {
 	}
 	var b strings.Builder
 	b.WriteString(`<h2 class="title is-6 mt-4">What is known</h2>`)
-	if archive.Complete(filepath.Join(a.Staging, "archive"), id) {
+	if bag.Complete(filepath.Join(a.Staging, "archive"), id) {
 		if len(p.Claims) == 0 {
 			b.WriteString(`<p class="help">Nothing known when the photo was described.</p>`)
 		}

@@ -13,10 +13,10 @@ import (
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 )
 
 // scanned is a staging root holding one batch whose one load of two
@@ -25,7 +25,7 @@ func scanned(t *testing.T) (*App, *batch.Load) {
 	t.Helper()
 	root := t.TempDir()
 	now := time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
-	sitting, err := batch.Describe(root, registertest.Example,
+	sitting, err := batch.Describe(root, archivetest.Example,
 		batch.Description{Text: "SS Bonita & crew", Person: 10, ScanPPI: 600, Provenance: "a shoebox", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)

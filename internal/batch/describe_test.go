@@ -10,7 +10,7 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/runnertest"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 )
 
 // Story 040: before a photo is archived the operator describes it: the
@@ -59,7 +59,7 @@ func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 		t.Fatalf("load: %s %s", rec.Status, rec.Error)
 	}
 	arc := filepath.Join(root, "archive")
-	if !archive.Complete(arc, 0) || archive.Complete(arc, 1) {
+	if !bag.Complete(arc, 0) || bag.Complete(arc, 1) {
 		t.Fatal("the described photo should be archived, the other not")
 	}
 	if pr := photoRun(t, store, 1); runnertest.Steps(t, store, pr.ID)["describe"] != wf.StatusWaiting {
@@ -80,7 +80,7 @@ func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(t, b, store, scanner)
-	if !archive.Complete(arc, 1) {
+	if !bag.Complete(arc, 1) {
 		t.Error("the skipped photo was not archived")
 	}
 	raw, _ = os.ReadFile(filepath.Join(arc, "1", "data", "photo.yaml"))

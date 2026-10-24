@@ -16,11 +16,11 @@ import (
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 )
 
 func live(t *testing.T, s *batchtest.Scanner) *App {
@@ -29,7 +29,7 @@ func live(t *testing.T, s *batchtest.Scanner) *App {
 		Staging: t.TempDir(),
 		Store:   wf.NewMemStore(),
 		Scanner: s,
-		People:  registertest.Example,
+		People:  archivetest.Example,
 		Now:     func() time.Time { return time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC) },
 	}
 }
@@ -86,7 +86,7 @@ func TestABatchFromStartToTheArchive(t *testing.T) {
 
 	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
-	if !archive.Complete(filepath.Join(a.Staging, "archive"), 0) || !archive.Complete(filepath.Join(a.Staging, "archive"), 1) {
+	if !bag.Complete(filepath.Join(a.Staging, "archive"), 0) || !bag.Complete(filepath.Join(a.Staging, "archive"), 1) {
 		t.Error("photos not archived after accept")
 	}
 	page(t, h, loc, "Done")
@@ -193,7 +193,7 @@ func TestNewBatchSaysTheScanIsAveragedDownToTheMaster(t *testing.T) {
 
 func TestNewBatchChoosesTheHomePersonByName(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
-	a.People = registertest.List{{ID: 11, Name: "Zak Example"}, {ID: 10, Name: "Ada Example"}}
+	a.People = archivetest.List{{ID: 11, Name: "Zak Example"}, {ID: 10, Name: "Ada Example"}}
 	h := a.Handler()
 	body := get(t, h, "/batches/new").Body.String()
 	ada := strings.Index(body, `<option value="a">Ada Example (a)</option>`)
@@ -233,7 +233,7 @@ func TestNewBatchIsPrefilledFromTheLatestBatch(t *testing.T) {
 
 func TestNewBatchWithNoPeopleIsRefused(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
-	a.People = registertest.List{}
+	a.People = archivetest.List{}
 	w := get(t, a.Handler(), "/batches/new")
 	if body := w.Body.String(); !strings.Contains(body, a.People.String()) || strings.Contains(body, "<form") {
 		t.Errorf("new batch with no people: want the register named and no form:\n%s", body)

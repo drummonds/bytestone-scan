@@ -2,7 +2,7 @@
 // kept as a BagIt bag (RFC 8493) named by its id, built under <id>.partial
 // and renamed into place when complete, so a directory named by an id is
 // always a whole photo.
-package archive
+package bag
 
 import (
 	"crypto/sha256"
