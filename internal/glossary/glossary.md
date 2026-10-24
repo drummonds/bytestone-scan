@@ -27,3 +27,6 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Deposit | The photo step that hands its bag to the archive service, which gave out its id; the answer is kept beside the bag |
 | Receipt | The archive's answer that it holds a photo, the bag's checksums matching; read back from the service and checked against the bag |
 | Reject | The archive's answer that it will not take a photo because it already holds the same picture, naming the item it duplicates; ends the photo, its bag left in staging |
+| Work files | What a batch keeps under staging to do its job: previews, prints, masters, renditions, bags |
+| Close | The batch step reached when scanning is finished and every photo is held by the archive or rejected by it: its work files are redundant from then |
+| Purge | Deleting a closed batch's work files, 30 days after it closes or sooner when staging is short of space, oldest closed first; never an open batch's, and never a rejected photo's bag |

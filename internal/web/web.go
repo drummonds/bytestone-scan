@@ -272,6 +272,15 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
+	if at, ok := b.Purged(); ok {
+		c.HTML(fmt.Sprintf(`<div class="notification">Purged on %s: the work files of this batch are gone; its photos are held by the archive.</div>`, at.Local().Format("2 Jan 2006")))
+		return c.Buffer()
+	}
+	if at, ok := b.Closed(); ok {
+		c.HTML(fmt.Sprintf(`<div class="notification is-success">Closed on %s: every load is through and every photo is held by the archive, or rejected by it. The work files are purged %d days after closing, or sooner when staging is short of space.</div>`,
+			at.Local().Format("2 Jan 2006"), int(batch.DefaultGrace.Hours()/24)))
+		return c.Buffer()
+	}
 	if b.Finished() {
 		c.HTML(`<div class="notification is-success">Finished: every load is through.</div>`)
 		return c.Buffer()

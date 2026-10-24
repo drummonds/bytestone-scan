@@ -26,6 +26,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
@@ -390,6 +391,27 @@ func (b *Batch) Finished() bool {
 	return err == nil
 }
 
+// Closed is when the batch closed: scanning finished and every photo held
+// by the archive or rejected by it, its work files redundant from then.
+func (b *Batch) Closed() (time.Time, bool) { return b.marked("closed") }
+
+// Purged is when the batch's work files were deleted.
+func (b *Batch) Purged() (time.Time, bool) { return b.marked("purged") }
+
+// marked is when the marker was written, if it was.
+func (b *Batch) marked(name string) (time.Time, bool) {
+	raw, err := os.ReadFile(b.path(name))
+	if err != nil {
+		return time.Time{}, false
+	}
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(string(raw)))
+	return at, err == nil
+}
+
+func (b *Batch) mark(name string, at time.Time) error {
+	return os.WriteFile(b.path(name), []byte(at.UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
 // Finish ends the batch's scanning, once every load is through, and ticks
 // the batch's workflow on.
 func (b *Batch) Finish(ctx context.Context, store wf.Store) (*wf.RunRecord, error) {
@@ -414,7 +436,7 @@ func (b *Batch) Finish(ctx context.Context, store wf.Store) (*wf.RunRecord, erro
 }
 
 // Run ticks the batch's workflow once: it waits at loads until scanning
-// is finished and every load is through.
+// is finished and every load is through, then closes.
 func (b *Batch) Run(ctx context.Context, store wf.Store) (*wf.RunRecord, error) {
 	date := wf.NewBusinessDate(b.Created.Year(), b.Created.Month(), b.Created.Day())
 	return wf.NewRunner(store, nil).RunPipeline(ctx, Workflow, b.ID, date, b.Stages(ctx, store))
@@ -442,7 +464,130 @@ func (b *Batch) Stages(ctx context.Context, store wf.Store) []wf.Stage {
 			}
 			return true, nil
 		}},
+		{Name: "close", Run: func(context.Context) error {
+			if _, ok := b.Closed(); ok {
+				return nil
+			}
+			return b.mark("closed", time.Now())
+		}},
 	}
+}
+
+// Purger deletes the work files of closed batches: Grace after each
+// closed, or sooner, oldest closed first, while staging has less than
+// Threshold bytes free. An open batch is never touched. What stays of a
+// purged batch is its record, its markers and the archive's answers for
+// its photos; a photo the archive rejected keeps its bag too, since the
+// archive does not hold its record.
+type Purger struct {
+	Root      string
+	Now       func() time.Time
+	Grace     time.Duration
+	Threshold uint64
+	Free      func(root string) (uint64, error) // bytes free on staging
+}
+
+// DefaultGrace and DefaultThreshold are the purger's settings until there
+// is a reason for others.
+const (
+	DefaultGrace     = 30 * 24 * time.Hour
+	DefaultThreshold = 10 << 30
+)
+
+// Purge sweeps root once with the default purger, returning the batches
+// purged.
+func Purge(root string) ([]string, error) {
+	return (&Purger{Root: root, Now: time.Now, Grace: DefaultGrace, Threshold: DefaultThreshold, Free: freeSpace}).Sweep()
+}
+
+// Sweep purges what is due and returns the batches purged.
+func (p *Purger) Sweep() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(p.Root, "batches"))
+	if errors.Is(err, os.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	type closed struct {
+		b  *Batch
+		at time.Time
+	}
+	var due []closed
+	for _, e := range entries {
+		b, err := Open(p.Root, e.Name())
+		if err != nil {
+			continue
+		}
+		if _, ok := b.Purged(); ok {
+			continue
+		}
+		if at, ok := b.Closed(); ok {
+			due = append(due, closed{b, at})
+		}
+	}
+	slices.SortFunc(due, func(a, b closed) int { return a.at.Compare(b.at) })
+	purged := []string{}
+	for _, c := range due {
+		short := false
+		if p.Threshold > 0 && p.Free != nil {
+			free, err := p.Free(p.Root)
+			if err != nil {
+				return purged, err
+			}
+			short = free < p.Threshold
+		}
+		if !short && p.Now().Sub(c.at) < p.Grace {
+			continue
+		}
+		if err := p.purge(c.b); err != nil {
+			return purged, err
+		}
+		purged = append(purged, c.b.ID)
+	}
+	return purged, nil
+}
+
+// purge deletes the batch's work files: its loads, and the bags and
+// renditions of its photos the archive holds.
+func (p *Purger) purge(b *Batch) error {
+	loads, err := b.Loads()
+	if err != nil {
+		return err
+	}
+	for _, l := range loads {
+		_, ids, err := l.Found()
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		for _, id := range ids {
+			d, err := DepositOf(p.Root, id)
+			if err != nil {
+				return err
+			}
+			if d == nil || d.Status != string(archive.Held) {
+				continue // the archive does not hold it: its bag stays
+			}
+			for _, dir := range []string{filepath.Join(p.Root, "bags", id.String()), filepath.Join(p.Root, "renditions", id.String())} {
+				if err := os.RemoveAll(dir); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if err := os.RemoveAll(b.path("loads")); err != nil {
+		return err
+	}
+	return b.mark("purged", p.Now())
+}
+
+// freeSpace is the bytes free on the file system holding root.
+func freeSpace(root string) (uint64, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(root, &st); err != nil {
+		return 0, err
+	}
+	return st.Bavail * uint64(st.Bsize), nil
 }
 
 // Key identifies the load's workflow instance: <batch id>/<n>.

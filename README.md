@@ -33,7 +33,8 @@ photographer, what the back says, or nothing), accept. Each photo is then
 bagged, deposited with the archive service and receipted, or shown as
 rejected when the archive already holds the picture. The batch page
 lists its loads, takes another, and finishes the batch once every load is
-through.
+through; it then closes, and its work files are purged 30 days later, or
+sooner when staging is short of space.
 Renditions (story [003](docs/stories/003-display-images.md)) are kept
 under `renditions/` beside the archive, by photo and recipe version.
 
