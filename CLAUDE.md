@@ -14,5 +14,6 @@ Read the global instructions first; this file adds only what is repo-specific.
   touch the scanner: they use a fake that serves image files.
 - Images never go in the repo. The archive is written under the staging root
   (`staging/` locally, gitignored) until the NAS is mounted.
-- Person ids are life-weaver's; a person is one directory in the bytestone archive, `people/<pid.Dir>/person.yaml` (`0/00` for person 0), mirrored at `~/.local/share/bytestone/archive`,
-  lower-case Crockford base32.
+- Person ids are life-weaver's, lower-case Crockford base32. The register
+  is read through the archive service's API (`life-weaver serve`, `-archive`
+  URL), never from the archive's tree; tests use `registertest.List`.

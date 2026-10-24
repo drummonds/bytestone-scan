@@ -14,7 +14,7 @@ import (
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 )
 
 // scanned is a staging root holding one finished batch of two prints.
@@ -22,7 +22,7 @@ func scanned(t *testing.T) (*App, *batch.Batch) {
 	t.Helper()
 	root := t.TempDir()
 	now := time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
-	b, err := batch.Describe(root, register.Register{Dir: "testdata/people"},
+	b, err := batch.Describe(root, registertest.Example,
 		batch.Description{Text: "SS Bonita & crew", Person: 10, ScanPPI: 600, Provenance: "a shoebox", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)

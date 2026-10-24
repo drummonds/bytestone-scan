@@ -23,11 +23,11 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
-var reg = register.Register{Dir: "testdata/people"}
+var reg = registertest.Example
 
 var now = time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
 

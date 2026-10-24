@@ -55,7 +55,7 @@ func (a *App) about() string {
 		row("Version", html.EscapeString(version())) +
 		row("Scanner", html.EscapeString(a.Scanner.Name())) +
 		row("Staging", "<code>"+html.EscapeString(a.Staging)+"</code>") +
-		row("People", "<code>"+html.EscapeString(a.People.Dir)+"</code>") +
+		row("People", "<code>"+html.EscapeString(a.People.String())+"</code>") +
 		row("Format statement", link("https://www.bytestone.uk/posts/2026-10-20-archiving-family-photographs/")) +
 		row("Source", link("https://git.bytestone.uk/hum3/bytestone-scan")) +
 		row("Documentation", link("https://bytestone-scan.docs.bytestone.uk")) +

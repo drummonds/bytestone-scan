@@ -1,36 +1,29 @@
 // Package register reads life-weaver's register of people, the records
-// behind i.bytestone.uk: who a batch's home person can be.
+// behind i.bytestone.uk: who a batch's home person can be. It is read
+// through the archive service's API (life-weaver#23: GET /people and
+// GET /people/{id}), never from the archive's tree.
 package register
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
+	"io"
+	"net/http"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
-// Register is the archive's people tree: a directory per person
-// (pid.Dir) holding person.yaml. A register written before the tree was
-// flat, <id>.yaml under Dir; such a record is still read when the person
-// has no directory.
-type Register struct{ Dir string }
-
-// recordFile is the record's name in the person's directory.
-const recordFile = "person.yaml"
-
-func (r Register) recordPath(id pid.ID) string {
-	return filepath.Join(r.Dir, filepath.FromSlash(id.Dir()), recordFile)
-}
-
-func (r Register) flatPath(id pid.ID) string {
-	return filepath.Join(r.Dir, id.String()+".yaml")
+// Register is where people come from.
+type Register interface {
+	// People is everyone in the register, sorted by name; none is an error.
+	People() ([]Person, error)
+	// Person is the name of the person with id.
+	Person(id pid.ID) (string, error)
+	// String names the register, for About.
+	String() string
 }
 
 // Person is one person in the register.
@@ -39,108 +32,65 @@ type Person struct {
 	Name string
 }
 
-// Person is the name of the person with id.
-func (r Register) Person(id pid.ID) (string, error) {
-	name, err := readName(r.recordPath(id))
-	if errors.Is(err, fs.ErrNotExist) {
-		name, err = readName(r.flatPath(id))
+// Archive is the register as the archive service serves it at URL.
+type Archive struct{ URL string }
+
+// entry is what the service lists a person as, the fields the scanner uses.
+type entry struct {
+	ID   pid.ID `json:"id"`
+	Name string `json:"name"`
+}
+
+func (a Archive) String() string { return a.URL }
+
+// People asks the service for every entry.
+func (a Archive) People() ([]Person, error) {
+	var entries []entry
+	if err := a.get("/people", &entries); err != nil {
+		return nil, err
 	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("person %s is not in the register %s", id, r.Dir)
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no people in the register at %s", a.URL)
+	}
+	people := make([]Person, 0, len(entries))
+	for _, e := range entries {
+		people = append(people, Person{e.ID, e.Name})
+	}
+	sort.SliceStable(people, func(i, j int) bool { return people[i].Name < people[j].Name })
+	return people, nil
+}
+
+// Person asks the service for the person's record.
+func (a Archive) Person(id pid.ID) (string, error) {
+	var e entry
+	err := a.get("/people/"+id.String(), &e)
+	if errors.Is(err, errNotFound) {
+		return "", fmt.Errorf("person %s is not in the register at %s", id, a.URL)
 	}
 	if err != nil {
 		return "", fmt.Errorf("person %s: %w", id, err)
 	}
-	return name, nil
+	return e.Name, nil
 }
 
-// People is everyone in the register, sorted by name. A record that does
-// not parse or has no name is left out, with a warning naming its
-// directory or file; a person.yaml in a directory that is not a person's is
-// ignored. A flat <id>.yaml counts only for a person without a directory.
-func (r Register) People() ([]Person, []string, error) {
-	if _, err := os.Stat(r.Dir); err != nil {
-		return nil, nil, err
-	}
-	var people []Person
-	var warnings []string
-	inTree := map[pid.ID]bool{}
-	var flat []pid.ID
-	err := filepath.WalkDir(r.Dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		if filepath.Dir(path) == r.Dir {
-			if id, ok := flatID(d.Name()); ok {
-				flat = append(flat, id)
-			}
-			return nil
-		}
-		if d.Name() != recordFile {
-			return nil
-		}
-		rel, err := filepath.Rel(r.Dir, filepath.Dir(path))
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		id, err := pid.ParseDir(rel)
-		if err != nil {
-			return nil
-		}
-		inTree[id] = true
-		name, err := readName(path)
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("%s left out: %v", rel, err))
-			return nil
-		}
-		people = append(people, Person{id, name})
-		return nil
-	})
+var errNotFound = errors.New("not found")
+
+// get decodes the JSON the service answers at path into v.
+func (a Archive) get(path string, v any) error {
+	resp, err := http.Get(strings.TrimRight(a.URL, "/") + path)
 	if err != nil {
-		return nil, nil, err
+		return fmt.Errorf("the archive service at %s is not answering (start it with life-weaver serve, or task serve in life-weaver): %w", a.URL, err)
 	}
-	for _, id := range flat {
-		if inTree[id] {
-			continue
-		}
-		name, err := readName(r.flatPath(id))
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("%s.yaml left out: %v", id, err))
-			continue
-		}
-		people = append(people, Person{id, name})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return errNotFound
 	}
-	if len(people) == 0 {
-		return nil, warnings, fmt.Errorf("no people in the register %s", r.Dir)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+		return fmt.Errorf("the archive service at %s: %s: %s", a.URL, resp.Status, strings.TrimSpace(string(body)))
 	}
-	sort.SliceStable(people, func(i, j int) bool { return people[i].Name < people[j].Name })
-	return people, warnings, nil
-}
-
-// flatID is the id a flat record file is named for, exactly.
-func flatID(file string) (pid.ID, bool) {
-	base, ok := strings.CutSuffix(file, ".yaml")
-	if !ok {
-		return 0, false
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		return fmt.Errorf("the archive service at %s: %s: %w", a.URL, path, err)
 	}
-	id, err := pid.Parse(base)
-	return id, err == nil && id.String() == base
-}
-
-func readName(path string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	var rec struct {
-		Name string `yaml:"name"`
-	}
-	if err := yaml.Unmarshal(b, &rec); err != nil {
-		return "", err
-	}
-	if rec.Name == "" {
-		return "", errors.New("record has no name")
-	}
-	return rec.Name, nil
+	return nil
 }
