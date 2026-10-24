@@ -23,7 +23,7 @@ func Decode(r io.Reader) (*Image, error) {
 	for y := 0; y < m.H; y++ {
 		row := rgba.Pix[y*rgba.Stride:]
 		for x := 0; x < m.W; x++ {
-			for c := 0; c < 3; c++ {
+			for c := range 3 {
 				m.Pix[(y*m.W+x)*3+c] = uint16(row[x*8+c*2])<<8 | uint16(row[x*8+c*2+1])
 			}
 		}

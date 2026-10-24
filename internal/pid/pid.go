@@ -19,7 +19,7 @@ var digits = func() (d [256]int8) {
 	for i := range d {
 		d[i] = -1
 	}
-	for i := 0; i < len(alphabet); i++ {
+	for i := range len(alphabet) {
 		c := alphabet[i]
 		d[c] = int8(i)
 		if c >= 'a' && c <= 'z' {

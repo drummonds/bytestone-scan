@@ -57,8 +57,8 @@ func (f *Scanner) Preview(context.Context) (image.Image, error) {
 	const ppi = 150
 	w, h := 1272, 1755 // the bed at 150 ppi, in whole 8 px across as the 4990 scans it
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			v := uint8(f.valueAt((float64(x)+0.5)*25.4/ppi, (float64(y)+0.5)*25.4/ppi) >> 8)
 			img.Set(x, y, color.RGBA{v, v, v, 255})
 		}
@@ -84,10 +84,10 @@ func (f *Scanner) Detail(_ context.Context, area find.Rect, ppi int) (io.ReadClo
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "P6\n%d %d\n65535\n", w, h)
 	row := make([]byte, w*6)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			v := f.valueAt(area.X0+(float64(x)+0.5)*25.4/float64(ppi), area.Y0+(float64(y)+0.5)*25.4/float64(ppi))
-			for c := 0; c < 3; c++ {
+			for c := range 3 {
 				binary.BigEndian.PutUint16(row[(x*3+c)*2:], v)
 			}
 		}

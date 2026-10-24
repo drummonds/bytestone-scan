@@ -15,8 +15,8 @@ const ppi = 75
 func bed() *image.RGBA {
 	w, h := px(215.9), px(297.2)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			n := uint8((x*7 + y*13) % 5)
 			shade := max(0, 50-5*x) + max(0, 30-2*y)
 			img.Set(x, y, color.RGBA{uint8(243 + int(n) - min(shade, 243)), uint8(244 + int(n) - min(shade, 244)), uint8(242 + int(n) - min(shade, 242)), 255})

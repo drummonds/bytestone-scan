@@ -13,9 +13,9 @@ import (
 func pnm(w, h int, f func(x, y, c int) uint16) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "P6\n# SANE data follows\n%d %d\n65535\n", w, h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			for c := 0; c < 3; c++ {
+	for y := range h {
+		for x := range w {
+			for c := range 3 {
 				binary.Write(&b, binary.BigEndian, f(x, y, c))
 			}
 		}
@@ -39,7 +39,7 @@ func TestFactorOneCutsRegionsExactly(t *testing.T) {
 		}
 		for y := 0; y < img.H; y++ {
 			for x := 0; x < img.W; x++ {
-				for c := 0; c < 3; c++ {
+				for c := range 3 {
 					if v, want := img.At(x, y, c), coord(r.Rect.Min.X+x, r.Rect.Min.Y+y, c); v != want {
 						t.Fatalf("region %d (%d,%d,%d) = %d, want %d", i, x, y, c, v, want)
 					}
