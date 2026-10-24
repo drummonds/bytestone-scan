@@ -48,7 +48,7 @@ func TestTheNavbarSaysWhenTheScannerIsBusy(t *testing.T) {
 	if body := get(t, h, "/about").Body.String(); !strings.Contains(body, "Idle") {
 		t.Error("idle scanner not shown as idle")
 	}
-	post(t, h, "/batches", url.Values{"description": {"first"}, "person": {"a"}, "ppi": {"600"}})
+	post(t, h, "/batches", url.Values{"description": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	for _, p := range []string{"/workflows/", "/about", "/batches/new"} {
 		page(t, h, p, "Scanning batch 20261020-1", `href="batches/20261020-1"`)
 	}

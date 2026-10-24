@@ -80,6 +80,11 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 <div class="control"><input class="input" name="description" value="%s" required></div></div>
 <div class="field"><label class="label">Home: the person whose collection the photos belong to</label>
 <div class="control"><div class="select"><select name="person" required>%s</select></div></div></div>
+<div class="field"><label class="label">Provenance: where the prints came from</label>
+<div class="control"><input class="input" name="provenance" value="%s" placeholder="Aunt Jean’s shoebox, envelope marked 1950s"></div>
+<p class="help">Copied into every photo. Leave it blank if unknown.</p></div>
+<div class="field"><label class="label">Credit: the terms the photos are shown under</label>
+<div class="control"><input class="input" name="credit" value="%s" placeholder="Drummond family collection, CC BY 4.0" required></div></div>
 <div class="field"><label class="label">Scan at</label>
 <div class="control"><div class="select"><select name="ppi">%s</select></div></div>
 <p class="help">The detail pass scans at this ppi and is averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick.</p>
@@ -87,9 +92,15 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 <button class="button is-primary" type="submit">Scan the preview</button>
 </form>`
 
+// entered is what the New batch form holds, as typed.
+type entered struct {
+	description, person, provenance, credit string
+	ppi                                     int
+}
+
 // newBatch is the New batch page: msg above the form, and the form holding
 // what was entered. With no one in the register there is no form.
-func (a *App) newBatch(msg, description, person string, ppi int) string {
+func (a *App) newBatch(msg string, e entered) string {
 	people, warnings, err := a.People.People()
 	if err != nil {
 		return `<h1 class="title">New batch</h1><div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
@@ -97,7 +108,18 @@ func (a *App) newBatch(msg, description, person string, ppi int) string {
 	for _, w := range warnings {
 		msg += `<div class="notification is-warning">` + html.EscapeString(w) + `</div>`
 	}
-	return fmt.Sprintf(newBatchForm, msg, html.EscapeString(description), personOptions(people, person), ppiOptions(ppi))
+	return fmt.Sprintf(newBatchForm, msg, html.EscapeString(e.description), personOptions(people, e.person),
+		html.EscapeString(e.provenance), html.EscapeString(e.credit), ppiOptions(e.ppi))
+}
+
+// prefilled is a fresh form: provenance and credit are the latest
+// batch's, since a shoebox is many loads of the bed.
+func (a *App) prefilled() entered {
+	e := entered{ppi: 1200}
+	if latest, err := batch.Latest(a.Staging); err == nil && latest != nil {
+		e.provenance, e.credit = latest.Provenance, latest.Credit
+	}
+	return e
 }
 
 func personOptions(people []register.Person, selected string) string {
@@ -134,7 +156,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	}
 
 	mux.HandleFunc("GET /batches/new", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "New batch", a.newBatch("", "", "", 1200))
+		render(w, "New batch", a.newBatch("", a.prefilled()))
 	})
 	mux.HandleFunc("POST /batches", func(w http.ResponseWriter, r *http.Request) {
 		// refuse before recording a batch that could not be scanned
@@ -142,20 +164,21 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			fail(w, fmt.Errorf("%w: the scanner is busy with batch %s", errBusy, id), http.StatusConflict)
 			return
 		}
-		ppi, _ := strconv.Atoi(r.FormValue("ppi"))
-		person, err := pid.Parse(r.FormValue("person"))
-		if r.FormValue("person") == "" {
+		e := entered{description: r.FormValue("description"), person: r.FormValue("person"),
+			provenance: r.FormValue("provenance"), credit: r.FormValue("credit")}
+		e.ppi, _ = strconv.Atoi(r.FormValue("ppi"))
+		person, err := pid.Parse(e.person)
+		if e.person == "" {
 			err = errors.New("choose the home person")
 		}
 		var b *batch.Batch
 		if err == nil {
-			b, err = batch.Describe(a.Staging, a.People,
-				batch.Description{Text: r.FormValue("description"), Person: person, ScanPPI: ppi}, a.Now())
+			b, err = batch.Describe(a.Staging, a.People, batch.Description{
+				Text: e.description, Person: person, ScanPPI: e.ppi, Provenance: e.provenance, Credit: e.credit}, a.Now())
 		}
 		if err != nil {
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			render(w, "New batch", a.newBatch(`<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`,
-				r.FormValue("description"), r.FormValue("person"), ppi))
+			render(w, "New batch", a.newBatch(`<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`, e))
 			return
 		}
 		if err := a.start(b, nil); err != nil {

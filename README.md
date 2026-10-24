@@ -21,9 +21,11 @@ task serve      # or: bytestone-scan serve, then open http://localhost:8080
 ```
 
 Start a batch from *New batch*: a description, the home person (chosen
-by name from the register) and the scan ppi. The batch page then leads through the steps: check the
-prints found on the preview (or rescan it), confirm, check each photo's
-quality (or rescan at another ppi, or go back to the prints), accept.
+by name from the register), the prints' provenance and credit (copied
+into every photo, and pre-filled from the last batch) and the scan ppi.
+The batch page then leads through the steps: check the prints found on
+the preview (or rescan it), confirm, check each photo's quality (or
+rescan at another ppi, or go back to the prints), accept.
 
 Batches, the archive, recordings and the workflow database live under
 `-staging` (default `~/.local/share/bytestone-scan`). People come from life-weaver's
