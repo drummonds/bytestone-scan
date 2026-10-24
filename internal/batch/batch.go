@@ -1017,20 +1017,78 @@ func DepositOf(root string, id pid.ID) (*Deposit, error) {
 	return &d, nil
 }
 
+// Outcome is how photos stand with the archive: how many it holds, which
+// it rejected as duplicates, and how many are not there yet.
+type Outcome struct {
+	Held     int
+	Rejected []pid.ID
+	Pending  int
+}
+
+// Outcome is how the load's photos stand with the archive.
+func (l *Load) Outcome() (Outcome, error) {
+	var o Outcome
+	_, ids, err := l.Found()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return o, err
+	}
+	for _, id := range ids {
+		d, err := DepositOf(l.root, id)
+		switch {
+		case err != nil:
+			return o, err
+		case d == nil:
+			o.Pending++
+		case d.Status == "duplicate":
+			o.Rejected = append(o.Rejected, id)
+		default:
+			o.Held++
+		}
+	}
+	return o, nil
+}
+
+// Outcome is how the batch's photos stand with the archive, over all its
+// loads.
+func (b *Batch) Outcome() (Outcome, error) {
+	var o Outcome
+	loads, err := b.Loads()
+	if err != nil {
+		return o, err
+	}
+	for _, l := range loads {
+		lo, err := l.Outcome()
+		if err != nil {
+			return o, err
+		}
+		o.Held += lo.Held
+		o.Rejected = append(o.Rejected, lo.Rejected...)
+		o.Pending += lo.Pending
+	}
+	return o, nil
+}
+
 func (b *Load) depositPath(id pid.ID) string {
 	return filepath.Join(b.bags(), id.String()+".deposit.yaml")
 }
 
-// deposit hands the photo's bag to the archive, a tar of its directory,
-// and keeps the answer: held, or refused as a duplicate of an item the
-// archive holds already, which ends the photo. A conflict or a failure
-// fails the step, to be tried again.
+// deposit hands the photo's deposit to the archive, a tar of its bag and
+// its renditions at the current recipe, and keeps the answer: held, or
+// refused as a duplicate of an item the archive holds already, which
+// ends the photo. A refusal for the renditions redevelops both sides at
+// the current recipe and fails the step, to deposit again; a conflict or
+// a failure fails the step, to be tried again.
 func (b *Load) deposit(id pid.ID, env Env) error {
 	if d, err := DepositOf(b.root, id); err != nil || d != nil {
 		return err
 	}
+	if err := b.developed(id); err != nil {
+		return err
+	}
 	pr, pw := io.Pipe()
-	go func() { pw.CloseWithError(bag.Tar(filepath.Join(b.bags(), id.String()), pw)) }()
+	go func() {
+		pw.CloseWithError(bag.Deposit(pw, filepath.Join(b.bags(), id.String()), b.Renditions(id), rendition.Version))
+	}()
 	rec, err := env.Archive.Deposit(id, pr)
 	pr.Close()
 	var refusal *archive.Refusal
@@ -1039,8 +1097,43 @@ func (b *Load) deposit(id pid.ID, env Env) error {
 		return writeYAML(b.depositPath(id), Deposit{Status: string(rec.Status), Home: rec.Home, Payload: rec.Payload, At: env.Now().UTC()})
 	case errors.As(err, &refusal) && refusal.Status == "duplicate":
 		return writeYAML(b.depositPath(id), Deposit{Status: "duplicate", Home: refusal.Home, DuplicateOf: refusal.DuplicateOf, File: refusal.File, At: env.Now().UTC()})
+	case errors.As(err, &refusal) && refusal.Status == "renditions":
+		if rerr := b.redevelop(id); rerr != nil {
+			return fmt.Errorf("photo %s: %w; redeveloping: %v", id, err, rerr)
+		}
+		return fmt.Errorf("photo %s: %w; redeveloped at recipe %d, to deposit again", id, err, rendition.Version)
 	}
 	return err
+}
+
+// redevelop makes the photo's renditions again at the current recipe,
+// both sides, whatever was there.
+func (b *Load) redevelop(id pid.ID) error {
+	if err := os.RemoveAll(b.Renditions(id)); err != nil {
+		return err
+	}
+	return b.developed(id)
+}
+
+// developed sees the photo's renditions are there at the current recipe,
+// both sides, making any that are not.
+func (b *Load) developed(id pid.ID) error {
+	if err := b.develop(id, "front"); err != nil {
+		return err
+	}
+	if _, err := os.Stat(b.masterOf(id, "back")); err == nil {
+		return b.develop(id, "back")
+	}
+	return nil
+}
+
+// masterOf is where the photo's master of kind (front, back, yaml) is: in
+// its bag once packaged, among the load's masters before.
+func (b *Load) masterOf(id pid.ID, kind string) string {
+	if bag.Complete(b.bags(), id) {
+		return filepath.Join(b.bags(), id.String(), "data", map[string]string{"front": "front.tif", "back": "back.tif", "yaml": "photo.yaml"}[kind])
+	}
+	return b.masterPath(id, kind)
 }
 
 // receipt reads the archive's record of the photo and checks it holds
@@ -1349,10 +1442,10 @@ func (b *Load) develop(id pid.ID, side string) error {
 		return nil
 	}
 	var photo Photo
-	if err := readYAML(b.masterPath(id, "yaml"), &photo); err != nil {
+	if err := readYAML(b.masterOf(id, "yaml"), &photo); err != nil {
 		return err
 	}
-	tif, err := os.ReadFile(b.masterPath(id, side))
+	tif, err := os.ReadFile(b.masterOf(id, side))
 	if err != nil {
 		return err
 	}

@@ -10,9 +10,11 @@ import (
 	"time"
 )
 
-// Story 041: a bag travels to the archive service as a tar of its
-// directory, every path relative to the bag.
-func TestTarIsTheBagRelativeToItself(t *testing.T) {
+// Story 041, 055: a photo travels to the archive service as a tar with
+// two top-level directories: bag/, the bag relative to itself, and
+// renditions/<recipe>/, the front's renditions with the back's under
+// back/.
+func TestDepositIsTheBagAndItsRenditions(t *testing.T) {
 	root := t.TempDir()
 	p, err := Create(root, 7)
 	if err != nil {
@@ -23,8 +25,13 @@ func TestTarIsTheBagRelativeToItself(t *testing.T) {
 	if err := p.Close(Info{Batch: "b", Load: 1, Description: "d", Bagged: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
+	renditions := filepath.Join(root, "renditions", "7", "1")
+	os.MkdirAll(filepath.Join(renditions, "back"), 0o755)
+	for _, name := range []string{"display.jpg", "thumb.jpg", "tiny.jpg", "recipe.yaml", "back/display.jpg", "back/thumb.jpg", "back/tiny.jpg", "back/recipe.yaml"} {
+		os.WriteFile(filepath.Join(renditions, name), []byte(name), 0o644)
+	}
 	var buf bytes.Buffer
-	if err := Tar(filepath.Join(root, "7"), &buf); err != nil {
+	if err := Deposit(&buf, filepath.Join(root, "7"), renditions, 1); err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]string{}
@@ -42,11 +49,19 @@ func TestTarIsTheBagRelativeToItself(t *testing.T) {
 	}
 	for _, name := range []string{"bagit.txt", "bag-info.txt", "manifest-sha256.txt", "tagmanifest-sha256.txt", "data/front.tif", "data/photo.yaml"} {
 		disk, _ := os.ReadFile(filepath.Join(root, "7", name))
-		if got[name] != string(disk) {
-			t.Errorf("%s: %q in the tar, %q on disk", name, got[name], disk)
+		if got["bag/"+name] != string(disk) {
+			t.Errorf("bag/%s: %q in the tar, %q on disk", name, got["bag/"+name], disk)
 		}
 	}
-	if len(got) != 6 {
-		t.Errorf("%d entries, want 6: %v", len(got), got)
+	for _, name := range []string{"display.jpg", "recipe.yaml", "back/display.jpg", "back/recipe.yaml"} {
+		if got["renditions/1/"+name] != name {
+			t.Errorf("renditions/1/%s: %q in the tar", name, got["renditions/1/"+name])
+		}
+	}
+	if len(got) != 14 {
+		t.Errorf("%d entries, want 14: %v", len(got), got)
+	}
+	if err := Deposit(&buf, filepath.Join(root, "7"), filepath.Join(root, "renditions", "8", "1"), 1); err == nil {
+		t.Error("a deposit without renditions on disk")
 	}
 }

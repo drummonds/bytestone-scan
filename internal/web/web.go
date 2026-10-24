@@ -277,18 +277,30 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 		return c.Buffer()
 	}
 	if at, ok := b.Closed(); ok {
-		c.HTML(fmt.Sprintf(`<div class="notification is-success">Closed on %s: every load is through and every photo is held by the archive, or rejected by it. The work files are purged %d days after closing, or sooner when staging is short of space.</div>`,
-			at.Local().Format("2 Jan 2006"), int(batch.DefaultGrace.Hours()/24)))
+		msg, class := a.batchOutcome(b)
+		c.HTML(fmt.Sprintf(`<div class="notification %s">Closed on %s: %s. The work files are purged %d days after closing, or sooner when staging is short of space.</div>`,
+			class, at.Local().Format("2 Jan 2006"), msg, int(batch.DefaultGrace.Hours()/24)))
 		return c.Buffer()
 	}
 	if b.Finished() {
-		c.HTML(`<div class="notification is-success">Finished: every load is through.</div>`)
+		msg, class := a.batchOutcome(b)
+		c.HTML(fmt.Sprintf(`<div class="notification %s">Finished: %s.</div>`, class, msg))
 		return c.Buffer()
 	}
 	c.HTML(fmt.Sprintf(`<div class="buttons"><a class="button is-primary" href="batches/%s/loads/new">Scan another load</a> `+
 		`<form action="batches/%s/finish" method="post" style="display:inline"><button class="button" type="submit">Finish scanning</button></form></div>`,
 		html.EscapeString(b.ID), html.EscapeString(b.ID)))
 	return c.Buffer()
+}
+
+// batchOutcome says how the batch's photos stand with the archive, and
+// the class that colours it.
+func (a *App) batchOutcome(b *batch.Batch) (msg, class string) {
+	o, err := b.Outcome()
+	if err != nil {
+		return html.EscapeString(err.Error()), "is-danger"
+	}
+	return outcomeText(o)
 }
 
 // loadPage is a load's details, where its workflow stands and what the
