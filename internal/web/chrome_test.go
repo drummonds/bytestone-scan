@@ -27,7 +27,7 @@ func TestEveryNavbarLinkWorks(t *testing.T) {
 func TestAbout(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
 	page(t, a.Handler(), "/about",
-		"Version", a.Staging, a.People.String(), "Fake Scanner",
+		"Version", a.Staging, a.Archive.String(), "Fake Scanner",
 		"https://git.bytestone.uk/hum3/bytestone-scan", "archiving-family-photographs")
 }
 

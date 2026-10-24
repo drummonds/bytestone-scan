@@ -101,7 +101,7 @@ func TestABatchIsASittingOfLoads(t *testing.T) {
 			t.Errorf("xmp lacks %s", want)
 		}
 	}
-	info, _ := os.ReadFile(filepath.Join(root, "archive", ids[0].String(), "bag-info.txt"))
+	info, _ := os.ReadFile(filepath.Join(root, "bags", ids[0].String(), "bag-info.txt"))
 	if !strings.Contains(string(info), "Bytestone-Batch: 20261020-1\nBytestone-Load: 2\n") {
 		t.Errorf("bag-info:\n%s", info)
 	}

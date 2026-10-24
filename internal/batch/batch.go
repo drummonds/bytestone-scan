@@ -32,12 +32,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/detailpass"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/plan"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
@@ -56,6 +56,15 @@ type Scanner interface {
 	Name() string
 	// Settings are the fixed settings of every pass, as recorded with a master.
 	Settings() []string
+}
+
+// Env is what a load's workflow runs with: the workflow store, the
+// scanner, the archive service (ids, deposits, receipts) and the clock.
+type Env struct {
+	Store   wf.Store
+	Scanner Scanner
+	Archive archive.Service
+	Now     func() time.Time
 }
 
 // Turnable is a scanner that can be told which side of the prints the
@@ -221,9 +230,10 @@ type found struct {
 	IDs    []pid.ID     `yaml:"ids,omitempty"`
 }
 
-// Describe records a new batch under root, refusing a description the
-// story's rules reject.
-func Describe(root string, reg register.Register, d Description, now time.Time) (*Batch, error) {
+// Describe records a new batch under root, its home person looked up in
+// the archive service's register, refusing a description the story's
+// rules reject.
+func Describe(root string, svc archive.Service, d Description, now time.Time) (*Batch, error) {
 	text, provenance, credit := oneLine(d.Text), oneLine(d.Provenance), oneLine(d.Credit)
 	if text == "" {
 		return nil, errors.New("a batch needs a title")
@@ -234,7 +244,7 @@ func Describe(root string, reg register.Register, d Description, now time.Time) 
 	if d.ScanPPI != 600 && d.ScanPPI != 1200 && d.ScanPPI != 2400 {
 		return nil, fmt.Errorf("scan ppi %d, want 600, 1200 or 2400", d.ScanPPI)
 	}
-	name, err := reg.Person(d.Person)
+	name, err := svc.Person(d.Person)
 	if err != nil {
 		return nil, err
 	}
@@ -616,7 +626,7 @@ func (b *Load) BacksSkipped() bool {
 // what was said before, until the photo is archived. Saying nothing still
 // describes it.
 func (b *Load) DescribePhoto(id pid.ID, d PhotoDescription) error {
-	if archive.Complete(b.archive(), id) {
+	if bag.Complete(b.bags(), id) {
 		return fmt.Errorf("photo %s is archived; its record is no longer the load's to change", id)
 	}
 	var photo Photo
@@ -647,12 +657,12 @@ func (b *Load) Redo(ctx context.Context, store wf.Store, from string, ppi int) e
 	}
 	_, ids, _ := b.Found()
 	for _, id := range ids {
-		if archive.Complete(b.archive(), id) {
+		if bag.Complete(b.bags(), id) {
 			return fmt.Errorf("load %s: photo %s is archived and final; nothing before packaging can be redone", b.Key(), id)
 		}
 	}
 	runner := wf.NewRunner(store, nil)
-	stages := b.Stages(ctx, store, nil, nil)
+	stages := b.Stages(ctx, Env{Store: store})
 	if _, err := runner.Rewind(ctx, LoadWorkflow, b.Key(), from, stages); err != nil {
 		return err
 	}
@@ -676,11 +686,11 @@ func (b *Load) Redo(ctx context.Context, store wf.Store, from string, ppi int) e
 				return err
 			}
 		case cleared["fronts"]:
-			if _, err := runner.Rewind(ctx, PhotoWorkflow, id.String(), "develop front", b.photoStages(id, nil)); err != nil {
+			if _, err := runner.Rewind(ctx, PhotoWorkflow, id.String(), "develop front", b.photoStages(id, Env{})); err != nil {
 				return err
 			}
 		case cleared["backs"]:
-			if _, err := runner.Rewind(ctx, PhotoWorkflow, id.String(), "awaiting back", b.photoStages(id, nil)); err != nil {
+			if _, err := runner.Rewind(ctx, PhotoWorkflow, id.String(), "awaiting back", b.photoStages(id, Env{})); err != nil {
 				return err
 			}
 		}
@@ -692,13 +702,7 @@ func (b *Load) Redo(ctx context.Context, store wf.Store, from string, ppi int) e
 		}
 	}
 	if cleared["find prints"] {
-		if _, ids, err := b.Found(); err == nil {
-			for _, id := range ids {
-				if err := archive.Release(b.archive(), id); err != nil {
-					return err
-				}
-			}
-		}
+		// the ids stay reserved with the archive: a gap in the series, not a reuse
 		if err := os.Remove(b.path("prints.yaml")); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -762,7 +766,8 @@ func (b *Load) masterPath(id pid.ID, what string) string {
 // or waits for the operator. The load runs as a child of its batch's
 // workflow, which is ticked first so that it exists to be the parent.
 // progress, when given, is told each step as it starts.
-func (b *Load) Run(ctx context.Context, store wf.Store, s Scanner, now func() time.Time, progress func(step string)) (*wf.RunRecord, error) {
+func (b *Load) Run(ctx context.Context, env Env, progress func(step string)) (*wf.RunRecord, error) {
+	store := env.Store
 	date := wf.NewBusinessDate(b.Created.Year(), b.Created.Month(), b.Created.Day())
 	runner := wf.NewRunner(store, nil)
 	if _, err := b.batch.Run(ctx, store); err != nil {
@@ -791,7 +796,7 @@ func (b *Load) Run(ctx context.Context, store wf.Store, s Scanner, now func() ti
 		}
 		return stages
 	}
-	rec, err := runner.RunPipeline(ctx, LoadWorkflow, b.Key(), date, watched(b.Stages(ctx, store, s, now)))
+	rec, err := runner.RunPipeline(ctx, LoadWorkflow, b.Key(), date, watched(b.Stages(ctx, env)))
 	if err != nil {
 		return rec, err
 	}
@@ -802,7 +807,7 @@ func (b *Load) Run(ctx context.Context, store wf.Store, s Scanner, now func() ti
 		if err != nil || pr == nil {
 			continue
 		}
-		if _, err := runner.RunPipeline(ctx, PhotoWorkflow, id.String(), date, watched(b.photoStages(id, now))); err != nil {
+		if _, err := runner.RunPipeline(ctx, PhotoWorkflow, id.String(), date, watched(b.photoStages(id, env))); err != nil {
 			return rec, err
 		}
 	}
@@ -810,8 +815,9 @@ func (b *Load) Run(ctx context.Context, store wf.Store, s Scanner, now func() ti
 }
 
 // photoStages are one photo's workflow steps: each side developed as it
-// comes, then archived once the load's masters are accepted.
-func (b *Load) photoStages(id pid.ID, now func() time.Time) []wf.Stage {
+// comes; once the load's masters are accepted and the photo described,
+// it is bagged, deposited with the archive and its receipt taken.
+func (b *Load) photoStages(id pid.ID, env Env) []wf.Stage {
 	return []wf.Stage{
 		{Name: "develop front", Run: func(context.Context) error { return b.develop(id, "front") }},
 		{Name: "awaiting back", Until: func(context.Context) (bool, error) {
@@ -836,8 +842,94 @@ func (b *Load) photoStages(id pid.ID, now func() time.Time) []wf.Stage {
 			return photo.Described != nil, nil
 		}},
 		// An archived photo is never altered, so nothing before packaging can be redone after it.
-		{Name: "package", Run: func(context.Context) error { return b.pack(id, now) }, Final: true},
+		{Name: "package", Run: func(context.Context) error { return b.pack(id, env.Now) }, Final: true},
+		{Name: "deposit", Run: func(context.Context) error { return b.deposit(id, env) }},
+		{Name: "receipt", Run: func(context.Context) error { return b.receipt(id, env) }},
 	}
+}
+
+// Deposit is the archive's answer for a photo's bag, kept beside the bag.
+type Deposit struct {
+	Status      string            `yaml:"status"` // held, or duplicate
+	Home        pid.ID            `yaml:"home"`
+	Payload     map[string]string `yaml:"payload,omitempty"` // the checksums the archive holds
+	DuplicateOf pid.ID            `yaml:"duplicate_of"`      // when a duplicate: the item that holds the picture
+	File        string            `yaml:"file,omitempty"`    // when a duplicate: which picture
+	At          time.Time         `yaml:"at"`
+}
+
+// DepositOf is the archive's answer for photo id under root, or nil when
+// it has not been deposited.
+func DepositOf(root string, id pid.ID) (*Deposit, error) {
+	var d Deposit
+	err := readYAML(filepath.Join(root, "bags", id.String()+".deposit.yaml"), &d)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func (b *Load) depositPath(id pid.ID) string {
+	return filepath.Join(b.bags(), id.String()+".deposit.yaml")
+}
+
+// deposit hands the photo's bag to the archive, a tar of its directory,
+// and keeps the answer: held, or refused as a duplicate of an item the
+// archive holds already, which ends the photo. A conflict or a failure
+// fails the step, to be tried again.
+func (b *Load) deposit(id pid.ID, env Env) error {
+	if d, err := DepositOf(b.root, id); err != nil || d != nil {
+		return err
+	}
+	pr, pw := io.Pipe()
+	go func() { pw.CloseWithError(bag.Tar(filepath.Join(b.bags(), id.String()), pw)) }()
+	rec, err := env.Archive.Deposit(id, pr)
+	pr.Close()
+	var refusal *archive.Refusal
+	switch {
+	case err == nil:
+		return writeYAML(b.depositPath(id), Deposit{Status: string(rec.Status), Home: rec.Home, Payload: rec.Payload, At: env.Now().UTC()})
+	case errors.As(err, &refusal) && refusal.Status == "duplicate":
+		return writeYAML(b.depositPath(id), Deposit{Status: "duplicate", Home: refusal.Home, DuplicateOf: refusal.DuplicateOf, File: refusal.File, At: env.Now().UTC()})
+	}
+	return err
+}
+
+// receipt reads the archive's record of the photo and checks it holds
+// the bag, checksum for checksum; a photo refused as a duplicate has no
+// receipt to take.
+func (b *Load) receipt(id pid.ID, env Env) error {
+	d, err := DepositOf(b.root, id)
+	if err != nil {
+		return err
+	}
+	if d == nil {
+		return fmt.Errorf("photo %s: not deposited", id)
+	}
+	if d.Status == "duplicate" {
+		return nil
+	}
+	rec, err := env.Archive.Receipt(id)
+	if err != nil {
+		return err
+	}
+	if rec.Status != archive.Held {
+		return fmt.Errorf("photo %s: the archive has it %s, not held", id, rec.Status)
+	}
+	manifest, err := bag.Manifest(filepath.Join(b.bags(), id.String()))
+	if err != nil {
+		return err
+	}
+	for file, sum := range manifest {
+		if rec.Payload[file] != sum {
+			return fmt.Errorf("photo %s: the archive's checksum of %s differs from the bag's", id, file)
+		}
+	}
+	d.Status, d.Home, d.Payload = string(rec.Status), rec.Home, rec.Payload
+	return writeYAML(b.depositPath(id), d)
 }
 
 // startPhotos starts a photo workflow for each print, under the load's run.
@@ -861,7 +953,8 @@ func (b *Load) startPhotos(ctx context.Context, store wf.Store) error {
 }
 
 // Stages are the load's workflow steps, in order.
-func (b *Load) Stages(ctx context.Context, store wf.Store, s Scanner, now func() time.Time) []wf.Stage {
+func (b *Load) Stages(ctx context.Context, env Env) []wf.Stage {
+	store, s, now := env.Store, env.Scanner, env.Now
 	return []wf.Stage{
 		{Name: "describe", Run: func(context.Context) error {
 			_, err := os.Stat(b.path("load.yaml"))
@@ -889,7 +982,7 @@ func (b *Load) Stages(ctx context.Context, store wf.Store, s Scanner, now func()
 				_, err := os.Stat(b.path("confirmed"))
 				return err == nil, nil
 			},
-			Run: b.reserveIDs,
+			Run: func(context.Context) error { return b.reserveIDs(env.Archive) },
 		},
 		{Name: "fronts", Run: func(ctx context.Context) error {
 			turnTo(s, "front")
@@ -916,10 +1009,14 @@ func (b *Load) Stages(ctx context.Context, store wf.Store, s Scanner, now func()
 	}
 }
 
-func (b *Load) archive() string { return filepath.Join(b.root, "archive") }
+// bags is where the load's photos are bagged, and kept until the archive
+// holds them.
+func (b *Load) bags() string { return filepath.Join(b.root, "bags") }
 
-// reserveIDs gives each confirmed print its photo id, once.
-func (b *Load) reserveIDs(context.Context) error {
+// reserveIDs gives each confirmed print its photo id, once, from the
+// archive service: the next in the collection's series, homed with the
+// batch's person.
+func (b *Load) reserveIDs(svc archive.Service) error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
@@ -927,11 +1024,8 @@ func (b *Load) reserveIDs(context.Context) error {
 	if len(f.IDs) == len(f.Prints) {
 		return nil
 	}
-	if err := os.MkdirAll(b.archive(), 0o755); err != nil {
-		return err
-	}
 	for len(f.IDs) < len(f.Prints) {
-		id, err := archive.Reserve(b.archive())
+		id, err := svc.Reserve(b.batch.Person)
 		if err != nil {
 			return err
 		}
@@ -1134,8 +1228,8 @@ func (b *Load) develop(id pid.ID, side string) error {
 // pack archives the photo's masters and photo.yaml, unless it is complete
 // already, then clears them from the load.
 func (b *Load) pack(id pid.ID, now func() time.Time) error {
-	if !archive.Complete(b.archive(), id) {
-		ph, err := archive.Create(b.archive(), id)
+	if !bag.Complete(b.bags(), id) {
+		ph, err := bag.Create(b.bags(), id)
 		if err != nil {
 			return err
 		}
@@ -1147,7 +1241,7 @@ func (b *Load) pack(id pid.ID, now func() time.Time) error {
 				return err
 			}
 		}
-		if err := ph.Close(archive.Info{Batch: b.Batch, Load: b.N, Description: b.Description, Bagged: now()}); err != nil {
+		if err := ph.Close(bag.Info{Batch: b.Batch, Load: b.N, Description: b.Description, Bagged: now()}); err != nil {
 			return err
 		}
 	}
@@ -1232,7 +1326,7 @@ func (b *Load) Found() ([]find.Print, []pid.ID, error) {
 // archive, or before packaging in its load.
 func FindPhoto(root string, id pid.ID) (Photo, string, error) {
 	var p Photo
-	data := filepath.Join(root, "archive", id.String(), "data")
+	data := filepath.Join(root, "bags", id.String(), "data")
 	if err := readYAML(filepath.Join(data, "photo.yaml"), &p); err == nil {
 		return p, filepath.Join(data, "front.tif"), nil
 	}

@@ -17,10 +17,12 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
 func live(t *testing.T, s *batchtest.Scanner) *App {
@@ -29,7 +31,7 @@ func live(t *testing.T, s *batchtest.Scanner) *App {
 		Staging: t.TempDir(),
 		Store:   wf.NewMemStore(),
 		Scanner: s,
-		People:  registertest.Example,
+		Archive: archivetest.Example(),
 		Now:     func() time.Time { return time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC) },
 	}
 }
@@ -86,7 +88,7 @@ func TestABatchFromStartToTheArchive(t *testing.T) {
 
 	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
-	if !archive.Complete(filepath.Join(a.Staging, "archive"), 0) || !archive.Complete(filepath.Join(a.Staging, "archive"), 1) {
+	if !bag.Complete(filepath.Join(a.Staging, "bags"), 0) || !bag.Complete(filepath.Join(a.Staging, "bags"), 1) {
 		t.Error("photos not archived after accept")
 	}
 	page(t, h, loc, "Done")
@@ -193,7 +195,7 @@ func TestNewBatchSaysTheScanIsAveragedDownToTheMaster(t *testing.T) {
 
 func TestNewBatchChoosesTheHomePersonByName(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
-	a.People = registertest.List{{ID: 11, Name: "Zak Example"}, {ID: 10, Name: "Ada Example"}}
+	a.Archive = archivetest.New(archive.Person{ID: 11, Name: "Zak Example"}, archive.Person{ID: 10, Name: "Ada Example"})
 	h := a.Handler()
 	body := get(t, h, "/batches/new").Body.String()
 	ada := strings.Index(body, `<option value="a">Ada Example (a)</option>`)
@@ -233,9 +235,9 @@ func TestNewBatchIsPrefilledFromTheLatestBatch(t *testing.T) {
 
 func TestNewBatchWithNoPeopleIsRefused(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
-	a.People = registertest.List{}
+	a.Archive = archivetest.New()
 	w := get(t, a.Handler(), "/batches/new")
-	if body := w.Body.String(); !strings.Contains(body, a.People.String()) || strings.Contains(body, "<form") {
+	if body := w.Body.String(); !strings.Contains(body, a.Archive.String()) || strings.Contains(body, "<form") {
 		t.Errorf("new batch with no people: want the register named and no form:\n%s", body)
 	}
 }
@@ -417,4 +419,31 @@ func TestDescribingAPhoto(t *testing.T) {
 	act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}})
 	page(t, h, loc, "Done")
 	page(t, h, "/photos/1", "Nothing known")
+}
+
+// Story 041: once accepted and described, each photo is bagged, deposited
+// with the archive service and receipted; the photo page shows the
+// archive's answer, and a duplicate the archive refused is shown as such.
+func TestPhotosAreDepositedWithTheArchive(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	fake := a.Archive.(*archivetest.Fake)
+	fake.Next = 40
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"deposited"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	one, two := pid.ID(40), pid.ID(41)
+	page(t, h, loc, `href="photos/`+one.String()+`"`, `href="photos/`+two.String()+`"`)
+	page(t, h, "/photos/"+one.String(), "Not yet deposited")
+	act(t, a, h, loc+"/backs", nil)
+	fake.RejectAs[two] = 7
+	describeAll(t, a, h, loc)
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "Done", "1 photo held by the archive", "1 rejected as a duplicate", `href="photos/`+two.String()+`"`)
+	page(t, h, "/photos/"+one.String(), "Held by the archive", "3 files")
+	page(t, h, "/photos/"+two.String(), "Rejected by the archive", "duplicate of item <code>7</code>", "data/front.tif")
+	if rec, _ := fake.Receipt(one); rec.Status != "held" {
+		t.Errorf("the archive does not hold %s: %+v", one, rec)
+	}
+	page(t, h, "/about", "Archive service")
 }

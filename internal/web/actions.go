@@ -14,10 +14,10 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/lofigui"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
-	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
 )
 
 // worker runs one load's step at a time in the background: there is one
@@ -50,7 +50,7 @@ func (a *App) start(l *batch.Load, prepare func() error) error {
 	a.work.step, a.work.stepAt = "", a.work.started
 	a.work.running.Go(func() {
 		// a failure is recorded on the run, where the load page reads it
-		l.Run(context.Background(), a.Store, a.Scanner, a.Now, func(step string) {
+		l.Run(context.Background(), a.env(), func(step string) {
 			a.work.mu.Lock()
 			a.work.step, a.work.stepAt = step, time.Now()
 			a.work.mu.Unlock()
@@ -64,6 +64,11 @@ func (a *App) start(l *batch.Load, prepare func() error) error {
 
 // wait blocks until no step is running.
 func (a *App) wait() { a.work.running.Wait() }
+
+// env is what the loads' workflows run with.
+func (a *App) env() batch.Env {
+	return batch.Env{Store: a.Store, Scanner: a.Scanner, Archive: a.Archive, Now: a.Now}
+}
 
 // running is the key of the load a step is running for, or empty.
 func (a *App) running() string {
@@ -142,7 +147,7 @@ func newLoad(b *batch.Batch, msg, description string) string {
 // newBatch is the New batch page: msg above the form, and the form holding
 // what was entered. With no one in the register there is no form.
 func (a *App) newBatch(msg string, e entered) string {
-	people, err := a.People.People()
+	people, err := a.Archive.People()
 	if err != nil {
 		return `<h1 class="title">New batch</h1><div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
 	}
@@ -160,7 +165,7 @@ func (a *App) prefilled() entered {
 	return e
 }
 
-func personOptions(people []register.Person, selected string) string {
+func personOptions(people []archive.Person, selected string) string {
 	var s strings.Builder
 	s.WriteString(`<option value="">Choose…</option>`)
 	for _, p := range people {
@@ -212,7 +217,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		var b *batch.Batch
 		if err == nil {
-			b, err = batch.Describe(a.Staging, a.People, batch.Description{
+			b, err = batch.Describe(a.Staging, a.Archive, batch.Description{
 				Text: e.title, Person: person, ScanPPI: e.ppi, Provenance: e.provenance, Credit: e.credit}, a.Now())
 		}
 		if err != nil {
@@ -439,7 +444,7 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 			c.HTML(fmt.Sprintf(`<div class="notification is-warning">Accepted. %d %s waiting to be described: %s. Say what is known of each on its page, or that nothing is.</div>`,
 				len(waiting), plural(len(waiting), "photo", "photos"), strings.Join(links, ", ")))
 		} else {
-			c.HTML(`<div class="notification is-success">Done: every photo is archived.</div>`)
+			c.HTML(a.outcome(l))
 		}
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
@@ -459,6 +464,35 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 			`<div class="buttons">` + button("retry", "Carry on", "") + `</div>`)
 	}
 	return false, waiting
+}
+
+// outcome is how a finished load's photos stand with the archive.
+func (a *App) outcome(l *batch.Load) string {
+	_, ids, _ := l.Found()
+	var held, pending int
+	var rejected []string
+	for _, id := range ids {
+		d, _ := batch.DepositOf(a.Staging, id)
+		switch {
+		case d == nil:
+			pending++
+		case d.Status == "duplicate":
+			rejected = append(rejected, fmt.Sprintf(`<a href="photos/%s">%s</a>`, id, id))
+		default:
+			held++
+		}
+	}
+	msg := fmt.Sprintf("Done: %d %s held by the archive", held, plural(held, "photo", "photos"))
+	class := "is-success"
+	if len(rejected) > 0 {
+		msg += fmt.Sprintf("; %d rejected as a duplicate: %s", len(rejected), strings.Join(rejected, ", "))
+		class = "is-warning"
+	}
+	if pending > 0 {
+		msg += fmt.Sprintf("; %d not yet deposited", pending)
+		class = "is-warning"
+	}
+	return `<div class="notification ` + class + `">` + msg + `.</div>`
 }
 
 func plural(n int, one, many string) string {

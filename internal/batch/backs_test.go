@@ -12,7 +12,7 @@ import (
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/runnertest"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
@@ -137,8 +137,8 @@ func TestBacksAreScannedWhereTheFrontsLay(t *testing.T) {
 		if pr := photoRun(t, store, id); pr.Status != wf.StatusCompleted {
 			t.Errorf("photo %s: %s %s", id, pr.Status, pr.Error)
 		}
-		arc := filepath.Join(root, "archive")
-		if !archive.Complete(arc, id) {
+		arc := filepath.Join(root, "bags")
+		if !bag.Complete(arc, id) {
 			t.Fatalf("photo %s not archived", id)
 		}
 		manifest, _ := os.ReadFile(filepath.Join(arc, id.String(), "manifest-sha256.txt"))
@@ -297,7 +297,7 @@ func TestBacksCanBeSkipped(t *testing.T) {
 	if pr := photoRun(t, store, 0); pr.Status != wf.StatusCompleted {
 		t.Errorf("photo: %s %s", pr.Status, pr.Error)
 	}
-	manifest, _ := os.ReadFile(filepath.Join(root, "archive", "0", "manifest-sha256.txt"))
+	manifest, _ := os.ReadFile(filepath.Join(root, "bags", "0", "manifest-sha256.txt"))
 	if strings.Contains(string(manifest), "back.tif") || !strings.Contains(string(manifest), "data/front.tif") {
 		t.Errorf("manifest:\n%s", manifest)
 	}
