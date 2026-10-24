@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-24
+
+ - Each workflow definition's page shows its picture, drawn from the registry by `task diagrams` and embedded; The Workflows page lists only the workflows the scanner runs, not the engine registry's end of day and release
+
+### Added
+
+- Each workflow definition's page shows its picture, drawn from the registry by `task diagrams` and embedded (#24)
+
+### Fixed
+
+- The Workflows page lists only the workflows the scanner runs, not the engine registry's end of day and release (#24)
+
 ## [0.6.0] - 2026-10-24
 
  - A develop step makes each master's renditions before the quality check: the print measured on the master, cropped, deskewed, levels set, as an HD display JPEG with 200 px and 64 px thumbnails under renditions/<id>/<recipe>/; bytestone-scan capture records one real print, and serve -recorded replays it as the scanner, so the UI runs on real pixels without the 4990; New batch records the prints' provenance and credit, pre-filled from the last batch and copied into every photo.yaml and the master's XMP

@@ -297,9 +297,9 @@ func TestConfirmNeedsPrints(t *testing.T) {
 
 func TestEveryStepHasADefinition(t *testing.T) {
 	var def *wf.Definition
-	for i := range wf.Definitions {
-		if wf.Definitions[i].Type == Workflow {
-			def = &wf.Definitions[i]
+	for i := range Definitions {
+		if Definitions[i].Type == Workflow {
+			def = &Definitions[i]
 		}
 	}
 	if def == nil {
