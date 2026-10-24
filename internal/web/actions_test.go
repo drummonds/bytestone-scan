@@ -492,6 +492,18 @@ func TestTheClosedNoticeCountsThePhotos(t *testing.T) {
 	page(t, h, "/batches/20261020-1", "Closed on", "1 photo held by the archive", "1 rejected as a duplicate", `href="photos/`+two.String()+`"`, "30 days")
 }
 
+// #67: a fresh batch form starts at 2400 ppi, the least noise, averaged
+// 4 × 4 down to the 600 ppi master; what the operator picked stays
+// picked when the form comes back with an error.
+func TestNewBatchStartsAt2400PPI(t *testing.T) {
+	h := live(t, &batchtest.Scanner{}).Handler()
+	page(t, h, "/batches/new", `<option value="2400" selected>`)
+	w := post(t, h, "/batches", url.Values{"title": {""}, "person": {"a"}, "ppi": {"1200"}, "credit": {"© Example"}})
+	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), `<option value="1200" selected>`) {
+		t.Errorf("form returned with an error: %d, 1200 ppi not kept:\n%s", w.Code, w.Body)
+	}
+}
+
 // #66: the describe form takes a caption first, what the picture shows;
 // the photo page shows it under the picture as its title, the scan's
 // description beneath. Blank means no caption and the page is as before.
