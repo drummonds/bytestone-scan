@@ -28,8 +28,10 @@ scan ppi. Its first load starts at once; each load's page leads through
 the steps: check the prints found on the preview (or rescan it), confirm,
 turn the prints over where they lie and scan the backs, check each photo's
 quality and its renditions, front and back (or rescan either side, or go
-back to the prints), accept. The batch page lists its loads, takes
-another, and finishes the batch once every load is through.
+back to the prints), say what is known of each photo (the date taken, the
+photographer, what the back says, or nothing), accept. The batch page
+lists its loads, takes another, and finishes the batch once every load is
+through.
 Renditions (story [003](docs/stories/003-display-images.md)) are kept
 under `renditions/` beside the archive, by photo and recipe version.
 

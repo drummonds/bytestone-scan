@@ -127,6 +127,7 @@ func TestBacksAreScannedWhereTheFrontsLay(t *testing.T) {
 		t.Errorf("a back 10 mm narrower than its front: %+v", photos[1].Back)
 	}
 
+	described(t, b)
 	b.Accept()
 	if rec = run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
 		t.Fatalf("after accept: %s %s", rec.Status, rec.Error)
@@ -229,6 +230,7 @@ func TestRescanTheBacksOrTheFronts(t *testing.T) {
 	}
 	b.Turned()
 	run(t, b, store, scanner)
+	described(t, b)
 	b.Accept()
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
 		t.Fatalf("%s %s", rec.Status, rec.Error)
@@ -287,6 +289,7 @@ func TestBacksCanBeSkipped(t *testing.T) {
 	}
 	b.NoBacks()
 	run(t, b, store, scanner)
+	described(t, b)
 	b.Accept()
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
 		t.Fatalf("%s %s", rec.Status, rec.Error)

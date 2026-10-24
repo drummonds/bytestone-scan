@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 )
 
@@ -45,11 +47,28 @@ func scanned(t *testing.T) (*App, *batch.Load) {
 	b.Run(context.Background(), store, s, clock, nil)
 	b.Turned()
 	b.Run(context.Background(), store, s, clock, nil)
+	for _, id := range []pid.ID{0, 1} {
+		b.DescribePhoto(id, batch.PhotoDescription{})
+	}
 	b.Accept()
 	if rec, err := b.Run(context.Background(), store, s, clock, nil); err != nil || rec.Status != wf.StatusCompleted {
 		t.Fatalf("load: %+v, %v", rec, err)
 	}
 	return &App{Staging: root, Store: store}, b
+}
+
+// describeAll says nothing is known of each of the load's photos, so that
+// accepting the load archives them.
+func describeAll(t *testing.T, a *App, h http.Handler, loc string) {
+	t.Helper()
+	l, err := batch.OpenLoad(a.Staging, loadKey(loc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ids, _ := l.Found()
+	for _, id := range ids {
+		act(t, a, h, "/photos/"+id.String()+"/describe", url.Values{"skip": {"1"}})
+	}
 }
 
 // loadKey is the key of the load whose page a redirect landed on.

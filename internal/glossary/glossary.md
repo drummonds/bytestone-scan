@@ -21,4 +21,6 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Master | The archival image of one side, never altered after capture: a front at 16 bits per channel, a back at 8 |
 | Rendition | A display image derived from a master: cropped to the print, turned square, its levels set, scaled to fit a screen |
 | Recipe | How renditions are made from a master, by version; a new recipe makes new renditions and leaves the old on record |
-| Develop | The load step that makes each master's renditions |
+| Develop | The photo step that makes one side's renditions |
+| Claim | One thing said about a photo (the date taken, the photographer, what the back says), with its source (the back or front of the print, or a relative's word) and how it was read; kept in photo.yaml, never in the master |
+| Describe (a photo) | The photo step where the operator says what is known of it, as claims, or that nothing is; waits after the load is accepted until answered |

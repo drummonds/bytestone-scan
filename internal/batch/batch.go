@@ -22,6 +22,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -125,6 +126,66 @@ type Photo struct {
 	Credit      string `yaml:"credit"`
 	Front       Side   `yaml:"front"`
 	Back        *Side  `yaml:"back,omitempty"` // once the backs are scanned
+	// Claims are what the operator said of the photo at its describe
+	// step; Described is when, nothing known being an answer too.
+	Claims    []Claim    `yaml:"claims,omitempty"`
+	Described *time.Time `yaml:"described,omitempty"`
+}
+
+// Claim is one thing said about a photo, with where it came from and how
+// it was read, as the format statement has it.
+type Claim struct {
+	Kind        string `yaml:"kind"` // date taken, photographer, back
+	Value       string `yaml:"value"`
+	Approximate bool   `yaml:"approximate,omitempty"`
+	Source      string `yaml:"source"` // back, front: that side of the print; family: a relative's word
+	Read        string `yaml:"read"`   // transcribed: by a person
+}
+
+// PhotoDescription is what the operator says of a photo: the date taken
+// as an ISO 8601 prefix (1952, 1952-07, 1952-07-14), the photographer and
+// what the back says, all from Source. Every field may be blank.
+type PhotoDescription struct {
+	Date         string
+	Approximate  bool
+	Photographer string
+	Back         string // what is written or printed on the back
+	Source       string // back, front or family; blank is the back when scanned, else family
+}
+
+var isoPrefix = regexp.MustCompile(`^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$`)
+
+// claims are the description's claims, or why it is refused.
+func (d PhotoDescription) claims(hasBack bool) ([]Claim, error) {
+	source := d.Source
+	switch source {
+	case "":
+		source = "family"
+		if hasBack {
+			source = "back"
+		}
+	case "back", "front", "family":
+	default:
+		return nil, fmt.Errorf("source %q, want back, front or family", d.Source)
+	}
+	var claims []Claim
+	if date := strings.TrimSpace(d.Date); date != "" {
+		m := isoPrefix.FindStringSubmatch(date)
+		if m == nil || (m[2] != "" && (m[2] < "01" || m[2] > "12")) || (m[3] != "" && (m[3] < "01" || m[3] > "31")) {
+			return nil, fmt.Errorf("date %q: want an ISO 8601 prefix such as 1952, 1952-07 or 1952-07-14", d.Date)
+		}
+		claims = append(claims, Claim{Kind: "date taken", Value: date, Approximate: d.Approximate, Source: source, Read: "transcribed"})
+	}
+	if p := oneLine(d.Photographer); p != "" {
+		claims = append(claims, Claim{Kind: "photographer", Value: p, Source: source, Read: "transcribed"})
+	}
+	if back := strings.TrimSpace(d.Back); back != "" {
+		if !hasBack {
+			return nil, errors.New("the back's text: this photo's back was not scanned")
+		}
+		claims = append(claims, Claim{Kind: "back", Value: back, Source: source, Read: "transcribed"})
+	}
+	return claims, nil
 }
 
 // side is the photo's front or back.
@@ -551,6 +612,26 @@ func (b *Load) BacksSkipped() bool {
 	return err == nil
 }
 
+// DescribePhoto records what the operator says of photo id, replacing
+// what was said before, until the photo is archived. Saying nothing still
+// describes it.
+func (b *Load) DescribePhoto(id pid.ID, d PhotoDescription) error {
+	if archive.Complete(b.archive(), id) {
+		return fmt.Errorf("photo %s is archived; its record is no longer the load's to change", id)
+	}
+	var photo Photo
+	if err := readYAML(b.masterPath(id, "yaml"), &photo); err != nil {
+		return fmt.Errorf("photo %s: not scanned yet: %w", id, err)
+	}
+	claims, err := d.claims(photo.Back != nil)
+	if err != nil {
+		return fmt.Errorf("photo %s: %w", id, err)
+	}
+	now := time.Now().UTC()
+	photo.Claims, photo.Described = claims, &now
+	return writeYAML(b.masterPath(id, "yaml"), photo)
+}
+
 // Redo sends the load back to the step named from, which and every later
 // step run again on the next tick. A ppi other than 0 changes the batch's
 // scan ppi first. What the operator decided at the steps cleared is
@@ -746,6 +827,13 @@ func (b *Load) photoStages(id pid.ID, now func() time.Time) []wf.Stage {
 		{Name: "accepted", Until: func(context.Context) (bool, error) {
 			_, err := os.Stat(b.path("accepted"))
 			return err == nil, nil
+		}},
+		{Name: "describe", Until: func(context.Context) (bool, error) {
+			var photo Photo
+			if err := readYAML(b.masterPath(id, "yaml"), &photo); err != nil {
+				return false, err
+			}
+			return photo.Described != nil, nil
 		}},
 		// An archived photo is never altered, so nothing before packaging can be redone after it.
 		{Name: "package", Run: func(context.Context) error { return b.pack(id, now) }, Final: true},

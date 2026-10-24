@@ -179,6 +179,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 			t.Error(err)
 		}
 	}
+	described(t, b)
 	if err := b.Accept(); err != nil {
 		t.Fatal(err)
 	}
@@ -270,6 +271,7 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 		t.Error("photo archived after a failed detail pass")
 	}
 	scanned(t, b, store, scanner)
+	described(t, b)
 	b.Accept()
 	run(t, b, store, scanner)
 	if scanner.Previews != 2 || scanner.Details != 3 {
@@ -358,6 +360,7 @@ func TestFindPhoto(t *testing.T) {
 	if err != nil || photo.ID != 0 || filepath.Base(path) != "0.tif" {
 		t.Errorf("before packaging, FindPhoto(0) = %+v, %q, %v", photo, path, err)
 	}
+	described(t, b)
 	b.Accept()
 	run(t, b, store, scanner)
 
@@ -400,6 +403,18 @@ func scanned(t *testing.T, b *Load, store wf.Store, scanner Scanner) {
 	}
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
 		t.Fatalf("%s, want waiting for the quality check", rec.Status)
+	}
+}
+
+// described says nothing is known of each of the load's photos, so that
+// they can be archived once accepted.
+func described(t *testing.T, b *Load) {
+	t.Helper()
+	_, ids, _ := b.Found()
+	for _, id := range ids {
+		if err := b.DescribePhoto(id, PhotoDescription{}); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -484,6 +499,7 @@ func TestRedoRefusals(t *testing.T) {
 	if err := b.Redo(context.Background(), store, "fronts", 300); err == nil {
 		t.Error("redo at 300 ppi accepted")
 	}
+	described(t, b)
 	b.Accept()
 	run(t, b, store, scanner)
 	err := b.Redo(context.Background(), store, "fronts", 0)

@@ -24,6 +24,7 @@ import (
 	"git.bytestone.uk/hum3/gobank-workflow/view"
 	"git.bytestone.uk/hum3/lofigui"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
@@ -493,9 +494,80 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	for _, row := range rows {
 		fmt.Fprintf(&t, "<tr><th>%s</th><td>%s</td></tr>", row[0], row[1])
 	}
-	t.WriteString(`</tbody></table></div></div>`)
+	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
+	c.HTML(a.describeSection(id, p))
+	c.HTML(`</div></div>`)
 	return c.Buffer()
+}
+
+// describeSection is what is known of the photo: a form until it is
+// archived, then the record.
+func (a *App) describeSection(id pid.ID, p batch.Photo) string {
+	claim := func(kind string) *batch.Claim {
+		for i := range p.Claims {
+			if p.Claims[i].Kind == kind {
+				return &p.Claims[i]
+			}
+		}
+		return nil
+	}
+	value := func(kind string) string {
+		if c := claim(kind); c != nil {
+			return html.EscapeString(c.Value)
+		}
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<h2 class="title is-6 mt-4">What is known</h2>`)
+	if archive.Complete(filepath.Join(a.Staging, "archive"), id) {
+		if len(p.Claims) == 0 {
+			b.WriteString(`<p class="help">Nothing known when the photo was described.</p>`)
+		}
+		b.WriteString(`<table class="table is-narrow"><tbody>`)
+		for _, c := range p.Claims {
+			note := ""
+			if c.Approximate {
+				note = " (approximate)"
+			}
+			fmt.Fprintf(&b, `<tr><th>%s</th><td>%s%s</td><td class="has-text-grey">%s, %s</td></tr>`,
+				html.EscapeString(c.Kind), html.EscapeString(c.Value), note, html.EscapeString(c.Source), html.EscapeString(c.Read))
+		}
+		b.WriteString(`</tbody></table>`)
+		return b.String()
+	}
+	approx, source := "", "back"
+	if c := claim("date taken"); c != nil && c.Approximate {
+		approx = " checked"
+	}
+	if len(p.Claims) > 0 {
+		source = p.Claims[0].Source
+	} else if p.Back == nil {
+		source = "family"
+	}
+	var sources strings.Builder
+	for _, s := range []string{"back", "front", "family"} {
+		sel := ""
+		if s == source {
+			sel = " selected"
+		}
+		sources.WriteString(fmt.Sprintf(`<option value="%s"%s>%s</option>`, s, sel, map[string]string{"back": "the back of the print", "front": "the front of the print", "family": "a relative's word"}[s]))
+	}
+	backField := ""
+	if p.Back != nil {
+		backField = fmt.Sprintf(`<div class="field"><label class="label">What the back says</label><div class="control"><textarea class="textarea is-small" name="back" rows="3">%s</textarea></div></div>`, value("back"))
+	}
+	fmt.Fprintf(&b, `<form action="photos/%s/describe" method="post" class="box">
+<div class="field"><label class="label">Date taken</label><div class="control"><input class="input is-small" name="date" value="%s" placeholder="1952, 1952-07 or 1952-07-14"></div>
+<label class="checkbox"><input type="checkbox" name="approximate"%s> approximate</label></div>
+<div class="field"><label class="label">Photographer</label><div class="control"><input class="input is-small" name="photographer" value="%s"></div></div>
+%s<div class="field"><label class="label">Source</label><div class="control"><div class="select is-small"><select name="source">%s</select></div></div></div>
+<div class="buttons"><button class="button is-primary is-small" type="submit">Save</button> <button class="button is-small" type="submit" name="skip" value="1">Nothing known</button></div>
+</form>`, id, value("date taken"), approx, value("photographer"), backField, sources.String())
+	if p.Described != nil {
+		b.WriteString(`<p class="help">Described; can be changed until the photo is archived.</p>`)
+	}
+	return b.String()
 }
 
 // orUnknown shows a provenance, or that none was known.
