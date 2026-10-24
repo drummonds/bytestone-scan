@@ -60,10 +60,10 @@ func line(img *image.RGBA, x0, y0, x1, y1 float64, col color.RGBA) {
 }
 
 // Preview is the batch's preview of the bed.
-func (b *Load) Preview() (image.Image, error) { return readPNG(b.path("preview.png")) }
+func (b *Scan) Preview() (image.Image, error) { return readPNG(b.path("preview.png")) }
 
 // Annotated is the preview with each print's region as it stands.
-func (b *Load) Annotated() (image.Image, error) {
+func (b *Scan) Annotated() (image.Image, error) {
 	img, err := b.Preview()
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (b *Load) Annotated() (image.Image, error) {
 
 // AnnotatedBacks is the backs preview with the fronts' regions drawn on
 // it: where each back was scanned.
-func (b *Load) AnnotatedBacks() (image.Image, error) {
+func (b *Scan) AnnotatedBacks() (image.Image, error) {
 	img, err := readPNG(b.path("backs.png"))
 	if err != nil {
 		return nil, err
@@ -95,7 +95,7 @@ const closeUpWidth = 480
 // CloseUp is print n's region on the preview with 6 mm round it, turned
 // so the print sits square and enlarged pixel for pixel: the region
 // outlined in green, the print as found in blue.
-func (b *Load) CloseUp(n int) (image.Image, error) {
+func (b *Scan) CloseUp(n int) (image.Image, error) {
 	img, err := b.Preview()
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func (b *Load) CloseUp(n int) (image.Image, error) {
 		return nil, err
 	}
 	if n < 0 || n >= len(prints) {
-		return nil, fmt.Errorf("load %s has no print %d", b.Key(), n+1)
+		return nil, fmt.Errorf("scan %s has no print %d", b.Key(), n+1)
 	}
 	const mm = 25.4 / PreviewPPI
 	p := prints[n]

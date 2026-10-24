@@ -63,7 +63,7 @@ func TestABatchFromStartToTheArchive(t *testing.T) {
 	page(t, h, "/batches/new", `name="title"`, `name="person"`, `name="ppi"`, `name="provenance"`, `name="credit"`)
 
 	loc := act(t, a, h, "/batches", url.Values{"title": {"SS Bonita"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
-	if loc != "/batches/20261020-1/loads/1" {
+	if loc != "/batches/20261020-1/scans/1" {
 		t.Fatalf("new batch went to %q", loc)
 	}
 	page(t, h, loc, "Confirm", "Rescan the preview", "Preview, 150 ppi")
@@ -163,15 +163,15 @@ func TestOneStepAtATime(t *testing.T) {
 	page(t, h, loc, "Confirm")
 }
 
-// A load left waiting can be cancelled from the queue, one at a time.
-func TestCancelALoadFromTheQueue(t *testing.T) {
+// A scan left waiting can be cancelled from the queue, one at a time.
+func TestCancelAScanFromTheQueue(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	a := live(t, s)
 	h := a.Handler()
 	act(t, a, h, "/batches", url.Values{"title": {"abandoned"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
-	runs, _ := a.Store.ListRuns(context.Background(), wf.RunFilter{Types: []wf.WorkflowType{batch.LoadWorkflow}})
+	runs, _ := a.Store.ListRuns(context.Background(), wf.RunFilter{Types: []wf.WorkflowType{batch.ScanWorkflow}})
 	if len(runs) != 1 || runs[0].Status != wf.StatusWaiting {
-		t.Fatalf("runs %+v, want one load waiting at confirm", runs)
+		t.Fatalf("runs %+v, want one scan waiting at confirm", runs)
 	}
 	action := `action="workflows/instances/` + runs[0].ID + `/cancel"`
 	page(t, h, "/workflows/", action)
@@ -182,7 +182,7 @@ func TestCancelALoadFromTheQueue(t *testing.T) {
 		t.Errorf("status %s, want cancelled", run.Status)
 	}
 	if strings.Contains(get(t, h, "/workflows/").Body.String(), action) {
-		t.Error("a cancelled load is still offered to cancel")
+		t.Error("a cancelled scan is still offered to cancel")
 	}
 }
 
@@ -214,7 +214,7 @@ func TestNewBatchChoosesTheHomePersonByName(t *testing.T) {
 }
 
 // Story 014: provenance and credit are typed once per shoebox, not per
-// load of the bed.
+// scan of the bed.
 func TestNewBatchIsPrefilledFromTheLatestBatch(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
 	h := a.Handler()
@@ -285,30 +285,30 @@ func TestNewBatchHasButtonsThatInsertTheCreditTerms(t *testing.T) {
 	page(t, a.Handler(), "/batches/new", `data-insert="©"`, `data-insert="CC BY 4.0"`, `name="credit"`)
 }
 
-// #38: a batch is a sitting of loads. New batch starts its first load; the
-// batch page lists the loads; another load is described from the batch's
+// #38: a batch is a sitting of scans. New batch starts its first scan; the
+// batch page lists the scans; another scan is described from the batch's
 // title unless the operator says otherwise; scanning is finished once
-// every load is through; and each photo names its batch and load.
-func TestABatchOfLoads(t *testing.T) {
+// every scan is through; and each photo names its batch and scan.
+func TestABatchOfScans(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	a := live(t, s)
 	h := a.Handler()
 	one := act(t, a, h, "/batches", url.Values{"title": {"Shoebox"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
-	if one != "/batches/20261020-1/loads/1" {
+	if one != "/batches/20261020-1/scans/1" {
 		t.Fatalf("new batch went to %s", one)
 	}
-	page(t, h, one, "Load 1", "Shoebox", "Confirm", `href="batches/20261020-1"`)
-	page(t, h, "/batches/20261020-1", "Shoebox", `href="batches/20261020-1/loads/1"`, "Scan another load", "Finish scanning")
-	if w := post(t, h, "/batches/20261020-1/finish", nil); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "load 1 is not through") {
-		t.Errorf("finished with a load in hand: %d %s", w.Code, w.Body)
+	page(t, h, one, "Scan 1", "Shoebox", "Confirm", `href="batches/20261020-1"`)
+	page(t, h, "/batches/20261020-1", "Shoebox", `href="batches/20261020-1/scans/1"`, "Do one more scan", "Finish scanning")
+	if w := post(t, h, "/batches/20261020-1/finish", nil); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "scan 1 is not through") {
+		t.Errorf("finished with a scan in hand: %d %s", w.Code, w.Body)
 	}
 
-	page(t, h, "/batches/20261020-1/loads/new", `name="description" value="Shoebox"`)
-	two := act(t, a, h, "/batches/20261020-1/loads", url.Values{"description": {"the second envelope"}})
-	if two != "/batches/20261020-1/loads/2" {
-		t.Fatalf("new load went to %s", two)
+	page(t, h, "/batches/20261020-1/scans/new", `name="description" value="Shoebox"`)
+	two := act(t, a, h, "/batches/20261020-1/scans", url.Values{"description": {"the second envelope"}})
+	if two != "/batches/20261020-1/scans/2" {
+		t.Fatalf("new scan went to %s", two)
 	}
-	page(t, h, "/batches/20261020-1", "the second envelope", `href="batches/20261020-1/loads/2"`)
+	page(t, h, "/batches/20261020-1", "the second envelope", `href="batches/20261020-1/scans/2"`)
 
 	for _, loc := range []string{one, two} {
 		act(t, a, h, loc+"/confirm", nil)
@@ -320,17 +320,17 @@ func TestABatchOfLoads(t *testing.T) {
 		t.Errorf("finish went to %s", loc)
 	}
 	page(t, h, "/batches/20261020-1", "Closed")
-	if w := get(t, h, "/batches/20261020-1/loads/new"); w.Code != http.StatusUnprocessableEntity {
-		t.Errorf("a finished batch offered another load: %d", w.Code)
+	if w := get(t, h, "/batches/20261020-1/scans/new"); w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("a finished batch offered another scan: %d", w.Code)
 	}
-	page(t, h, "/photos/1", "the second envelope", `href="batches/20261020-1"`, `href="batches/20261020-1/loads/2"`)
+	page(t, h, "/photos/1", "the second envelope", `href="batches/20261020-1"`, `href="batches/20261020-1/scans/2"`)
 }
 
-// Story 039: after the fronts the load asks for the prints to be turned
+// Story 039: after the fronts the scan asks for the prints to be turned
 // over, scans the backs where the fronts lay, shows where each back lay
 // and flags one that differs; the photo page shows the back; the backs
 // can be scanned again.
-func TestTheBacksOfALoad(t *testing.T) {
+func TestTheBacksOfAScan(t *testing.T) {
 	s := &batchtest.Scanner{
 		Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}},
 		Backs:  []batchtest.Print{{X0: 22, Y0: 20, X1: 62, Y1: 50, Value: 50000}, {X0: 90, Y0: 25, X1: 115, Y1: 60, Value: 50000}},
@@ -368,7 +368,7 @@ func TestTheBacksOfALoad(t *testing.T) {
 	}
 }
 
-// Prints with blank backs: the operator skips the backs and the load goes
+// Prints with blank backs: the operator skips the backs and the scan goes
 // on to the quality check without a back.
 func TestSkippingTheBacks(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
@@ -390,9 +390,9 @@ func TestSkippingTheBacks(t *testing.T) {
 	}
 }
 
-// Story 040: the photo page takes the photo's description while the load
+// Story 040: the photo page takes the photo's description while the scan
 // is being checked: the date taken, the photographer and what the back
-// says. A photo not described waits after accept, and the load page says
+// says. A photo not described waits after accept, and the scan page says
 // so; once archived the description is shown and fixed.
 func TestDescribingAPhoto(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
@@ -468,7 +468,7 @@ func TestTheBatchPageSaysClosedAndPurged(t *testing.T) {
 	}
 	page(t, h, "/batches/20261020-1", "Purged")
 	if w := get(t, h, loc); w.Code != http.StatusNotFound {
-		t.Errorf("a purged load's page: %d", w.Code)
+		t.Errorf("a purged scan's page: %d", w.Code)
 	}
 }
 

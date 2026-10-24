@@ -20,11 +20,11 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
-// worker runs one load's step at a time in the background: there is one
+// worker runs one scan's step at a time in the background: there is one
 // scanner.
 type worker struct {
 	mu      sync.Mutex
-	load    string // the key of the load a step is running for; empty when idle
+	scan    string // the key of the scan a step is running for; empty when idle
 	started time.Time
 	step    string // the workflow step running, once one has started
 	stepAt  time.Time
@@ -33,30 +33,30 @@ type worker struct {
 
 var errBusy = errors.New("busy")
 
-// start runs prepare and then the load's workflow up to its next wait, in
+// start runs prepare and then the scan's workflow up to its next wait, in
 // the background, unless a step is already running.
-func (a *App) start(l *batch.Load, prepare func() error) error {
+func (a *App) start(l *batch.Scan, prepare func() error) error {
 	a.work.mu.Lock()
 	defer a.work.mu.Unlock()
-	if a.work.load != "" {
-		return fmt.Errorf("%w: the scanner is busy with load %s", errBusy, a.work.load)
+	if a.work.scan != "" {
+		return fmt.Errorf("%w: the scanner is busy with scan %s", errBusy, a.work.scan)
 	}
 	if prepare != nil {
 		if err := prepare(); err != nil {
 			return err
 		}
 	}
-	a.work.load, a.work.started = l.Key(), time.Now()
+	a.work.scan, a.work.started = l.Key(), time.Now()
 	a.work.step, a.work.stepAt = "", a.work.started
 	a.work.running.Go(func() {
-		// a failure is recorded on the run, where the load page reads it
+		// a failure is recorded on the run, where the scan page reads it
 		l.Run(context.Background(), a.env(), func(step string) {
 			a.work.mu.Lock()
 			a.work.step, a.work.stepAt = step, time.Now()
 			a.work.mu.Unlock()
 		})
 		a.work.mu.Lock()
-		a.work.load = ""
+		a.work.scan = ""
 		a.work.mu.Unlock()
 	})
 	return nil
@@ -65,25 +65,25 @@ func (a *App) start(l *batch.Load, prepare func() error) error {
 // wait blocks until no step is running.
 func (a *App) wait() { a.work.running.Wait() }
 
-// env is what the loads' workflows run with.
+// env is what the scans' workflows run with.
 func (a *App) env() batch.Env {
 	return batch.Env{Store: a.Store, Scanner: a.Scanner, Archive: a.Archive, Now: a.Now}
 }
 
-// running is the key of the load a step is running for, or empty.
+// running is the key of the scan a step is running for, or empty.
 func (a *App) running() string {
 	a.work.mu.Lock()
 	defer a.work.mu.Unlock()
-	return a.work.load
+	return a.work.scan
 }
 
-// busyWith reports whether a step of the load with key is running, and if
+// busyWith reports whether a step of the scan with key is running, and if
 // so which workflow step it is at (empty before the first starts) and
 // since when.
 func (a *App) busyWith(key string) (bool, string, time.Time) {
 	a.work.mu.Lock()
 	defer a.work.mu.Unlock()
-	return a.work.load == key, a.work.step, a.work.stepAt
+	return a.work.scan == key, a.work.step, a.work.stepAt
 }
 
 const newBatchForm = `<h1 class="title">New batch</h1>
@@ -91,7 +91,7 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 <form action="batches" method="post" class="box">
 <div class="field"><label class="label">Title: what is being scanned</label>
 <div class="control"><input class="input" name="title" value="%s" required></div>
-<p class="help">A batch is one sitting: as many loads of the bed as the shoebox needs. Each load’s description starts as this title.</p></div>
+<p class="help">A batch is one sitting: as many scans of the bed as the shoebox needs. Each scan’s description starts as this title.</p></div>
 <div class="field"><label class="label">Home: the person whose collection the photos belong to</label>
 <div class="control"><div class="select"><select name="person" required>%s</select></div></div></div>
 <div class="field"><label class="label">Provenance: where the prints came from</label>
@@ -128,20 +128,20 @@ type entered struct {
 	ppi                               int
 }
 
-const newLoadForm = `<h1 class="title">Batch %s: another load</h1>
+const newScanForm = `<h1 class="title">Batch %s: one more scan</h1>
 <p class="subtitle">%s</p>
 %s
-<form action="batches/%s/loads" method="post" class="box">
+<form action="batches/%s/scans" method="post" class="box">
 <div class="field"><label class="label">Description: what is on the bed this time</label>
 <div class="control"><input class="input" name="description" value="%s" required></div>
-<p class="help">Copied into each of this load’s photos. Home, provenance, credit and scan ppi are the batch’s.</p></div>
+<p class="help">Copied into each of this scan’s photos. Home, provenance, credit and scan ppi are the batch’s.</p></div>
 <button class="button is-primary" type="submit">Scan the preview</button>
 </form>`
 
-// newLoad is the form for a batch's next load, its description starting
+// newScan is the form for a batch's next scan, its description starting
 // as the batch's title.
-func newLoad(b *batch.Batch, msg, description string) string {
-	return fmt.Sprintf(newLoadForm, html.EscapeString(b.ID), html.EscapeString(b.Title), msg, html.EscapeString(b.ID), html.EscapeString(description))
+func newScan(b *batch.Batch, msg, description string) string {
+	return fmt.Sprintf(newScanForm, html.EscapeString(b.ID), html.EscapeString(b.Title), msg, html.EscapeString(b.ID), html.EscapeString(description))
 }
 
 // newBatch is the New batch page: msg above the form, and the form holding
@@ -156,7 +156,7 @@ func (a *App) newBatch(msg string, e entered) string {
 }
 
 // prefilled is a fresh form: provenance and credit are the latest
-// batch's, since a shoebox is many loads of the bed.
+// batch's, since a shoebox is many scans of the bed.
 func (a *App) prefilled() entered {
 	e := entered{ppi: 1200}
 	if latest, err := batch.Latest(a.Staging); err == nil && latest != nil {
@@ -205,7 +205,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	mux.HandleFunc("POST /batches", func(w http.ResponseWriter, r *http.Request) {
 		// refuse before recording a batch that could not be scanned
 		if key := a.running(); key != "" {
-			fail(w, fmt.Errorf("%w: the scanner is busy with load %s", errBusy, key), http.StatusConflict)
+			fail(w, fmt.Errorf("%w: the scanner is busy with scan %s", errBusy, key), http.StatusConflict)
 			return
 		}
 		e := entered{title: r.FormValue("title"), person: r.FormValue("person"),
@@ -217,7 +217,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		var b *batch.Batch
 		if err == nil {
-			b, err = batch.Describe(a.Staging, a.Archive, batch.Description{
+			b, err = batch.Describe(a.Staging, a.Archive, a.Store, batch.Description{
 				Text: e.title, Person: person, ScanPPI: e.ppi, Provenance: e.provenance, Credit: e.credit}, a.Now())
 		}
 		if err != nil {
@@ -225,9 +225,9 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			render(w, "New batch", a.newBatch(`<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`, e))
 			return
 		}
-		a.startLoad(w, r, b, "", fail)
+		a.startScan(w, r, b, "", fail)
 	})
-	mux.HandleFunc("GET /batches/{id}/loads/new", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /batches/{id}/scans/new", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
 		if err != nil {
 			http.NotFound(w, r)
@@ -237,19 +237,19 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			fail(w, fmt.Errorf("batch %s: scanning is finished", b.ID), http.StatusUnprocessableEntity)
 			return
 		}
-		render(w, "Another load", newLoad(b, "", b.Title))
+		render(w, "One more scan", newScan(b, "", b.Title))
 	})
-	mux.HandleFunc("POST /batches/{id}/loads", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /batches/{id}/scans", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
 		if key := a.running(); key != "" {
-			fail(w, fmt.Errorf("%w: the scanner is busy with load %s", errBusy, key), http.StatusConflict)
+			fail(w, fmt.Errorf("%w: the scanner is busy with scan %s", errBusy, key), http.StatusConflict)
 			return
 		}
-		a.startLoad(w, r, b, r.FormValue("description"), fail)
+		a.startScan(w, r, b, r.FormValue("description"), fail)
 	})
 	mux.HandleFunc("POST /batches/{id}/finish", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
@@ -264,10 +264,10 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		http.Redirect(w, r, "/batches/"+b.ID, http.StatusSeeOther)
 	})
 
-	// Each action prepares the load, then runs it to its next wait.
-	act := func(name string, prepare func(r *http.Request, l *batch.Load) error) {
-		mux.HandleFunc("POST /batches/{id}/loads/{n}/"+name, func(w http.ResponseWriter, r *http.Request) {
-			l, err := batch.OpenLoad(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
+	// Each action prepares the scan, then runs it to its next wait.
+	act := func(name string, prepare func(r *http.Request, l *batch.Scan) error) {
+		mux.HandleFunc("POST /batches/{id}/scans/{n}/"+name, func(w http.ResponseWriter, r *http.Request) {
+			l, err := batch.OpenScan(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
 			if err != nil {
 				http.NotFound(w, r)
 				return
@@ -276,28 +276,28 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 				fail(w, err, http.StatusUnprocessableEntity)
 				return
 			}
-			http.Redirect(w, r, "/"+loadURL(l.Key()), http.StatusSeeOther)
+			http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
 		})
 	}
-	act("preview", func(r *http.Request, l *batch.Load) error {
+	act("preview", func(r *http.Request, l *batch.Scan) error {
 		return l.Redo(r.Context(), a.Store, "preview", 0)
 	})
-	act("prints", func(r *http.Request, l *batch.Load) error {
+	act("prints", func(r *http.Request, l *batch.Scan) error {
 		return l.Redo(r.Context(), a.Store, "confirm", 0)
 	})
-	act("confirm", func(r *http.Request, l *batch.Load) error { return l.Confirm() })
-	act("rescan", func(r *http.Request, l *batch.Load) error {
+	act("confirm", func(r *http.Request, l *batch.Scan) error { return l.Confirm() })
+	act("rescan", func(r *http.Request, l *batch.Scan) error {
 		ppi, _ := strconv.Atoi(r.FormValue("ppi"))
 		return l.Redo(r.Context(), a.Store, "fronts", ppi)
 	})
-	act("backs", func(r *http.Request, l *batch.Load) error { return l.Turned() })
-	act("no-backs", func(r *http.Request, l *batch.Load) error { return l.NoBacks() })
-	act("rescan-backs", func(r *http.Request, l *batch.Load) error {
+	act("backs", func(r *http.Request, l *batch.Scan) error { return l.Turned() })
+	act("no-backs", func(r *http.Request, l *batch.Scan) error { return l.NoBacks() })
+	act("rescan-backs", func(r *http.Request, l *batch.Scan) error {
 		return l.Redo(r.Context(), a.Store, "backs", 0)
 	})
-	act("accept", func(r *http.Request, l *batch.Load) error { return l.Accept() })
-	act("retry", func(r *http.Request, l *batch.Load) error { return nil })
-	act("reshape", func(r *http.Request, l *batch.Load) error {
+	act("accept", func(r *http.Request, l *batch.Scan) error { return l.Accept() })
+	act("retry", func(r *http.Request, l *batch.Scan) error { return nil })
+	act("reshape", func(r *http.Request, l *batch.Scan) error {
 		n, edge, by, err := parseMove(r.FormValue("move"))
 		if err != nil {
 			return err
@@ -305,7 +305,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		return l.Reshape(r.Context(), a.Store, n-1, edge, by)
 	})
 
-	// Describing a photo prepares its load's photos to go on, then ticks them.
+	// Describing a photo prepares its scan's photos to go on, then ticks them.
 	mux.HandleFunc("POST /photos/{id}/describe", func(w http.ResponseWriter, r *http.Request) {
 		id, err := pid.Parse(r.PathValue("id"))
 		if err != nil {
@@ -317,7 +317,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			http.NotFound(w, r)
 			return
 		}
-		l, err := batch.OpenLoad(a.Staging, fmt.Sprintf("%s/%d", p.Batch, p.Load))
+		l, err := batch.OpenScan(a.Staging, fmt.Sprintf("%s/%d", p.Batch, p.Scan))
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -335,16 +335,16 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 
 	// Editing the regions needs no scanner, only that no step is running on
-	// the load. Each edit names its print, counted from 1.
-	edit := func(name string, change func(r *http.Request, l *batch.Load) (int, error)) {
-		mux.HandleFunc("POST /batches/{id}/loads/{n}/"+name, func(w http.ResponseWriter, r *http.Request) {
-			l, err := batch.OpenLoad(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
+	// the scan. Each edit names its print, counted from 1.
+	edit := func(name string, change func(r *http.Request, l *batch.Scan) (int, error)) {
+		mux.HandleFunc("POST /batches/{id}/scans/{n}/"+name, func(w http.ResponseWriter, r *http.Request) {
+			l, err := batch.OpenScan(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
 			if err != nil {
 				http.NotFound(w, r)
 				return
 			}
 			if a.running() == l.Key() {
-				fail(w, fmt.Errorf("%w: wait for load %s's step to finish", errBusy, l.Key()), http.StatusConflict)
+				fail(w, fmt.Errorf("%w: wait for scan %s's step to finish", errBusy, l.Key()), http.StatusConflict)
 				return
 			}
 			n, err := change(r, l)
@@ -352,30 +352,31 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 				fail(w, err, http.StatusUnprocessableEntity)
 				return
 			}
-			http.Redirect(w, r, fmt.Sprintf("/%s#print-%d", loadURL(l.Key()), n), http.StatusSeeOther)
+			http.Redirect(w, r, fmt.Sprintf("/%s#print-%d", scanURL(l.Key()), n), http.StatusSeeOther)
 		})
 	}
-	edit("adjust", func(r *http.Request, l *batch.Load) (int, error) {
+	edit("adjust", func(r *http.Request, l *batch.Scan) (int, error) {
 		n, edge, by, err := parseMove(r.FormValue("move"))
 		if err != nil {
 			return 0, err
 		}
 		return n, l.Adjust(n-1, edge, by)
 	})
-	edit("split", func(r *http.Request, l *batch.Load) (int, error) {
+	edit("split", func(r *http.Request, l *batch.Scan) (int, error) {
 		n, err := strconv.Atoi(r.FormValue("print"))
 		if err != nil {
 			return 0, fmt.Errorf("no print given")
 		}
 		return n, l.Split(n - 1)
 	})
-	edit("remove", func(r *http.Request, l *batch.Load) (int, error) {
+	edit("remove", func(r *http.Request, l *batch.Scan) (int, error) {
 		n, err := strconv.Atoi(r.FormValue("print"))
 		if err != nil {
 			return 0, fmt.Errorf("no print given")
 		}
 		return 1, l.Remove(n - 1)
 	})
+	a.deletion(mux, render, fail)
 }
 
 // parseMove reads an arrow's "<print> <edge> <mm>", mm outwards when positive.
@@ -399,10 +400,10 @@ func parseMove(s string) (int, find.Edge, float64, error) {
 	return n, edge, by, nil
 }
 
-// startLoad adds a load to the batch and starts its preview, landing on
+// startScan adds a scan to the batch and starts its preview, landing on
 // its page.
-func (a *App) startLoad(w http.ResponseWriter, r *http.Request, b *batch.Batch, description string, fail func(http.ResponseWriter, error, int)) {
-	l, err := b.NewLoad(description, a.Now())
+func (a *App) startScan(w http.ResponseWriter, r *http.Request, b *batch.Batch, description string, fail func(http.ResponseWriter, error, int)) {
+	l, err := b.NewScan(description, a.Now())
 	if err != nil {
 		fail(w, err, http.StatusUnprocessableEntity)
 		return
@@ -411,15 +412,15 @@ func (a *App) startLoad(w http.ResponseWriter, r *http.Request, b *batch.Batch, 
 		fail(w, err, http.StatusConflict)
 		return
 	}
-	http.Redirect(w, r, "/"+loadURL(l.Key()), http.StatusSeeOther)
+	http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
 }
 
-// state writes where the load's workflow stands and the operator's
+// state writes where the scan's workflow stands and the operator's
 // choices there, reporting whether a step is running and the step the
-// load is waiting at, if any.
-func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, string) {
+// scan is waiting at, if any.
+func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, string) {
 	if busy, step, since := a.busyWith(l.Key()); busy {
-		c.HTML(`<div id="progress">` + a.progress(r.Context(), l, step, since) + `</div>` + fmt.Sprintf(pollProgress, loadURL(l.Key())))
+		c.HTML(`<div id="progress">` + a.progress(r.Context(), l, step, since) + `</div>` + fmt.Sprintf(pollProgress, scanURL(l.Key())))
 		return true, ""
 	}
 	run, waiting := a.where(r.Context(), l)
@@ -429,7 +430,7 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 	}
 	button := func(action, label, class string) string {
 		return fmt.Sprintf(`<form action="%s/%s" method="post" style="display:inline"><button class="button %s" type="submit">%s</button></form> `,
-			loadURL(l.Key()), action, class, label)
+			scanURL(l.Key()), action, class, label)
 	}
 	switch {
 	case run.Status == wf.StatusFailed:
@@ -453,10 +454,10 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then scan the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
 			button("backs", "Scan the backs", "is-primary") + button("no-backs", "No backs", "") + button("prints", "Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
-		c.HTML(`<div class="notification is-warning">Check each photo's quality, front and back, then accept or send the load back.</div><div class="buttons">` +
+		c.HTML(`<div class="notification is-warning">Check each photo's quality, front and back, then accept or send the scan back.</div><div class="buttons">` +
 			button("accept", "Accept and archive", "is-primary") +
 			fmt.Sprintf(`<form action="%s/rescan" method="post" style="display:inline"><div class="select"><select name="ppi">%s</select></div> <button class="button" type="submit">Rescan at</button></form> `,
-				loadURL(l.Key()), ppiOptions(l.Sitting().ScanPPI)) +
+				scanURL(l.Key()), ppiOptions(l.Sitting().ScanPPI)) +
 			button("rescan-backs", "Rescan the backs", "") +
 			button("prints", "Back to the prints", "") + `</div>`)
 	default:
@@ -466,8 +467,8 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 	return false, waiting
 }
 
-// outcome is how a finished load's photos stand with the archive.
-func (a *App) outcome(l *batch.Load) string {
+// outcome is how a finished scan's photos stand with the archive.
+func (a *App) outcome(l *batch.Scan) string {
 	o, err := l.Outcome()
 	if err != nil {
 		return `<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
@@ -504,8 +505,8 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// undescribed are the load's photos waiting to be described.
-func (a *App) undescribed(ctx context.Context, l *batch.Load) []pid.ID {
+// undescribed are the scan's photos waiting to be described.
+func (a *App) undescribed(ctx context.Context, l *batch.Scan) []pid.ID {
 	_, ids, _ := l.Found()
 	var waiting []pid.ID
 	for _, id := range ids {
@@ -516,9 +517,9 @@ func (a *App) undescribed(ctx context.Context, l *batch.Load) []pid.ID {
 	return waiting
 }
 
-// where is the load's run and the step it waits at, if it is waiting.
-func (a *App) where(ctx context.Context, l *batch.Load) (*wf.RunRecord, string) {
-	return a.whereRun(ctx, batch.LoadWorkflow, l.Key())
+// where is the scan's run and the step it waits at, if it is waiting.
+func (a *App) where(ctx context.Context, l *batch.Scan) (*wf.RunRecord, string) {
+	return a.whereRun(ctx, batch.ScanWorkflow, l.Key())
 }
 
 // whereRun is the run of the instance key of typ and the step it waits
@@ -542,7 +543,7 @@ func (a *App) whereRun(ctx context.Context, typ wf.WorkflowType, key string) (*w
 }
 
 // pollProgress redraws the progress block every two seconds while the
-// load is busy, and the page once it is not.
+// scan is busy, and the page once it is not.
 const pollProgress = `<script>
 (function poll() {
 	setTimeout(function () {
@@ -555,8 +556,8 @@ const pollProgress = `<script>
 </script>`
 
 // progress is the running step, how long it has run and, judged from the
-// loads before, how long it should take.
-func (a *App) progress(ctx context.Context, b *batch.Load, step string, since time.Time) string {
+// scans before, how long it should take.
+func (a *App) progress(ctx context.Context, b *batch.Scan, step string, since time.Time) string {
 	label := "Starting"
 	if step != "" {
 		label = strings.ToUpper(step[:1]) + step[1:]

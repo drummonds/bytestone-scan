@@ -23,7 +23,7 @@ const partial = ".partial"
 // Info is what bag-info.txt records about a photo.
 type Info struct {
 	Batch       string
-	Load        int
+	Scan        int
 	Description string
 	Bagged      time.Time
 }
@@ -101,8 +101,8 @@ func (p *Photo) Close(info Info) error {
 		fmt.Fprintf(&manifest, "%s  data/%s\n", f.sum, f.name)
 		octets += f.size
 	}
-	bagInfo := fmt.Sprintf("Bagging-Date: %s\nExternal-Identifier: %s\nExternal-Description: %s\nBytestone-Batch: %s\nBytestone-Load: %d\nPayload-Oxum: %d.%d\n",
-		info.Bagged.Format("2006-01-02"), p.id, oneLine(info.Description), info.Batch, info.Load, octets, len(p.files))
+	bagInfo := fmt.Sprintf("Bagging-Date: %s\nExternal-Identifier: %s\nExternal-Description: %s\nBytestone-Batch: %s\nBytestone-Scan: %d\nPayload-Oxum: %d.%d\n",
+		info.Bagged.Format("2006-01-02"), p.id, oneLine(info.Description), info.Batch, info.Scan, octets, len(p.files))
 	tags := []struct{ name, body string }{
 		{"bagit.txt", "BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n"},
 		{"bag-info.txt", bagInfo},

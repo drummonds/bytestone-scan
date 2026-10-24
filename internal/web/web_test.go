@@ -19,19 +19,19 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
-// scanned is a staging root holding one batch whose one load of two
+// scanned is a staging root holding one batch whose one scan of two
 // prints is through.
-func scanned(t *testing.T) (*App, *batch.Load) {
+func scanned(t *testing.T) (*App, *batch.Scan) {
 	t.Helper()
 	root := t.TempDir()
 	now := time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
 	svc := archivetest.Example()
-	sitting, err := batch.Describe(root, svc,
+	sitting, err := batch.Describe(root, svc, nil,
 		batch.Description{Text: "SS Bonita & crew", Person: 10, ScanPPI: 600, Provenance: "a shoebox", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := sitting.NewLoad("", now)
+	b, err := sitting.NewScan("", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,16 +53,16 @@ func scanned(t *testing.T) (*App, *batch.Load) {
 	}
 	b.Accept()
 	if rec, err := b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil); err != nil || rec.Status != wf.StatusCompleted {
-		t.Fatalf("load: %+v, %v", rec, err)
+		t.Fatalf("scan: %+v, %v", rec, err)
 	}
 	return &App{Staging: root, Store: store, Archive: svc}, b
 }
 
-// describeAll says nothing is known of each of the load's photos, so that
-// accepting the load archives them.
+// describeAll says nothing is known of each of the scan's photos, so that
+// accepting the scan archives them.
 func describeAll(t *testing.T, a *App, h http.Handler, loc string) {
 	t.Helper()
-	l, err := batch.OpenLoad(a.Staging, loadKey(loc))
+	l, err := batch.OpenScan(a.Staging, scanKey(loc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,9 +72,9 @@ func describeAll(t *testing.T, a *App, h http.Handler, loc string) {
 	}
 }
 
-// loadKey is the key of the load whose page a redirect landed on.
-func loadKey(loc string) string {
-	return strings.Replace(strings.TrimPrefix(loc, "/batches/"), "/loads/", "/", 1)
+// scanKey is the key of the scan whose page a redirect landed on.
+func scanKey(loc string) string {
+	return strings.Replace(strings.TrimPrefix(loc, "/batches/"), "/scans/", "/", 1)
 }
 
 func get(t *testing.T, h http.Handler, url string) *httptest.ResponseRecorder {
@@ -108,11 +108,11 @@ func TestBatchesAreTheWorkQueue(t *testing.T) {
 
 func TestBatchPage(t *testing.T) {
 	app, b := scanned(t)
-	page(t, app.Handler(), "/batches/"+b.Batch+"/loads/1",
+	page(t, app.Handler(), "/batches/"+b.Batch+"/scans/1",
 		"SS Bonita &amp; crew", "Ada Example", "600 ppi",
-		"batches/"+b.Batch+"/loads/1/prints.png", `href="photos/0"`, `href="photos/1"`,
+		"batches/"+b.Batch+"/scans/1/prints.png", `href="photos/0"`, `href="photos/1"`,
 		"Preview, 150 ppi")
-	w := get(t, app.Handler(), "/batches/"+b.Batch+"/loads/1/prints.png")
+	w := get(t, app.Handler(), "/batches/"+b.Batch+"/scans/1/prints.png")
 	if _, err := png.Decode(w.Body); err != nil {
 		t.Errorf("prints.png: %v", err)
 	}

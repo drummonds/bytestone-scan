@@ -60,7 +60,7 @@ func TestAnArrowMovesTheEdge(t *testing.T) {
 	a := live(t, s)
 	h := a.Handler()
 	loc := act(t, a, h, "/batches", url.Values{"title": {"one"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
-	b, _ := batch.OpenLoad(a.Staging, loadKey(loc))
+	b, _ := batch.OpenScan(a.Staging, scanKey(loc))
 	prints, _, _ := b.Found()
 	before := prints[0].Region
 
@@ -91,7 +91,7 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 	act(t, a, h, loc+"/backs", nil)
 	page(t, h, "/photos/0", `action="`+loc[1:]+`/reshape"`, arrow(1, "right 0.5"), arrow(1, "left -0.5"))
 
-	b, _ := batch.OpenLoad(a.Staging, loadKey(loc))
+	b, _ := batch.OpenScan(a.Staging, scanKey(loc))
 	prints, _, _ := b.Found()
 	before := prints[0].Region
 	act(t, a, h, loc+"/reshape", url.Values{"move": {"1 right -0.5"}})
@@ -160,7 +160,7 @@ func TestSplitAndRemoveRegions(t *testing.T) {
 	if strings.Count(body, `action="`+loc[1:]+`/remove"`) != 2 {
 		t.Error("want a remove button on each region")
 	}
-	b, _ := batch.OpenLoad(a.Staging, loadKey(loc))
+	b, _ := batch.OpenScan(a.Staging, scanKey(loc))
 
 	if w := post(t, h, loc+"/split", url.Values{"print": {"1"}}); w.Code != http.StatusSeeOther {
 		t.Fatalf("split: %d %s", w.Code, w.Body)

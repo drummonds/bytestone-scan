@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-24
+
+ - Delete a batch that will never close: a Delete button on the batch page, confirmed on its own page, cancels the batch's, its scans' and its photos' runs and removes its directory, bags and renditions from staging; refused while the archive holds a photo of the batch (finish scanning and it closes and purges), and not offered once closed. A deleted batch's id is not given out again. The new Batches page (the navbar's Queue is the work queue) lists every batch and where it stands, then the stale data no readable batch claims: batch directories in a layout this build does not read, and id directories under `bags/` and `renditions/` with no batch behind them and no answer from the archive; each deletable the same way. Nothing the archive holds is touched; Load becomes Scan: one placing of prints on the bed is a scan, in the glossary, the format statement, the screens ("Scan 1 of batch X", "Do one more scan", a Scans table on the batch page) and the code: the type `Scan`, pages at `batches/<id>/scans/<n>`, the staging directory `scans/`, the workflow type `scan` (was `scan_load`) with its stage `scans` on the batch workflow, `scan:` in photo.yaml, `bs:scan` in the master's XMP and `Bytestone-Scan` in bag-info.txt. Nothing is migrated: `scan_load` runs in the workflow database and `loads/` directories in staging are not read, since every batch so far is a test
+
+### Added
+
+- Delete a batch that will never close: a Delete button on the batch page, confirmed on its own page, cancels the batch's, its scans' and its photos' runs and removes its directory, bags and renditions from staging; refused while the archive holds a photo of the batch (finish scanning and it closes and purges), and not offered once closed. A deleted batch's id is not given out again. The new Batches page (the navbar's Queue is the work queue) lists every batch and where it stands, then the stale data no readable batch claims: batch directories in a layout this build does not read, and id directories under `bags/` and `renditions/` with no batch behind them and no answer from the archive; each deletable the same way. Nothing the archive holds is touched (#54)
+
+### Changed
+
+- Load becomes Scan: one placing of prints on the bed is a scan, in the glossary, the format statement, the screens ("Scan 1 of batch X", "Do one more scan", a Scans table on the batch page) and the code: the type `Scan`, pages at `batches/<id>/scans/<n>`, the staging directory `scans/`, the workflow type `scan` (was `scan_load`) with its stage `scans` on the batch workflow, `scan:` in photo.yaml, `bs:scan` in the master's XMP and `Bytestone-Scan` in bag-info.txt. Nothing is migrated: `scan_load` runs in the workflow database and `loads/` directories in staging are not read, since every batch so far is a test (#56)
+
 ## [0.13.0] - 2026-10-24
 
  - Deposit carries the renditions (story #55, life-weaver#39): the tar put to `PUT /items/{id}` holds `bag/` and `renditions/<recipe>/` (the front's display, thumb, tiny and recipe; the back's under `back/`), developed first if they are missing; a deposit the archive refuses for its renditions (`400`, status `renditions`) is redeveloped at the current recipe and deposited again on the next tick. Lands with life-weaver#39: a service without it refuses the new tar as a bad bag; A closed batch's notice counts its photos: how many the archive holds and how many it rejected as duplicates, each of those linked; a finished batch's notice the same, with how many are not yet deposited

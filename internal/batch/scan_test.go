@@ -12,10 +12,10 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 )
 
-// #38: a batch is a sitting of scanning, over as many loads of the bed as
-// the shoebox needs; each load is one workflow of its own under the
+// #38: a batch is a sitting of scanning, over as many scans of the bed as
+// the shoebox needs; each scan is one workflow of its own under the
 // batch's, and every photo records both.
-func TestABatchIsASittingOfLoads(t *testing.T) {
+func TestABatchIsASittingOfScans(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	store := wf.NewMemStore()
@@ -24,48 +24,48 @@ func TestABatchIsASittingOfLoads(t *testing.T) {
 		t.Fatalf("batch %+v", b)
 	}
 	if _, err := b.Finish(ctx, store); err == nil {
-		t.Error("finished a batch with no loads")
+		t.Error("finished a batch with no scans")
 	}
 
-	// a load's description is its batch's title unless the operator says otherwise
-	one, err := b.NewLoad("", now)
+	// a scan's description is its batch's title unless the operator says otherwise
+	one, err := b.NewScan("", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	two, err := b.NewLoad("  the second  envelope ", now)
+	two, err := b.NewScan("  the second  envelope ", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if one.N != 1 || one.Key() != "20261020-1/1" || one.Description != b.Title || two.Description != "the second envelope" {
-		t.Errorf("loads %+v %+v", one, two)
+		t.Errorf("scans %+v %+v", one, two)
 	}
-	if _, err := os.Stat(filepath.Join(root, "batches", b.ID, "loads", "2", "load.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "batches", b.ID, "scans", "2", "scan.yaml")); err != nil {
 		t.Error(err)
 	}
-	loads, err := b.Loads()
-	if err != nil || len(loads) != 2 || loads[1].Description != "the second envelope" {
-		t.Errorf("loads: %v %v", loads, err)
+	scans, err := b.Scans()
+	if err != nil || len(scans) != 2 || scans[1].Description != "the second envelope" {
+		t.Errorf("scans: %v %v", scans, err)
 	}
-	if again, err := OpenLoad(root, "20261020-1/2"); err != nil || again.Description != "the second envelope" || again.batch.ScanPPI != 600 {
-		t.Errorf("open load: %+v %v", again, err)
+	if again, err := OpenScan(root, "20261020-1/2"); err != nil || again.Description != "the second envelope" || again.batch.ScanPPI != 600 {
+		t.Errorf("open scan: %+v %v", again, err)
 	}
 
-	// a load runs as a child of its batch's run, which waits at loads
+	// a scan runs as a child of its batch's run, which waits at scans
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	if rec := run(t, one, store, s); rec.Status != wf.StatusWaiting {
-		t.Fatalf("load one: %s", rec.Status)
+		t.Fatalf("scan one: %s", rec.Status)
 	}
 	parent, _ := store.FindRunByKey(ctx, Workflow, b.ID)
-	child, _ := store.FindRunByKey(ctx, LoadWorkflow, one.Key())
+	child, _ := store.FindRunByKey(ctx, ScanWorkflow, one.Key())
 	if parent == nil || parent.Status != wf.StatusWaiting || child == nil || child.ParentID != parent.ID {
 		t.Fatalf("parent %+v child %+v", parent, child)
 	}
 
-	// scanning is finished only once every load is through
-	if _, err := b.Finish(ctx, store); err == nil || !strings.Contains(err.Error(), "load") {
-		t.Errorf("finished with loads in hand: %v", err)
+	// scanning is finished only once every scan is through
+	if _, err := b.Finish(ctx, store); err == nil || !strings.Contains(err.Error(), "scan") {
+		t.Errorf("finished with scans in hand: %v", err)
 	}
-	for _, l := range []*Load{one, two} {
+	for _, l := range []*Scan{one, two} {
 		if l == two {
 			run(t, l, store, s)
 		}
@@ -78,31 +78,31 @@ func TestABatchIsASittingOfLoads(t *testing.T) {
 			t.Fatal(err)
 		}
 		if rec := run(t, l, store, s); rec.Status != wf.StatusCompleted {
-			t.Fatalf("load %s: %s %s", l.Key(), rec.Status, rec.Error)
+			t.Fatalf("scan %s: %s %s", l.Key(), rec.Status, rec.Error)
 		}
 	}
 	rec, err := b.Finish(ctx, store)
 	if err != nil || rec.Status != wf.StatusCompleted {
 		t.Fatalf("finish: %v %+v", err, rec)
 	}
-	if _, err := b.NewLoad("", now); err == nil {
-		t.Error("a finished batch took another load")
+	if _, err := b.NewScan("", now); err == nil {
+		t.Error("a finished batch took another scan")
 	}
 
-	// each photo says which batch and load captured it
+	// each photo says which batch and scan captured it
 	_, ids, _ := two.Found()
 	photo, _, err := FindPhoto(root, ids[0])
-	if err != nil || photo.Batch != b.ID || photo.Load != 2 || photo.Description != "the second envelope" {
+	if err != nil || photo.Batch != b.ID || photo.Scan != 2 || photo.Description != "the second envelope" {
 		t.Errorf("photo %+v %v", photo, err)
 	}
 	packet := string(xmp(photo, "front"))
-	for _, want := range []string{"<bs:batch>20261020-1</bs:batch>", "<bs:load>2</bs:load>"} {
+	for _, want := range []string{"<bs:batch>20261020-1</bs:batch>", "<bs:scan>2</bs:scan>"} {
 		if !strings.Contains(packet, want) {
 			t.Errorf("xmp lacks %s", want)
 		}
 	}
 	info, _ := os.ReadFile(filepath.Join(root, "bags", ids[0].String(), "bag-info.txt"))
-	if !strings.Contains(string(info), "Bytestone-Batch: 20261020-1\nBytestone-Load: 2\n") {
+	if !strings.Contains(string(info), "Bytestone-Batch: 20261020-1\nBytestone-Scan: 2\n") {
 		t.Errorf("bag-info:\n%s", info)
 	}
 }

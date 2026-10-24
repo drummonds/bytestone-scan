@@ -40,9 +40,9 @@ func photoRun(t *testing.T, store wf.Store, id pid.ID) *wf.RunRecord {
 }
 
 // Story 039: after the fronts, the operator turns the prints over in place
-// and the load scans the backs where the fronts lay, at 300 ppi and 8 bits,
+// and the scan scans the backs where the fronts lay, at 300 ppi and 8 bits,
 // reviewing a back that differs from its front. Each photo is a workflow of
-// its own under the load, developing each side as it comes and archiving
+// its own under the scan, developing each side as it comes and archiving
 // both.
 func TestBacksAreScannedWhereTheFrontsLay(t *testing.T) {
 	root, store := t.TempDir(), wf.NewMemStore()
@@ -146,11 +146,11 @@ func TestBacksAreScannedWhereTheFrontsLay(t *testing.T) {
 			t.Errorf("photo %s manifest:\n%s", id, manifest)
 		}
 		if _, err := os.Stat(filepath.Join(b.path("masters"), id.String()+".back.tif")); err == nil {
-			t.Errorf("photo %s back master left in the load after archiving", id)
+			t.Errorf("photo %s back master left in the scan after archiving", id)
 		}
 	}
 	if done, _ := b.done(context.Background(), store); !done {
-		t.Error("load not done once its photos are archived")
+		t.Error("scan not done once its photos are archived")
 	}
 }
 
@@ -251,7 +251,7 @@ func TestRescanTheBacksOrTheFronts(t *testing.T) {
 	}
 }
 
-// A load of prints with nothing on their backs skips the backs: the
+// A scan of prints with nothing on their backs skips the backs: the
 // photos go on without one, and the bag has no back.tif. The backs can
 // still be scanned after all.
 func TestBacksCanBeSkipped(t *testing.T) {
@@ -302,6 +302,6 @@ func TestBacksCanBeSkipped(t *testing.T) {
 		t.Errorf("manifest:\n%s", manifest)
 	}
 	if _, err := os.Stat(b.path("masters/0.yaml")); err == nil {
-		t.Error("photo's record left in the load after archiving")
+		t.Error("photo's record left in the scan after archiving")
 	}
 }
