@@ -53,17 +53,17 @@ func sitting(t *testing.T, root string) *Batch {
 	return b
 }
 
-// describe is a batch's first load: one load of the bed.
-func describe(t *testing.T, root string) *Load {
+// describe is a batch's first scan: one placing of prints on the bed.
+func describe(t *testing.T, root string) *Scan {
 	t.Helper()
-	l, err := sitting(t, root).NewLoad("", now)
+	l, err := sitting(t, root).NewScan("", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return l
 }
 
-func run(t *testing.T, b *Load, store wf.Store, s Scanner) *wf.RunRecord {
+func run(t *testing.T, b *Scan, store wf.Store, s Scanner) *wf.RunRecord {
 	t.Helper()
 	rec, err := b.Run(context.Background(), Env{Store: store, Scanner: s, Archive: service(b.root), Now: clock}, nil)
 	if err != nil {
@@ -171,7 +171,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		t.Fatal(err)
 	}
 	scanned(t, b, store, scanner)
-	rec, _ = store.FindRunByKey(context.Background(), LoadWorkflow, b.Key())
+	rec, _ = store.FindRunByKey(context.Background(), ScanWorkflow, b.Key())
 	// Story 003: each master is developed before the quality check
 	for i := range scanner.Prints {
 		id := pid.ID(i)
@@ -244,7 +244,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		if err := yaml.Unmarshal(raw, &photo); err != nil {
 			t.Fatal(err)
 		}
-		if photo.ID != id || photo.Batch != b.Batch || photo.Load != 1 || photo.Description != "SS Bonita and crew" ||
+		if photo.ID != id || photo.Batch != b.Batch || photo.Scan != 1 || photo.Description != "SS Bonita and crew" ||
 			photo.Home.ID != 10 || photo.Home.Name != "Ada Example" ||
 			photo.Provenance != "Aunt Jean's shoebox, envelope marked 1950s" || photo.Credit != "Drummond family collection, CC BY 4.0" ||
 			photo.Front.ScanPPI != 600 || photo.Front.MasterPPI != 600 || photo.Front.Averaging != 1 ||
@@ -256,7 +256,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		}
 
 		tif, _ := os.ReadFile(filepath.Join(arc, id.String(), "data", "front.tif"))
-		for _, want := range []string{"<dc:identifier>" + id.String() + "</dc:identifier>", "<bs:batch>" + b.Batch + "</bs:batch>", "<bs:load>1</bs:load>", "<bs:side>front</bs:side>",
+		for _, want := range []string{"<dc:identifier>" + id.String() + "</dc:identifier>", "<bs:batch>" + b.Batch + "</bs:batch>", "<bs:scan>1</bs:scan>", "<bs:side>front</bs:side>",
 			"<dc:rights>Drummond family collection, CC BY 4.0</dc:rights>"} {
 			if !bytes.Contains(tif, []byte(want)) {
 				t.Errorf("photo %s master's XMP lacks %s", id, want)
@@ -328,8 +328,8 @@ func TestEveryStepHasADefinition(t *testing.T) {
 		stages []wf.Stage
 	}{
 		{Workflow, b.Stages(context.Background(), nil)},
-		{LoadWorkflow, (&Load{batch: b}).Stages(context.Background(), Env{})},
-		{PhotoWorkflow, (&Load{batch: b}).photoStages(0, Env{})},
+		{ScanWorkflow, (&Scan{batch: b}).Stages(context.Background(), Env{})},
+		{PhotoWorkflow, (&Scan{batch: b}).photoStages(0, Env{})},
 	} {
 		var def *wf.Definition
 		for i := range Definitions {
@@ -349,9 +349,9 @@ func TestEveryStepHasADefinition(t *testing.T) {
 			}
 		}
 	}
-	// the batch's loads step is the sub-process its loads run under
-	if Definitions[0].Steps[1].Child != LoadWorkflow || !Definitions[0].Steps[1].Many {
-		t.Errorf("loads step: %+v", Definitions[0].Steps[1])
+	// the batch's scans step is the sub-process its scans run under
+	if Definitions[0].Steps[1].Child != ScanWorkflow || !Definitions[0].Steps[1].Many {
+		t.Errorf("scans step: %+v", Definitions[0].Steps[1])
 	}
 }
 
@@ -364,7 +364,7 @@ func TestFindPhoto(t *testing.T) {
 	b.Confirm()
 	scanned(t, b, store, scanner)
 
-	// before packaging, the master is in the load
+	// before packaging, the master is in the scan
 	photo, path, err := FindPhoto(root, 0)
 	if err != nil || photo.ID != 0 || filepath.Base(path) != "0.tif" {
 		t.Errorf("before packaging, FindPhoto(0) = %+v, %q, %v", photo, path, err)
@@ -385,9 +385,9 @@ func TestFindPhoto(t *testing.T) {
 	}
 }
 
-// prepared is a load whose fronts and backs are scanned, waiting for the
+// prepared is a scan whose fronts and backs are scanned, waiting for the
 // quality check.
-func prepared(t *testing.T, scanner *batchtest.Scanner) (string, *Load, wf.Store) {
+func prepared(t *testing.T, scanner *batchtest.Scanner) (string, *Scan, wf.Store) {
 	t.Helper()
 	root := t.TempDir()
 	store := wf.NewMemStore()
@@ -400,9 +400,9 @@ func prepared(t *testing.T, scanner *batchtest.Scanner) (string, *Load, wf.Store
 	return root, b, store
 }
 
-// scanned takes a confirmed load through its fronts and backs to the
+// scanned takes a confirmed scan through its fronts and backs to the
 // quality check.
-func scanned(t *testing.T, b *Load, store wf.Store, scanner Scanner) {
+func scanned(t *testing.T, b *Scan, store wf.Store, scanner Scanner) {
 	t.Helper()
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
 		t.Fatalf("%s, want waiting for the prints to be turned", rec.Status)
@@ -415,9 +415,9 @@ func scanned(t *testing.T, b *Load, store wf.Store, scanner Scanner) {
 	}
 }
 
-// described says nothing is known of each of the load's photos, so that
+// described says nothing is known of each of the scan's photos, so that
 // they can be archived once accepted.
-func described(t *testing.T, b *Load) {
+func described(t *testing.T, b *Scan) {
 	t.Helper()
 	_, ids, _ := b.Found()
 	for _, id := range ids {
@@ -427,7 +427,7 @@ func described(t *testing.T, b *Load) {
 	}
 }
 
-func redo(t *testing.T, b *Load, store wf.Store, from string, ppi int) {
+func redo(t *testing.T, b *Scan, store wf.Store, from string, ppi int) {
 	t.Helper()
 	if err := b.Redo(context.Background(), store, from, ppi); err != nil {
 		t.Fatalf("redo from %s: %v", from, err)
@@ -743,14 +743,14 @@ func TestExpectedDurationOfAStep(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		b, err := past.NewLoad("", now)
+		b, err := past.NewScan("", now)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := writeYAML(b.path("prints.yaml"), found{Bed: bed, Prints: []find.Print{{Region: find.Box{CX: 100, CY: 100, W: w, H: h}}}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.CreateRun(ctx, &wf.RunRecord{ID: b.Key(), WorkflowType: LoadWorkflow, Key: b.Key(), Status: wf.StatusCompleted, StartedAt: now, CreatedAt: now}); err != nil {
+		if err := store.CreateRun(ctx, &wf.RunRecord{ID: b.Key(), WorkflowType: ScanWorkflow, Key: b.Key(), Status: wf.StatusCompleted, StartedAt: now, CreatedAt: now}); err != nil {
 			t.Fatal(err)
 		}
 		for name, d := range map[string]time.Duration{"preview": preview, "fronts": detail} {

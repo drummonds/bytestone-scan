@@ -45,7 +45,7 @@ func TestEachPhotoIsDepositedAndReceipted(t *testing.T) {
 	described(t, b)
 	b.Accept()
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
-		t.Fatalf("load: %s %s", rec.Status, rec.Error)
+		t.Fatalf("scan: %s %s", rec.Status, rec.Error)
 	}
 	for _, id := range ids {
 		if pr := photoRun(t, store, id); pr.Status != wf.StatusCompleted {
@@ -74,7 +74,7 @@ func TestEachPhotoIsDepositedAndReceipted(t *testing.T) {
 		t.Errorf("a refused bag was held: %+v", rec)
 	}
 	if done, _ := b.done(ctx, store); !done {
-		t.Error("load not done once every photo is held or rejected")
+		t.Error("scan not done once every photo is held or rejected")
 	}
 
 	// a service that is down fails the deposit; the retry deposits

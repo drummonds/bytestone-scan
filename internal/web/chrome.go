@@ -15,14 +15,14 @@ import (
 // batch and for how long.
 func (a *App) indicator() template.HTML {
 	a.work.mu.Lock()
-	key, since := a.work.load, a.work.started
+	key, since := a.work.scan, a.work.started
 	a.work.mu.Unlock()
 	if key == "" {
 		return `<span class="navbar-item"><span class="tag is-light">Idle</span></span>`
 	}
 	d := time.Since(since).Round(time.Second)
-	return template.HTML(fmt.Sprintf(`<a class="navbar-item" href="%s"><span class="tag is-warning">Scanning load %s for %d:%02d</span></a>`,
-		loadURL(key), html.EscapeString(key), int(d.Minutes()), int(d.Seconds())%60))
+	return template.HTML(fmt.Sprintf(`<a class="navbar-item" href="%s"><span class="tag is-warning">Scan %s running for %d:%02d</span></a>`,
+		scanURL(key), html.EscapeString(key), int(d.Minutes()), int(d.Seconds())%60))
 }
 
 // version is the build's module version and commit.

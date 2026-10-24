@@ -22,7 +22,7 @@ func TestDepositIsTheBagAndItsRenditions(t *testing.T) {
 	}
 	p.Add("front.tif", func(w io.Writer) error { _, err := w.Write([]byte("front")); return err })
 	p.Add("photo.yaml", func(w io.Writer) error { _, err := w.Write([]byte("id: 7\n")); return err })
-	if err := p.Close(Info{Batch: "b", Load: 1, Description: "d", Bagged: time.Now()}); err != nil {
+	if err := p.Close(Info{Batch: "b", Scan: 1, Description: "d", Bagged: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	renditions := filepath.Join(root, "renditions", "7", "1")

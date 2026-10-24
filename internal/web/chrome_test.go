@@ -50,7 +50,7 @@ func TestTheNavbarSaysWhenTheScannerIsBusy(t *testing.T) {
 	}
 	post(t, h, "/batches", url.Values{"title": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	for _, p := range []string{"/workflows/", "/about", "/batches/new"} {
-		page(t, h, p, "Scanning load 20261020-1/1", `href="batches/20261020-1/loads/1"`)
+		page(t, h, p, "Scan 20261020-1/1 running", `href="batches/20261020-1/scans/1"`)
 	}
 	close(sc.release)
 	a.wait()

@@ -200,7 +200,7 @@ func TestABatchRunsOnTheRecording(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := sitting.NewLoad("", now)
+	b, err := sitting.NewScan("", now)
 	if err != nil {
 		t.Fatal(err)
 	}
