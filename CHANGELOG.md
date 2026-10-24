@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-24
+
+ - The New batch form’s Credit field has two buttons that insert `©` and `CC BY 4.0` at the cursor; A working batch’s page no longer redraws itself every 3 s: it polls a progress line naming the step running, how long it has run and, judged from the batches before (the detail pass by ppi and area scanned), about how long it should take
+
+### Added
+
+- The New batch form’s Credit field has two buttons that insert `©` and `CC BY 4.0` at the cursor (#36)
+
+### Changed
+
+- A working batch’s page no longer redraws itself every 3 s: it polls a progress line naming the step running, how long it has run and, judged from the batches before (the detail pass by ppi and area scanned), about how long it should take (#37)
+
 ## [0.9.0] - 2026-10-24
 
  - The register is read through the archive service's API (life-weaver#23): `bytestone-scan serve -archive URL` (default `http://localhost:8321`, `life-weaver serve`) replaces `-people DIR`; the directory reader of #25 and its fixtures go, tests use `registertest.List`. A service not answering refuses the New batch form naming it and how to start it

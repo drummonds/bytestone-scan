@@ -45,7 +45,7 @@ func describe(t *testing.T, root string) *Batch {
 
 func run(t *testing.T, b *Batch, store wf.Store, s Scanner) *wf.RunRecord {
 	t.Helper()
-	rec, err := b.Run(context.Background(), wf.NewRunner(store, nil), s, clock)
+	rec, err := b.Run(context.Background(), wf.NewRunner(store, nil), s, clock, nil)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestRetryAfterTheDetailPassFails(t *testing.T) {
 	run(t, b, store, scanner)
 	b.Confirm()
 
-	if _, err := b.Run(context.Background(), runner, scanner, clock); err == nil || !strings.Contains(err.Error(), "USB") {
+	if _, err := b.Run(context.Background(), runner, scanner, clock, nil); err == nil || !strings.Contains(err.Error(), "USB") {
 		t.Fatalf("failed detail pass: error %v", err)
 	}
 	if archive.Complete(filepath.Join(root, "archive"), 0) {
@@ -272,7 +272,7 @@ func TestScannerExitingBadlyFailsTheDetailPass(t *testing.T) {
 	b := describe(t, root)
 	run(t, b, store, scanner)
 	b.Confirm()
-	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), scanner, clock); err == nil || !strings.Contains(err.Error(), "exit status 9") {
+	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), scanner, clock, nil); err == nil || !strings.Contains(err.Error(), "exit status 9") {
 		t.Errorf("error %v, want the scanner's", err)
 	}
 	if archive.Complete(filepath.Join(root, "archive"), 0) {
@@ -664,5 +664,57 @@ func TestRemoveARegion(t *testing.T) {
 	b.Confirm()
 	if err := b.Remove(0); err == nil {
 		t.Error("removed a region after confirming")
+	}
+}
+
+// #37: how long a step should take is judged from the steps completed
+// before it.
+func TestExpectedDurationOfAStep(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	store := wf.NewMemStore()
+	bed := find.Rect{X1: 216, Y1: 297}
+	// past is a batch scanned at ppi, one print of w × h mm, whose preview
+	// and detail pass took as given.
+	past := func(ppi int, w, h float64, preview, detail time.Duration) {
+		t.Helper()
+		b, err := Describe(root, reg, Description{Text: "past", Person: 10, ScanPPI: ppi, Credit: "c"}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writeYAML(b.path("prints.yaml"), found{Bed: bed, Prints: []find.Print{{Region: find.Box{CX: 100, CY: 100, W: w, H: h}}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.CreateRun(ctx, &wf.RunRecord{ID: b.ID, WorkflowType: Workflow, Key: b.ID, Status: wf.StatusCompleted, StartedAt: now, CreatedAt: now}); err != nil {
+			t.Fatal(err)
+		}
+		for name, d := range map[string]time.Duration{"preview": preview, "detail pass": detail} {
+			if err := store.RecordStep(ctx, &wf.StepResult{ID: b.ID + name, RunID: b.ID, StepName: name, Status: wf.StatusCompleted, DurationNs: int64(d)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	b := describe(t, root) // 600 ppi
+	if err := writeYAML(b.path("prints.yaml"), found{Bed: bed, Prints: []find.Print{{Region: find.Box{CX: 100, CY: 100, W: 80, H: 60}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Expected(ctx, store, root, b, "preview"); ok {
+		t.Error("nothing scanned yet: want no expectation")
+	}
+	past(600, 40, 30, 10*time.Second, 12*time.Second)  // 1200 mm² in 12 s: 10 ms per mm²
+	past(600, 40, 60, 14*time.Second, 36*time.Second)  // 2400 mm² in 36 s: 15 ms per mm²
+	past(1200, 40, 30, 12*time.Second, 90*time.Second) // another ppi: says nothing about this batch's detail pass
+	for _, c := range []struct {
+		step string
+		want time.Duration
+	}{
+		{"preview", 12 * time.Second},     // the median of 10, 14 and 12
+		{"detail pass", 60 * time.Second}, // 4800 mm² at the median 12.5 ms per mm²
+		{"find prints", 0},                // never timed
+	} {
+		got, ok := Expected(ctx, store, root, b, c.step)
+		if ok != (c.want != 0) || got != c.want {
+			t.Errorf("%s: got %v %v, want %v", c.step, got, ok, c.want)
+		}
 	}
 }

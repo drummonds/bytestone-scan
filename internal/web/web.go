@@ -11,6 +11,7 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -57,7 +58,6 @@ const layout = `<!DOCTYPE html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="/">
 <title>{{.title}} — bytestone-scan</title>
-{{if .refresh}}<meta http-equiv="refresh" content="3">{{end}}
 <link rel="stylesheet" href="assets/bulma.min.css">
 </head><body>
 <nav class="navbar is-primary"><div class="navbar-brand">
@@ -78,9 +78,6 @@ func (a *App) Handler() http.Handler {
 	}
 	render := func(w http.ResponseWriter, title string, content string) {
 		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator()})
-	}
-	refreshing := func(w http.ResponseWriter, title string, content string) {
-		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "refresh": true})
 	}
 	views := &view.Views{
 		Store:       a.Store,
@@ -107,12 +104,21 @@ func (a *App) Handler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		content, busy := a.batchPage(r, b)
-		if busy {
-			refreshing(w, "Batch "+b.ID, content)
+		render(w, "Batch "+b.ID, a.batchPage(r, b))
+	})
+	mux.HandleFunc("GET /batches/{id}/progress", func(w http.ResponseWriter, r *http.Request) {
+		b, err := batch.Open(a.Staging, r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
 			return
 		}
-		render(w, "Batch "+b.ID, content)
+		busy, step, since := a.busyWith(b.ID)
+		if !busy {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		io.WriteString(w, a.progress(r.Context(), b, step, since))
 	})
 	servePNG := func(w http.ResponseWriter, r *http.Request, draw func(b *batch.Batch) (image.Image, error)) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
@@ -194,7 +200,7 @@ func (a *App) batchLink(_ *http.Request, run wf.RunRecord, _ []wf.StepResult, _ 
 
 // batchPage is a batch's details, where its workflow stands and what the
 // operator can do there; busy reports that a step is running.
-func (a *App) batchPage(r *http.Request, b *batch.Batch) (string, bool) {
+func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	c := lofigui.NewContext()
 	busy, waiting := a.state(r, c, b)
 	c.HTML(fmt.Sprintf(`<h1 class="title">Batch %s</h1>
@@ -212,7 +218,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) (string, bool) {
 	prints, ids, err := b.Found()
 	if err != nil {
 		c.HTML(`<p>No preview yet.</p>`)
-		return c.Buffer(), busy
+		return c.Buffer()
 	}
 	var t strings.Builder
 	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Photo</th></tr></thead><tbody>`)
@@ -237,7 +243,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) (string, bool) {
 			c.HTML(regionEditor(b, i, p))
 		}
 	}
-	return c.Buffer(), busy
+	return c.Buffer()
 }
 
 // photo reads the photo the request names, writing a 404 when there is none.

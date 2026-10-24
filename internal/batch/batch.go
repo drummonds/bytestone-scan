@@ -376,10 +376,24 @@ func (b *Batch) Redo(ctx context.Context, runner *wf.Runner, from string, ppi in
 }
 
 // Run ticks the batch's workflow once: it runs until it completes, fails
-// or waits for the operator.
-func (b *Batch) Run(ctx context.Context, runner *wf.Runner, s Scanner, now func() time.Time) (*wf.RunRecord, error) {
+// or waits for the operator. progress, when given, is told each step as
+// it starts.
+func (b *Batch) Run(ctx context.Context, runner *wf.Runner, s Scanner, now func() time.Time, progress func(step string)) (*wf.RunRecord, error) {
 	date := wf.NewBusinessDate(b.Created.Year(), b.Created.Month(), b.Created.Day())
-	return runner.RunPipeline(ctx, Workflow, b.ID, date, b.Stages(s, now))
+	stages := b.Stages(s, now)
+	if progress != nil {
+		for i := range stages {
+			name, run := stages[i].Name, stages[i].Run
+			if run == nil {
+				continue
+			}
+			stages[i].Run = func(ctx context.Context) error {
+				progress(name)
+				return run(ctx)
+			}
+		}
+	}
+	return runner.RunPipeline(ctx, Workflow, b.ID, date, stages)
 }
 
 // Stages are the batch's workflow steps, in order.
@@ -452,14 +466,20 @@ func (b *Batch) reserveIDs(context.Context) error {
 	return nil
 }
 
+// pass is the detail pass the batch's prints call for, with the prints.
+func (b *Batch) pass() (plan.Pass, found, error) {
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return plan.Pass{}, f, err
+	}
+	p, err := plan.New(f.Prints, f.Bed, b.ScanPPI)
+	return p, f, err
+}
+
 // detailPass scans every region once and writes each master, with its
 // photo.yaml, into the batch's masters directory.
 func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time) error {
-	var f found
-	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
-		return err
-	}
-	p, err := plan.New(f.Prints, f.Bed, b.ScanPPI)
+	p, f, err := b.pass()
 	if err != nil {
 		return err
 	}
