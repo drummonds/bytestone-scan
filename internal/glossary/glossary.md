@@ -22,6 +22,7 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Rendition | A display image derived from a master: cropped to the print, turned square, its levels set, scaled to fit a screen |
 | Recipe | How renditions are made from a master, by version; a new recipe makes new renditions and leaves the old on record |
 | Develop | The photo step that makes one side's renditions |
+| Caption | What a photo shows, in the archivist's own words: "Air Raid Wardens". Not a claim: it has no source or reading; kept in photo.yaml as caption beside the scan's description, blank meaning none |
 | Claim | One thing said about a photo (the date taken, the photographer, what the back says), with its source (the back or front of the print, or a relative's word) and how it was read; kept in photo.yaml, never in the master |
 | Describe (a photo) | The photo step where the operator says what is known of it, as claims, or that nothing is; waits after the scan is accepted until answered |
 | Deposit | The photo step that hands its bag to the archive service, which gave out its id; the answer is kept beside the bag |

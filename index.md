@@ -28,8 +28,8 @@ scan ppi. Its first scan starts at once; each scan's page leads through
 the steps: check the prints found on the preview (or rescan it), confirm,
 turn the prints over where they lie and scan the backs, check each photo's
 quality and its renditions, front and back (or rescan either side, or go
-back to the prints), say what is known of each photo (the date taken, the
-photographer, what the back says, or nothing), accept. Each photo is then
+back to the prints), give each photo a caption (what it shows) and say what is known of it (the
+date taken, the photographer, what the back says, or nothing), accept. Each photo is then
 bagged, deposited with the archive service and receipted, or shown as
 rejected when the archive already holds the picture. The batch page
 lists its scans, takes another, and finishes the batch once every scan is
