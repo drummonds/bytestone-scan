@@ -187,7 +187,7 @@ func TestNewBatchChoosesTheHomePersonByName(t *testing.T) {
 	if ada < 0 || zak < ada {
 		t.Errorf("want Ada (a) then Zak (b) offered as home person:\n%s", body)
 	}
-	if !strings.Contains(body, "d.yaml") {
+	if !strings.Contains(body, "0/0d") {
 		t.Error("the record with no name is not warned of")
 	}
 	if w := post(t, h, "/batches", url.Values{"description": {"x"}, "person": {""}, "ppi": {"600"}, "credit": {"© Example"}}); !strings.Contains(w.Body.String(), "choose the home person") {
