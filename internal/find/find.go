@@ -2,9 +2,15 @@
 //
 // Anything that differs from the background, the lid or black card behind
 // the prints, is part of a print, except strips narrower than 6 mm along
-// the bed's edges, which are the shadow of its frame. Prints
-// less than 5 mm apart are one region, marks under 20 mm are ignored, and a
-// print that is not rectangular or is turned over 10° is flagged for review.
+// the bed's edges, which are the shadow of its frame. The background is a
+// field, not a colour: estimated per row and per column from the bed, so
+// the lid's shading is background wherever it falls, and a pixel is print
+// when it differs from the background at its own place by more than 14
+// levels on any channel. A speck under 1 mm is noise: the mask is opened
+// by 1 mm before blobs are merged, so a hot pixel or a dust grain makes
+// no blob. Prints less than 5 mm apart are one region, marks under 20 mm
+// are ignored, and a print that is not rectangular or is turned over 10°
+// is flagged for review.
 // Its skew and fill come from the smallest rectangle that encloses it, at
 // any angle, and its region is square to it (story 004): turned with it
 // from 0.1° to 10°, square to the bed otherwise.
@@ -16,10 +22,11 @@ import (
 	"sort"
 )
 
-// Thresholds from stories 001 and 004; the fill limit is a first guess.
+// Thresholds from stories 001 and 004 and #65; the fill limit is a first guess.
 const (
 	marginMM  = 0.5
 	stripMM   = 6.0
+	speckMM   = 1.0 // the mask is opened by this: anything narrower is noise
 	mergeMM   = 5.0
 	apartMM   = 0.0 // only touching pixels join
 	minSizeMM = 20.0
@@ -30,9 +37,12 @@ const (
 	squareDeg    = 0.1
 	maxDeskewDeg = 10.0
 
-	// background is how far, in 8-bit levels on any channel, a pixel must
-	// be from the background's colour to count as print.
+	// backgroundDistance is how far, in 8-bit levels on any channel, a
+	// pixel must be from the background at its own place to count as
+	// print; a pixel within bedDistance of the bed's modal colour is bed
+	// enough to estimate the background's field from.
 	backgroundDistance = 14
+	bedDistance        = 40
 )
 
 // Rect is a rectangle on the bed in millimetres from the bed's origin, the
@@ -66,6 +76,9 @@ func prints(preview image.Image, ppi int, merge float64) []Print {
 	w, h := b.Dx(), b.Dy()
 	mm := 25.4 / float64(ppi)
 	mask := printMask(preview)
+	if rs := int(math.Round(speckMM / 2 / mm)); rs > 0 {
+		mask = dilate(erode(mask, w, h, rs), w, h, rs)
+	}
 	ro := int(math.Round(stripMM / 2 / mm))
 	opened := dilate(erode(mask, w, h, ro), w, h, ro)
 	band := int(math.Round(stripMM / mm))
@@ -123,10 +136,11 @@ func printMask(img image.Image) []bool {
 			rgb[y*w+x] = [3]int{int(r >> 8), int(g >> 8), int(bl >> 8)}
 		}
 	}
-	bg := background(rgb)
+	background := backgroundField(rgb, w, h)
 	mask := make([]bool, w*h)
 	for y := range h {
 		for x := range w {
+			bg := background.at(x, y)
 			// 3 × 3 mean, to keep scanner noise out of the mask
 			var s [3]int
 			var n int
@@ -154,6 +168,139 @@ func printMask(img image.Image) []bool {
 		}
 	}
 	return mask
+}
+
+// field is the background's colour at every place on the bed: the lid's
+// shading changes down the bed and across it, so each row and each column
+// has its own level, and the background at a pixel is its row's and its
+// column's together, less the bed's modal colour that both include.
+type field struct {
+	rows, cols [][3]int
+	mode       [3]int
+}
+
+func (f field) at(x, y int) [3]int {
+	var c [3]int
+	for i := range c {
+		c[i] = f.rows[y][i] + f.cols[x][i] - f.mode[i]
+	}
+	return c
+}
+
+// backgroundField estimates the background from the bed: the pixels
+// within bedDistance of its modal colour that lie outside the prints,
+// each print being the box round a patch of pixels further off than that,
+// so a print's pale content, bed-coloured but not bed, does not shade the
+// rows and columns it lies on. A row's or column's level is the median of
+// its bed pixels, each less its column's or row's own shading, when at
+// least a tenth of it is bed; otherwise it takes the level of the nearest
+// rows or columns that are, so a print spanning the bed leaves no hole in
+// the field. Columns are estimated first, then rows, then columns again.
+func backgroundField(rgb [][3]int, w, h int) field {
+	mode := background(rgb)
+	bed := make([]bool, w*h)
+	for i, p := range rgb {
+		bed[i] = true
+		for c := range 3 {
+			if abs(p[c]-mode[c]) > bedDistance {
+				bed[i] = false
+			}
+		}
+	}
+	off := make([]bool, w*h)
+	for i, b := range bed {
+		off[i] = !b
+	}
+	labels, n := components(off, w, h)
+	boxes := make([]image.Rectangle, n+1)
+	for i, l := range labels {
+		if l != 0 {
+			x, y := i%w, i/w
+			boxes[l] = boxes[l].Union(image.Rect(x, y, x+1, y+1))
+		}
+	}
+	for _, bx := range boxes[1:] {
+		for y := bx.Min.Y; y < bx.Max.Y; y++ {
+			for x := bx.Min.X; x < bx.Max.X; x++ {
+				bed[y*w+x] = false
+			}
+		}
+	}
+
+	flat := make([][3]int, max(w, h))
+	for i := range flat {
+		flat[i] = mode
+	}
+	f := field{rows: flat[:h], cols: flat[:w], mode: mode}
+	// lines estimates the n lines of length each, line i's pixel j being
+	// at(i, j), less the crossing lines' shading, other.
+	lines := func(n, length int, at func(i, j int) int, other [][3]int) [][3]int {
+		out := make([][3]int, n)
+		known := make([]bool, n)
+		for i := range n {
+			var hist [3][256]int
+			count := 0
+			for j := range length {
+				k := at(i, j)
+				if !bed[k] {
+					continue
+				}
+				count++
+				for c := range 3 {
+					hist[c][min(255, max(0, rgb[k][c]-other[j][c]+mode[c]))]++
+				}
+			}
+			if count == 0 || count < length/10 {
+				continue
+			}
+			known[i] = true
+			for c := range 3 {
+				seen := 0
+				for v, k := range hist[c] {
+					if seen += k; seen*2 > count {
+						out[i][c] = v
+						break
+					}
+				}
+			}
+		}
+		fill(out, known, mode)
+		return out
+	}
+	byRow := func(y, x int) int { return y*w + x }
+	byCol := func(x, y int) int { return y*w + x }
+	f.cols = lines(w, h, byCol, f.rows)
+	f.rows = lines(h, w, byRow, f.cols)
+	f.cols = lines(w, h, byCol, f.rows)
+	return f
+}
+
+// fill gives each unknown line the level of the nearest known one, the
+// mean of the two when it lies between them, and mode when none is known.
+func fill(lines [][3]int, known []bool, mode [3]int) {
+	prev := -1
+	for i := range lines {
+		if known[i] {
+			prev = i
+			continue
+		}
+		next := i + 1
+		for next < len(lines) && !known[next] {
+			next++
+		}
+		switch {
+		case prev < 0 && next >= len(lines):
+			lines[i] = mode
+		case prev < 0:
+			lines[i] = lines[next]
+		case next >= len(lines):
+			lines[i] = lines[prev]
+		default:
+			for c := range 3 {
+				lines[i][c] = (lines[prev][c] + lines[next][c]) / 2
+			}
+		}
+	}
 }
 
 // background is the commonest colour on the bed, which is the lid or the

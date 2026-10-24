@@ -9,20 +9,39 @@ import (
 
 const ppi = 75
 
-// bed makes a preview of an empty bed as the 4990 sees it: the white lid,
-// with a little noise, and the shadow of the bed's frame darkening the
+// bed makes a preview of an empty bed as the 4990 sees it: the white lid
+// at about 252, with a little noise, and the shadow of the bed's frame darkening the
 // first 3.5 mm on the left and 5 mm at the top.
-func bed() *image.RGBA {
+func bed() *image.RGBA { return shadedBed(nil) }
+
+// shadedBed is bed() with the lid darkened by dark(x, y) levels on every
+// channel at each point, in mm from the bed's origin: the lid's shading.
+func shadedBed(dark func(xmm, ymm float64) int) *image.RGBA {
 	w, h := px(215.9), px(297.2)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := range h {
 		for x := range w {
-			n := uint8((x*7 + y*13) % 5)
+			n := (x*7 + y*13) % 3
 			shade := max(0, 50-5*x) + max(0, 30-2*y)
-			img.Set(x, y, color.RGBA{uint8(243 + int(n) - min(shade, 243)), uint8(244 + int(n) - min(shade, 244)), uint8(242 + int(n) - min(shade, 242)), 255})
+			if dark != nil {
+				shade += dark((float64(x)+0.5)*25.4/ppi, (float64(y)+0.5)*25.4/ppi)
+			}
+			img.Set(x, y, color.RGBA{uint8(252 + n - min(shade, 252)), uint8(253 + n - min(shade, 253)), uint8(253 + n - min(shade, 253)), 255})
 		}
 	}
 	return img
+}
+
+// lidShading is the bed as measured on 2026-10-24 (#65), with a little
+// more shading than measured, which is what the rule guards against: the
+// lid shades the bed by 10 levels from top to bottom, and a band 50 mm
+// wide down the right shades again, to 24 levels darker at the bed's edge.
+func lidShading(xmm, ymm float64) int {
+	dark := int(math.Round(10 * ymm / 297.2))
+	if from := 215.9 - 50; xmm > from {
+		dark += int(math.Round(24 * (xmm - from) / 50))
+	}
+	return dark
 }
 
 func px(mm float64) int { return int(math.Round(mm / 25.4 * ppi)) }
@@ -243,4 +262,85 @@ func TestPrintsApartSeparatesWhatMerges(t *testing.T) {
 	if got[0].Review || got[1].Review {
 		t.Error("separated prints still flagged for review")
 	}
+}
+
+// #65: the background is a field, not a colour. The lid's shading is
+// background wherever it falls, a band of bed darker than the rest is
+// still bed, and a speck under 1 mm is noise.
+func TestTheLidsShadingIsBackground(t *testing.T) {
+	img := shadedBed(func(_, ymm float64) int { return int(math.Round(10 * ymm / 297.2)) })
+	drawPrint(img, 10, 10, 100, 70, 0, nil)
+	got := Prints(img, ppi)
+	if len(got) != 1 {
+		t.Fatalf("found %d prints on a shaded bed, want 1", len(got))
+	}
+	checkRect(t, "print", got[0].Print.Bounds(), Rect{10, 10, 110, 80})
+}
+
+func TestABandOfDarkerBedIsNotAPrint(t *testing.T) {
+	img := shadedBed(lidShading)
+	drawPrint(img, 10, 10, 100, 70, 0, nil)
+	got := Prints(img, ppi)
+	if len(got) != 1 {
+		t.Fatalf("found %d prints with a band of darker bed, want 1: %+v", len(got), got)
+	}
+	checkRect(t, "print", got[0].Print.Bounds(), Rect{10, 10, 110, 80})
+	if got[0].Review {
+		t.Errorf("the print on a shaded bed flagged for review: skew %.2f°, fill %.3f, parts %d", got[0].Skew, got[0].Fill, got[0].Parts)
+	}
+}
+
+func TestSinglePixelsAreNoise(t *testing.T) {
+	img := shadedBed(lidShading)
+	drawPrint(img, 50, 60, 100, 70, 0, nil)
+	// a dozen hot pixels and dust grains, 150 levels out, some of them
+	// within the merge radius of the print
+	for i, at := range [][2]float64{{48, 70}, {152, 100}, {100, 58}, {100, 132}, {20, 20}, {200, 250}, {30, 200}, {180, 30}, {120, 220}, {60, 280}, {210, 150}, {90, 160}} {
+		x, y := px(at[0]), px(at[1])
+		v := uint8(255 - 150 + 7*(i%3))
+		if i%2 == 1 {
+			v = 95 + uint8(i) // dark specks too
+		}
+		img.Set(x, y, color.RGBA{v, v, v, 255})
+	}
+	got := Prints(img, ppi)
+	if len(got) != 1 {
+		t.Fatalf("found %d prints among specks, want 1", len(got))
+	}
+	checkRect(t, "print", got[0].Print.Bounds(), Rect{50, 60, 150, 130})
+}
+
+func TestTwoPrintsCloseTogetherOnAShadedBedAreOneRegion(t *testing.T) {
+	img := shadedBed(lidShading)
+	drawPrint(img, 10, 10, 60, 60, 0, nil)
+	drawPrint(img, 74, 10, 60, 60, 0, nil) // 4 mm gap
+	got := Prints(img, ppi)
+	if len(got) != 1 {
+		t.Fatalf("found %d regions, want 1", len(got))
+	}
+	checkRect(t, "print", got[0].Print.Bounds(), Rect{10, 10, 134, 70})
+	if got[0].Parts != 2 || !got[0].Review {
+		t.Errorf("parts %d, review %v; want 2 parts for review", got[0].Parts, got[0].Review)
+	}
+}
+
+// A print's light content is within the bed's tolerance but is not bed:
+// the field is estimated from the bed outside the prints, so a wide,
+// pale print does not shade the rows it lies on.
+func TestAPalePrintDoesNotShadeTheBedBesideIt(t *testing.T) {
+	img := shadedBed(lidShading)
+	drawPrint(img, 10, 20, 180, 120, 0, nil)
+	b := img.Bounds()
+	for y := 0; y < b.Dy(); y++ {
+		for x := 0; x < b.Dx(); x++ {
+			if c := img.RGBAAt(x, y); c.R == 90 || c.R == 246 { // the content, dark or sky
+				img.Set(x, y, color.RGBA{225, 226, 224, 255}) // an overexposed beach
+			}
+		}
+	}
+	got := Prints(img, ppi)
+	if len(got) != 1 {
+		t.Fatalf("found %d prints, want 1: %+v", len(got), got)
+	}
+	checkRect(t, "print", got[0].Print.Bounds(), Rect{10, 20, 190, 140})
 }
