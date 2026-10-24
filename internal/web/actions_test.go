@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -114,13 +115,20 @@ func TestNewBatchRefusals(t *testing.T) {
 	}
 }
 
-// slow holds the preview until released, so a step can be caught running.
+// slow holds the preview until released, so a step can be caught running:
+// started is closed once the preview has been asked for.
 type slow struct {
 	*batchtest.Scanner
-	release chan struct{}
+	release, started chan struct{}
+	once             *sync.Once
+}
+
+func hold(s *batchtest.Scanner) slow {
+	return slow{s, make(chan struct{}), make(chan struct{}), new(sync.Once)}
 }
 
 func (s slow) Preview(ctx context.Context) (image.Image, error) {
+	s.once.Do(func() { close(s.started) })
 	<-s.release
 	return s.Scanner.Preview(ctx)
 }
@@ -130,13 +138,13 @@ func (s slow) Detail(ctx context.Context, area find.Rect, ppi int) (io.ReadClose
 }
 
 func TestOneStepAtATime(t *testing.T) {
-	sc := slow{&batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}, make(chan struct{})}
+	sc := hold(&batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}})
 	a := live(t, sc.Scanner)
 	a.Scanner = sc
 	h := a.Handler()
 	w := post(t, h, "/batches", url.Values{"description": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	loc := w.Header().Get("Location")
-	page(t, h, loc, `http-equiv="refresh"`, "Working")
+	page(t, h, loc, "Working")
 
 	if w := post(t, h, "/batches", url.Values{"description": {"second"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}}); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "busy") {
 		t.Errorf("second batch while scanning: %d %s", w.Code, w.Body)
@@ -226,6 +234,43 @@ func TestNewBatchWithNoPeopleIsRefused(t *testing.T) {
 	if body := w.Body.String(); !strings.Contains(body, a.People.String()) || strings.Contains(body, "<form") {
 		t.Errorf("new batch with no people: want the register named and no form:\n%s", body)
 	}
+}
+
+// #37: a working batch's page shows the step running and how long it
+// should take, redrawing only that, and says so from the batches before.
+func TestAWorkingBatchShowsItsProgressWithoutRedrawing(t *testing.T) {
+	sc := hold(&batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}})
+	a := live(t, sc.Scanner)
+	a.Scanner = sc
+	h := a.Handler()
+	loc := post(t, h, "/batches", url.Values{"description": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}}).Header().Get("Location")
+	<-sc.started
+	body := get(t, h, loc).Body.String()
+	if strings.Contains(body, `http-equiv="refresh"`) {
+		t.Error("the page redraws itself")
+	}
+	for _, s := range []string{`id="progress"`, "Preview", loc[1:] + "/progress"} {
+		if !strings.Contains(body, s) {
+			t.Errorf("working page lacks %q:\n%s", s, body)
+		}
+	}
+	page(t, h, loc+"/progress", "Preview", "<progress")
+	if strings.Contains(get(t, h, loc+"/progress").Body.String(), "of about") {
+		t.Error("first preview ever: nothing to expect from")
+	}
+	close(sc.release)
+	a.wait()
+	if w := get(t, h, loc+"/progress"); w.Code != http.StatusNoContent {
+		t.Errorf("idle progress: %d, want 204", w.Code)
+	}
+	// the next batch's preview is expected to take about as long as this one's
+	sc2 := hold(sc.Scanner)
+	a.Scanner = sc2
+	loc2 := post(t, h, "/batches", url.Values{"description": {"second"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}}).Header().Get("Location")
+	<-sc2.started
+	page(t, h, loc2+"/progress", "Preview", "of about")
+	close(sc2.release)
+	a.wait()
 }
 
 // #36: the usual rights line is typed without hunting for the sign.

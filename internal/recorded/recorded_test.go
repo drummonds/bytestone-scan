@@ -203,7 +203,7 @@ func TestABatchRunsOnTheRecording(t *testing.T) {
 	store := wf.NewMemStore()
 	rec := &Scanner{Dir: dir}
 	clock := func() time.Time { return now }
-	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), rec, clock); err != nil {
+	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), rec, clock, nil); err != nil {
 		t.Fatal(err)
 	}
 	prints, _, err := b.Found()
@@ -213,7 +213,7 @@ func TestABatchRunsOnTheRecording(t *testing.T) {
 	if err := b.Confirm(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), rec, clock); err != nil {
+	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), rec, clock, nil); err != nil {
 		t.Fatal(err)
 	}
 	photo, path, err := batch.FindPhoto(root, 0)

@@ -26,6 +26,8 @@ type worker struct {
 	mu      sync.Mutex
 	batch   string // the batch a step is running for; empty when idle
 	started time.Time
+	step    string // the workflow step running, once one has started
+	stepAt  time.Time
 	running sync.WaitGroup
 }
 
@@ -45,9 +47,14 @@ func (a *App) start(b *batch.Batch, prepare func() error) error {
 		}
 	}
 	a.work.batch, a.work.started = b.ID, time.Now()
+	a.work.step, a.work.stepAt = "", a.work.started
 	a.work.running.Go(func() {
 		// a failure is recorded on the run, where the batch page reads it
-		b.Run(context.Background(), wf.NewRunner(a.Store, nil), a.Scanner, a.Now)
+		b.Run(context.Background(), wf.NewRunner(a.Store, nil), a.Scanner, a.Now, func(step string) {
+			a.work.mu.Lock()
+			a.work.step, a.work.stepAt = step, time.Now()
+			a.work.mu.Unlock()
+		})
 		a.work.mu.Lock()
 		a.work.batch = ""
 		a.work.mu.Unlock()
@@ -65,10 +72,12 @@ func (a *App) running() string {
 	return a.work.batch
 }
 
-func (a *App) busyWith(id string) (bool, time.Time) {
+// busyWith reports whether a step of batch id is running, and if so which
+// workflow step it is at (empty before the first starts) and since when.
+func (a *App) busyWith(id string) (bool, string, time.Time) {
 	a.work.mu.Lock()
 	defer a.work.mu.Unlock()
-	return a.work.batch == id, a.work.started
+	return a.work.batch == id, a.work.step, a.work.stepAt
 }
 
 const newBatchForm = `<h1 class="title">New batch</h1>
@@ -306,9 +315,8 @@ func parseMove(s string) (int, find.Edge, float64, error) {
 // choices there, reporting whether a step is running and the step the
 // batch is waiting at, if any.
 func (a *App) state(r *http.Request, c *lofigui.Context, b *batch.Batch) (bool, string) {
-	if busy, since := a.busyWith(b.ID); busy {
-		c.HTML(fmt.Sprintf(`<div class="notification is-info">Working: the scanner has been busy for %s. This page refreshes itself.</div>`,
-			time.Since(since).Round(time.Second)))
+	if busy, step, since := a.busyWith(b.ID); busy {
+		c.HTML(`<div id="progress">` + a.progress(r.Context(), b, step, since) + `</div>` + fmt.Sprintf(pollProgress, html.EscapeString(b.ID)))
 		return true, ""
 	}
 	run, waiting := a.where(r.Context(), b)
@@ -359,4 +367,35 @@ func (a *App) where(ctx context.Context, b *batch.Batch) (*wf.RunRecord, string)
 		}
 	}
 	return run, waiting
+}
+
+// pollProgress redraws the progress block every two seconds while the
+// batch is busy, and the page once it is not.
+const pollProgress = `<script>
+(function poll() {
+	setTimeout(function () {
+		fetch('batches/%s/progress').then(function (r) {
+			if (r.status === 204) { location.reload(); return; }
+			return r.text().then(function (h) { document.getElementById('progress').innerHTML = h; poll(); });
+		}).catch(poll);
+	}, 2000);
+})();
+</script>`
+
+// progress is the running step, how long it has run and, judged from the
+// batches before, how long it should take.
+func (a *App) progress(ctx context.Context, b *batch.Batch, step string, since time.Time) string {
+	label := "Starting"
+	if step != "" {
+		label = strings.ToUpper(step[:1]) + step[1:]
+	}
+	elapsed := time.Since(since).Round(time.Second)
+	want, ok := batch.Expected(ctx, a.Store, a.Staging, b, step)
+	if !ok || want <= 0 {
+		return fmt.Sprintf(`<div class="notification is-info">Working. %s: %s so far.</div><progress class="progress is-info" max="100"></progress>`,
+			label, elapsed)
+	}
+	want = max(want.Round(time.Second), time.Second)
+	return fmt.Sprintf(`<div class="notification is-info">Working. %s: %s of about %s.</div><progress class="progress is-info" value="%d" max="%d"></progress>`,
+		label, elapsed, want, min(int(elapsed.Seconds()), int(want.Seconds())), int(want.Seconds()))
 }
