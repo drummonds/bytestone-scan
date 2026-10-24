@@ -74,13 +74,15 @@ func TestABatchFromStartToTheArchive(t *testing.T) {
 	page(t, h, loc, "<td>2</td>") // the second print is in the table
 
 	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
 	page(t, h, loc, "Accept", "Rescan at", `href="photos/0"`, `href="photos/1"`)
 	page(t, h, "/photos/1", "Master, 600 ppi,") // the quality page works before packaging
 
 	act(t, a, h, loc+"/rescan", url.Values{"ppi": {"1200"}})
-	if s.LastPPI != 1200 || s.Details != 2 {
-		t.Errorf("rescan: last ppi %d after %d passes, want 1200 after 2", s.LastPPI, s.Details)
+	if s.LastPPI != 1200 || s.Details != 3 {
+		t.Errorf("rescan: last ppi %d after %d passes, want 1200 after 3", s.LastPPI, s.Details)
 	}
+	act(t, a, h, loc+"/backs", nil)
 
 	act(t, a, h, loc+"/accept", nil)
 	if !archive.Complete(filepath.Join(a.Staging, "archive"), 0) || !archive.Complete(filepath.Join(a.Staging, "archive"), 1) {
@@ -97,7 +99,7 @@ func TestRetryAfterAFailure(t *testing.T) {
 	act(t, a, h, loc+"/confirm", nil)
 	page(t, h, loc, "USB disconnected", "Retry")
 	act(t, a, h, loc+"/retry", nil)
-	page(t, h, loc, "Accept")
+	page(t, h, loc, "Scan the backs")
 }
 
 func TestNewBatchRefusals(t *testing.T) {
@@ -307,6 +309,7 @@ func TestABatchOfLoads(t *testing.T) {
 
 	for _, loc := range []string{one, two} {
 		act(t, a, h, loc+"/confirm", nil)
+		act(t, a, h, loc+"/backs", nil)
 		act(t, a, h, loc+"/accept", nil)
 	}
 	if loc := act(t, a, h, "/batches/20261020-1/finish", nil); loc != "/batches/20261020-1" {
@@ -317,4 +320,45 @@ func TestABatchOfLoads(t *testing.T) {
 		t.Errorf("a finished batch offered another load: %d", w.Code)
 	}
 	page(t, h, "/photos/1", "the second envelope", `href="batches/20261020-1"`, `href="batches/20261020-1/loads/2"`)
+}
+
+// Story 039: after the fronts the load asks for the prints to be turned
+// over, scans the backs where the fronts lay, shows where each back lay
+// and flags one that differs; the photo page shows the back; the backs
+// can be scanned again.
+func TestTheBacksOfALoad(t *testing.T) {
+	s := &batchtest.Scanner{
+		Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}},
+		Backs:  []batchtest.Print{{X0: 22, Y0: 20, X1: 62, Y1: 50, Value: 50000}, {X0: 90, Y0: 25, X1: 115, Y1: 60, Value: 50000}},
+	}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"two sided"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	page(t, h, loc, "Turn each print over", "Scan the backs")
+	if w := post(t, h, loc+"/accept", nil); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "backs") {
+		t.Errorf("accepted before the backs: %d %s", w.Code, w.Body)
+	}
+	act(t, a, h, loc+"/backs", nil)
+	if s.LastPPI != 300 || s.Details != 2 {
+		t.Errorf("backs: last ppi %d after %d passes, want 300 after 2", s.LastPPI, s.Details)
+	}
+	page(t, h, loc, "Accept and archive", "Rescan the backs", loc[1:]+"/backs.png", "was the print turned over in place?")
+	if w := get(t, h, loc+"/backs.png"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/png" {
+		t.Errorf("backs.png: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+	page(t, h, "/photos/1", "Back", "photos/1/renditions/1/back/display.jpg", "was the print turned over in place?", "300 ppi")
+	if w := get(t, h, "/photos/1/renditions/1/back/display.jpg"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/jpeg" {
+		t.Errorf("back rendition: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+
+	act(t, a, h, loc+"/rescan-backs", nil)
+	page(t, h, loc, "Scan the backs")
+	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "Done")
+	page(t, h, "/photos/1", "Back", "photos/1/renditions/1/back/display.jpg")
+	if s.Details != 3 {
+		t.Errorf("%d passes, want 3", s.Details)
+	}
 }

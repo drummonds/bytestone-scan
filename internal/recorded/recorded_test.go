@@ -232,3 +232,18 @@ func TestABatchRunsOnTheRecording(t *testing.T) {
 		t.Errorf("master: %v, %v", fi, err)
 	}
 }
+
+// Story 039: turned to the back, the replay serves the back's recording;
+// a side not recorded is an error naming it.
+func TestReplayTurnsToTheBack(t *testing.T) {
+	_, dir := one(t)
+	rec := &Scanner{Dir: dir}
+	rec.TurnTo("back")
+	if _, err := rec.Preview(context.Background()); err == nil || !strings.Contains(err.Error(), "back") {
+		t.Errorf("no back recorded: %v", err)
+	}
+	rec.TurnTo("front")
+	if _, err := rec.Preview(context.Background()); err != nil {
+		t.Error(err)
+	}
+}

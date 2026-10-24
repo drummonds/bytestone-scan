@@ -43,6 +43,8 @@ func scanned(t *testing.T) (*App, *batch.Load) {
 	}
 	b.Confirm()
 	b.Run(context.Background(), store, s, clock, nil)
+	b.Turned()
+	b.Run(context.Background(), store, s, clock, nil)
 	b.Accept()
 	if rec, err := b.Run(context.Background(), store, s, clock, nil); err != nil || rec.Status != wf.StatusCompleted {
 		t.Fatalf("load: %+v, %v", rec, err)

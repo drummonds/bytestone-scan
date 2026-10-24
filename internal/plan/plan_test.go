@@ -111,3 +111,33 @@ func near(a, b image.Rectangle) bool {
 	d := func(x, y int) bool { return x-y <= 1 && y-x <= 1 }
 	return d(a.Min.X, b.Min.X) && d(a.Min.Y, b.Min.Y) && d(a.Max.X, b.Max.X) && d(a.Max.Y, b.Max.Y)
 }
+
+// Story 039: the backs pass covers the fronts' regions at 300 ppi, each
+// back's master at the scan's own ppi.
+func TestBacksPassScansTheFrontsRegionsAt300(t *testing.T) {
+	prints := []find.Print{
+		{Print: find.BoxOf(find.Rect{X0: 13, Y0: 23, X1: 113, Y1: 93}), Region: find.BoxOf(find.Rect{X0: 10, Y0: 20, X1: 116, Y1: 96})},
+		{Print: find.BoxOf(find.Rect{X0: 13, Y0: 103, X1: 190, Y1: 230}), Region: find.BoxOf(find.Rect{X0: 10, Y0: 100, X1: 193, Y1: 233})},
+	}
+	p, err := Backs(prints, bed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (find.Rect{X0: 10, Y0: 20, X1: 193, Y1: 233}); p.Area != want || p.ScanPPI != BackPPI || BackPPI != 300 {
+		t.Errorf("area %+v at %d ppi, want %+v at 300", p.Area, p.ScanPPI, want)
+	}
+	px := func(mm float64) int { return int(mm / in * 300) }
+	want := []detailpass.Region{
+		{Rect: image.Rect(0, 0, px(106), px(76)), Factor: 1},
+		{Rect: image.Rect(0, px(80), px(183), px(213)), Factor: 1},
+	}
+	for i, w := range want {
+		got := p.Regions[i]
+		if got.Factor != 1 || !near(got.Rect, w.Rect) || p.Masters[i].PPI != 300 || p.Masters[i].Factor != 1 || p.Masters[i].Warning != "" {
+			t.Errorf("region %d %v factor %d master %+v, want %v at 300 ppi unaveraged", i+1, got.Rect, got.Factor, p.Masters[i], w.Rect)
+		}
+	}
+	if _, err := Backs(nil, bed); err == nil {
+		t.Error("a backs pass over no prints")
+	}
+}

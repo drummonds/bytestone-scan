@@ -108,11 +108,16 @@ func Record(ctx context.Context, s batch.Scanner, dir, side string, ppi int, now
 	})
 }
 
-// Scanner replays the recording under Dir of one side of the print.
+// Scanner replays the recording under Dir of the side of the print turned
+// to the glass.
 type Scanner struct {
 	Dir  string
 	Side string // front if empty
 }
+
+// TurnTo turns the print to show side, front or back, to the glass: the
+// replay serves that side's recording from then on.
+func (s *Scanner) TurnTo(side string) { s.Side = side }
 
 func (s *Scanner) side() string {
 	if s.Side == "" {

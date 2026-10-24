@@ -150,6 +150,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /batches/{id}/loads/{n}/prints.png", func(w http.ResponseWriter, r *http.Request) {
 		servePNG(w, r, (*batch.Load).Annotated)
 	})
+	mux.HandleFunc("GET /batches/{id}/loads/{n}/backs.png", func(w http.ResponseWriter, r *http.Request) {
+		servePNG(w, r, (*batch.Load).AnnotatedBacks)
+	})
 	mux.HandleFunc("GET /batches/{id}/loads/{n}/regions/{print}", func(w http.ResponseWriter, r *http.Request) {
 		p, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("print"), ".png"))
 		if err != nil {
@@ -184,8 +187,9 @@ func (a *App) Handler() http.Handler {
 			png.Encode(w, quality.Crop(img, image.Pt(x, y), min(max(size, 32), 1024)))
 		}
 	})
-	// a photo's renditions: one directory per recipe version, served as files
-	mux.HandleFunc("GET /photos/{id}/renditions/{version}/{file}", func(w http.ResponseWriter, r *http.Request) {
+	// a photo's renditions: one directory per recipe version, the back's
+	// under it, served as files
+	renditionFile := func(w http.ResponseWriter, r *http.Request, side string) {
 		id, err := pid.Parse(r.PathValue("id"))
 		version, verr := strconv.Atoi(r.PathValue("version"))
 		file := r.PathValue("file")
@@ -194,7 +198,13 @@ func (a *App) Handler() http.Handler {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store") // remade when the master is
-		http.ServeFile(w, r, filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(version), file))
+		http.ServeFile(w, r, filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(version), side, file))
+	}
+	mux.HandleFunc("GET /photos/{id}/renditions/{version}/{file}", func(w http.ResponseWriter, r *http.Request) {
+		renditionFile(w, r, "")
+	})
+	mux.HandleFunc("GET /photos/{id}/renditions/{version}/back/{file}", func(w http.ResponseWriter, r *http.Request) {
+		renditionFile(w, r, "back")
 	})
 	mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) { render(w, "About", a.about()) })
 	a.actions(mux, render)
@@ -210,6 +220,9 @@ func (a *App) batchLink(_ *http.Request, run wf.RunRecord, _ []wf.StepResult, _ 
 	case batch.LoadWorkflow:
 		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="%s">Load %s: prints and photos</a></p>`,
 			loadURL(run.Key), html.EscapeString(run.Key)))
+	case batch.PhotoWorkflow:
+		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="photos/%s">Photo %s</a></p>`,
+			html.EscapeString(run.Key), html.EscapeString(run.Key)))
 	}
 	return ""
 }
@@ -293,23 +306,33 @@ func (a *App) loadPage(r *http.Request, l *batch.Load) string {
 		return c.Buffer()
 	}
 	var t strings.Builder
-	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Photo</th></tr></thead><tbody>`)
+	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Photo</th><th>Back</th></tr></thead><tbody>`)
 	for i, p := range prints {
-		photo := "—"
+		photo, back := "—", "—"
 		if i < len(ids) {
 			photo = fmt.Sprintf(`<a href="photos/%s">%s</a>`, ids[i], ids[i])
+			if rec, _, err := batch.FindPhoto(a.Staging, ids[i]); err == nil && rec.Back != nil {
+				back = fmt.Sprintf("%.0f × %.0f mm", rec.Back.Print.W, rec.Back.Print.H)
+				if rec.Back.Review {
+					back = `<span class="tag is-danger">review</span> ` + html.EscapeString(rec.Back.Warning)
+				}
+			}
 		}
 		review := ""
 		if p.Review {
 			review = ` <span class="tag is-danger">review</span>`
 		}
-		fmt.Fprintf(&t, `<tr><td>%d%s</td><td>%.0f × %.0f mm</td><td>%.0f, %.0f mm</td><td>%.1f°</td><td>%.3f</td><td>%s</td></tr>`,
-			i+1, review, p.Print.W, p.Print.H, p.Print.Bounds().X0, p.Print.Bounds().Y0, p.Skew, p.Fill, photo)
+		fmt.Fprintf(&t, `<tr><td>%d%s</td><td>%.0f × %.0f mm</td><td>%.0f, %.0f mm</td><td>%.1f°</td><td>%.3f</td><td>%s</td><td>%s</td></tr>`,
+			i+1, review, p.Print.W, p.Print.H, p.Print.Bounds().X0, p.Print.Bounds().Y0, p.Skew, p.Fill, photo, back)
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
 	c.HTML(fmt.Sprintf(`<figure><img src="%s/prints.png" alt="The bed, with the prints found">
 <figcaption class="help">Preview, 150 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, loadURL(l.Key())))
+	if _, err := os.Stat(filepath.Join(l.Dir(), "backs.png")); err == nil {
+		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="%s/backs.png" alt="The bed turned over, with the fronts' regions">
+<figcaption class="help">The backs, 150 ppi, with the fronts' regions: each back was scanned where its front lay.</figcaption></figure>`, loadURL(l.Key())))
+	}
 	if waiting == "confirm" && !busy {
 		for i, p := range prints {
 			c.HTML(regionEditor(l, i, p))
@@ -391,6 +414,19 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 			id, rec.Version, rec.Version, rec.Display.W, rec.Display.H, -rec.Skew, rec.RegionSkew, rec.Black, rec.White))
 		for _, f := range rec.Flags {
 			c.HTML(`<p class="has-text-danger">` + html.EscapeString(f) + `</p>`)
+		}
+	}
+	// the back, once scanned: its rendition and what the backs preview said
+	if p.Back != nil {
+		c.HTML(`<h2 class="title is-5 mt-5">Back</h2>`)
+		if rec, err := rendition.Load(filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(rendition.Version), "back")); err == nil {
+			c.HTML(fmt.Sprintf(`<figure><img src="photos/%s/renditions/%d/back/display.jpg" alt="The back" style="max-width:100%%;height:auto">
+<figcaption class="help">Back, %d ppi, 8 bits, rendition recipe %d, %d × %d px.</figcaption></figure>`,
+				id, rec.Version, p.Back.MasterPPI, rec.Version, rec.Display.W, rec.Display.H))
+		}
+		c.HTML(fmt.Sprintf(`<p class="help">Back %.1f × %.1f mm, scanned where the front lay.</p>`, p.Back.Print.W, p.Back.Print.H))
+		if p.Back.Warning != "" {
+			c.HTML(`<p class="has-text-danger">` + html.EscapeString(p.Back.Warning) + `</p>`)
 		}
 	}
 
