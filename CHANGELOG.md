@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-24
+
+ - The register is read through the archive service's API (life-weaver#23): `bytestone-scan serve -archive URL` (default `http://localhost:8321`, `life-weaver serve`) replaces `-people DIR`; the directory reader of #25 and its fixtures go, tests use `registertest.List`. A service not answering refuses the New batch form naming it and how to start it
+
+### Changed
+
+- The register is read from the archive's person directories (`people/<dir>/person.yaml`, life-weaver#28); a flat `<id>.yaml` from before the tree is still read for a person without a directory (#25)
+- The register is read through the archive service's API (life-weaver#23): `bytestone-scan serve -archive URL` (default `http://localhost:8321`, `life-weaver serve`) replaces `-people DIR`; the directory reader of #25 and its fixtures go, tests use `registertest.List`. A service not answering refuses the New batch form naming it and how to start it (#33)
+
 ## [0.8.0] - 2026-10-24
 
  - Go 1.27.3; gobank-workflow 0.11.0 (child runs, an empty registry), go-postgres 0.11.0; `go fix` runs with fmt

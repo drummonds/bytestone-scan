@@ -99,12 +99,9 @@ type entered struct {
 // newBatch is the New batch page: msg above the form, and the form holding
 // what was entered. With no one in the register there is no form.
 func (a *App) newBatch(msg string, e entered) string {
-	people, warnings, err := a.People.People()
+	people, err := a.People.People()
 	if err != nil {
 		return `<h1 class="title">New batch</h1><div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
-	}
-	for _, w := range warnings {
-		msg += `<div class="notification is-warning">` + html.EscapeString(w) + `</div>`
 	}
 	return fmt.Sprintf(newBatchForm, msg, html.EscapeString(e.description), personOptions(people, e.person),
 		html.EscapeString(e.provenance), html.EscapeString(e.credit), ppiOptions(e.ppi))

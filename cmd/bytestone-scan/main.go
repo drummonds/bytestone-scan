@@ -1,7 +1,7 @@
 // Command bytestone-scan scans batches of prints on the Epson 4990 into
 // archival masters, one archived photo per print, run from a web UI.
 //
-//	bytestone-scan serve [-addr localhost:8080] [-staging DIR] [-people DIR] [-device DEV] [-recorded NAME]
+//	bytestone-scan serve [-addr localhost:8080] [-staging DIR] [-archive URL] [-device DEV] [-recorded NAME]
 //	bytestone-scan capture -print NAME [-side front|back] [-staging DIR] [-device DEV] [-ppi 2400]
 //
 // capture records the one print on the bed into <staging>/fixtures/NAME,
@@ -48,14 +48,14 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		addr := fs.String("addr", "localhost:8080", "address to listen on")
-		people := fs.String("people", filepath.Join(home, ".local/share/bytestone/archive/people"), "the register of people: the archive mirror (life-weaver)")
+		archive := fs.String("archive", "http://localhost:8321", "the archive service (life-weaver serve), where the register of people is read")
 		name := fs.String("recorded", "", "run on the recording of this print under <staging>/fixtures instead of the scanner")
 		fs.Parse(os.Args[2:])
 		var s batch.Scanner = &epson.Scanner{Device: *device}
 		if *name != "" {
 			s = &recorded.Scanner{Dir: filepath.Join(*staging, "fixtures", *name)}
 		}
-		err = serve(ctx, *addr, *staging, *people, s)
+		err = serve(ctx, *addr, *staging, *archive, s)
 	case "capture":
 		name := fs.String("print", "", "the recording's name under <staging>/fixtures (required)")
 		side := fs.String("side", "front", "the side of the print lying face down: front or back")
@@ -77,7 +77,7 @@ func main() {
 }
 
 // serve runs the web UI until interrupted.
-func serve(ctx context.Context, addr, staging, people string, s batch.Scanner) error {
+func serve(ctx context.Context, addr, staging, archive string, s batch.Scanner) error {
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func serve(ctx context.Context, addr, staging, people string, s batch.Scanner) e
 		Staging: staging,
 		Store:   store,
 		Scanner: s,
-		People:  register.Register{Dir: people},
+		People:  register.Archive{URL: archive},
 		Now:     time.Now,
 	}
 	srv := &http.Server{Addr: addr, Handler: app.Handler()}

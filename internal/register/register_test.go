@@ -1,6 +1,8 @@
 package register
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,68 +10,92 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
+// service is a stand-in archive service: life-weaver's GET /people and
+// GET /people/{id}, over a fixed register.
+func service(t *testing.T, people string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /people", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(people))
+	})
+	mux.HandleFunc("GET /people/{id}", func(w http.ResponseWriter, r *http.Request) {
+		switch r.PathValue("id") {
+		case "a":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"a","name":"Ada Example","short":"Ada","bio":"long"}`))
+		case "b":
+			http.Error(w, "boom", http.StatusInternalServerError)
+		default:
+			http.Error(w, "no person "+r.PathValue("id"), http.StatusNotFound)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const three = `[{"id":"a","name":"Ada Example","short":"Ada","born":{"date":"1894"}},{"id":"e","name":"Aaron Example"},{"id":"f","name":"Flat Example"}]`
+
 func TestPersonInTheRegister(t *testing.T) {
-	r := Register{Dir: "testdata/people"}
+	r := Archive{URL: service(t, three).URL}
 	name, err := r.Person(10) // "a"
 	if err != nil || name != "Ada Example" {
 		t.Errorf("Person(a) = %q, %v, want Ada Example", name, err)
 	}
 }
 
-// The register used to be flat, <id>.yaml under people/. A record still in
-// that form is read when the person has no directory; the directory wins
-// when both exist.
-func TestPersonInAFlatRecord(t *testing.T) {
-	r := Register{Dir: "testdata/people"}
-	for _, tc := range []struct {
-		id   pid.ID
-		want string
-	}{
-		{15, "Flat Example"}, // f.yaml only
-		{10, "Ada Example"},  // 0/0a/person.yaml over a.yaml
-	} {
-		name, err := r.Person(tc.id)
-		if err != nil || name != tc.want {
-			t.Errorf("Person(%s) = %q, %v, want %q", tc.id, name, err, tc.want)
-		}
-	}
-}
-
 func TestPersonRefusals(t *testing.T) {
-	r := Register{Dir: "testdata/people"}
+	srv := service(t, three)
+	r := Archive{URL: srv.URL}
 	for _, tc := range []struct {
 		id   pid.ID
 		want string
 	}{
 		{12, "not in the register"}, // "c": no record
-		{11, "b"},                   // a record that does not parse
+		{11, "boom"},                // the service fails
 	} {
 		_, err := r.Person(tc.id)
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("Person(%s): %v, want an error mentioning %q", tc.id, err, tc.want)
+		if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), srv.URL) {
+			t.Errorf("Person(%s): %v, want an error mentioning %q and the service", tc.id, err, tc.want)
 		}
 	}
 }
 
 func TestPeopleAreListedByName(t *testing.T) {
-	people, warnings, err := Register{Dir: "testdata/people"}.People()
+	people, err := Archive{URL: service(t, three).URL}.People()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// e, a (its directory record wins over a.yaml), f (a flat record only)
 	want := []Person{{14, "Aaron Example"}, {10, "Ada Example"}, {15, "Flat Example"}}
 	if !reflect.DeepEqual(people, want) {
 		t.Errorf("People() = %v, want %v", people, want)
 	}
-	// b does not parse, d has no name; both are left out, each named
-	if len(warnings) != 2 || !strings.Contains(warnings[0], "0/0b") || !strings.Contains(warnings[1], "0/0d") {
-		t.Errorf("warnings = %q, want one naming 0/0b, one 0/0d", warnings)
-	}
 }
 
 func TestNoPeopleIsAnError(t *testing.T) {
-	dir := t.TempDir()
-	if _, _, err := (Register{Dir: dir}).People(); err == nil || !strings.Contains(err.Error(), dir) {
-		t.Errorf("People() of an empty register: %v, want an error naming %s", err, dir)
+	srv := service(t, `[]`)
+	if _, err := (Archive{URL: srv.URL}).People(); err == nil || !strings.Contains(err.Error(), srv.URL) {
+		t.Errorf("People() of an empty register: %v, want an error naming %s", err, srv.URL)
+	}
+}
+
+func TestServiceNotRunningSaysHowToStartIt(t *testing.T) {
+	srv := service(t, three)
+	srv.Close()
+	r := Archive{URL: srv.URL}
+	for _, err := range []error{
+		func() error { _, err := r.People(); return err }(),
+		func() error { _, err := r.Person(10); return err }(),
+	} {
+		if err == nil || !strings.Contains(err.Error(), srv.URL) || !strings.Contains(err.Error(), "life-weaver serve") {
+			t.Errorf("service down: %v, want an error naming %s and life-weaver serve", err, srv.URL)
+		}
+	}
+}
+
+func TestStringIsTheServiceURL(t *testing.T) {
+	if s := (Archive{URL: "http://localhost:8321"}).String(); s != "http://localhost:8321" {
+		t.Errorf("String() = %q", s)
 	}
 }
