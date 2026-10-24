@@ -1,7 +1,9 @@
 # Batch lifecycle: a batch of loads, deposited, closed, purged
 
-**Status:** proposed (2026-10-24, revised the same day after discussion);
-to be split into issues once the tables below are agreed
+**Status:** agreed 2026-10-24 and filed: #38 batch of loads, #39 backs,
+#40 describe each photo, #41 deposit and receipt, #42 close and purge;
+life-weaver#33 is the deposit API. All aimed at the next release, in that
+order after #37
 
 ## Why
 
@@ -31,9 +33,10 @@ site, and a stalled deploy must not hold a batch open.
 | Term | Meaning |
 |---|---|
 | Batch | A sitting of scanning for one home person: its title, provenance, credit, scan ppi, the albums its photos join, and its loads. Open from describe until every photo is receipted, then closed, then purged |
-| Load | One load of the scanner bed within a batch: its description, preview, prints (one or many), detail pass (fronts, later backs), masters and renditions. What Batch means today |
+| Load | One load of the scanner bed within a batch: its description, preview, prints (one or many), two detail passes (fronts, then backs with the prints turned over in place), masters and renditions. What Batch means today |
 | Deposit | The batch step that hands each photo to life-weaver: its bag, its item record for its home person, and the albums it joins |
 | Receipt | life-weaver's answer that it holds a photo, the bag's checksums matching; asked for over its API |
+| Reject | life-weaver's answer that it will not take a photo because it already holds the same picture, naming the item it duplicates |
 | Work files | What a batch keeps under staging to do its job: previews, prints, masters, renditions, bags, the runs' records |
 | Close | The batch step reached when every photo has a receipt: its work files are marked for deletion |
 | Purge | Deleting a closed batch's work files, 30 days after close or sooner when staging is short of space |
@@ -51,7 +54,8 @@ until life-weaver receipts it, and is not one of the archive's copies.
 
 | Was on the batch | Now on |
 |---|---|
-| description | the load, pre-filled from the batch's title; photo.yaml's description. A load's prints share it: per-print descriptions at capture are out of scope |
+| description | the load, pre-filled from the batch's title; photo.yaml's description. A load's prints share it |
+| — | photo: date, photographer, what the back says, entered at its describe step (per-print description is in scope, decided 2026-10-24) |
 | home person, provenance, credit, scan ppi | the batch, unchanged |
 | preview, find prints, confirm, detail pass, develop, check quality, package | the load |
 | — | batch: title, albums, deposit, close |
@@ -82,14 +86,15 @@ marks the gap), so the engine grows first; see the engine changes below.
 | Definition | Key | Steps |
 |---|---|---|
 | `batch` | batch id | describe → **loads** (sub-process: a `load` per load of the bed, until the operator ends scanning) → close (waits until every photo of every load is receipted) |
-| `load` | `<batch id>/<n>` | describe → preview → find prints → confirm → detail pass → **photos** (sub-process: a `photo` per print, started here) → check quality (accept the load's masters, or send the load back a step) |
-| `photo` | photo id | develop → accepted (waits for its load's check quality) → package → deposit → receipt (waits for life-weaver) |
+| `load` | `<batch id>/<n>` | describe → preview → find prints → confirm → fronts (detail pass) → **photos** (sub-process: a `photo` per print, started here) → backs (the operator turns the prints over in place; a second detail pass, each back at its front's region, 300 ppi) → check quality (accept the load's masters, or send the load back a step) |
+| `photo` | photo id | develop front → awaiting back (waits for its load's backs pass) → develop back → accepted (waits for its load's check quality) → describe (date, photographer, what the back says; the operator may skip) → package → deposit → receipt (waits for life-weaver: held, or rejected as a duplicate) |
 
 A sub-process step starts its children; it does not wait for them. Waiting
-is a later step's business: the photo parks at *accepted* until its load
-passes check quality, and the batch parks at *close* until every photo is
-receipted. Both are the engine's existing park-and-poll, so a load's
-quality check and life-weaver's receipt need no new primitive. Sending a
+is a later step's business: the photo parks at *awaiting back* until its
+load has scanned the backs, at *accepted* until its load passes check
+quality, and the batch parks at *close* until every photo is receipted or
+rejected. All are the engine's existing park-and-poll, so a load's backs,
+its quality check and life-weaver's receipt need no new primitive. Sending a
 load back to the detail pass rewinds its photos' develop with it; a photo
 once packaged is final, as today.
 
@@ -103,7 +108,7 @@ picture: its steps in a row, a sub-process drawn as one collapsed box with
 BPMN's `+` marker, linking to the child definition's page. One picture
 answers one question, so a definition that does not fit across a screen
 is split: a run of steps becomes a sub-process with its own page. The
-three above are 3, 7 and 5 boxes wide.
+three above are 3, 8 and 8 boxes wide; the photo's may want splitting.
 
 The engine's `diagram.Definition` already writes the d2; the view already
 serves `<type>.svg` from a `Diagrams` filesystem the host supplies. The
@@ -114,7 +119,7 @@ d2. The view's definitions list shows only the scanner's own workflows:
 today it is handed the engine's whole registry, which the library seeds
 with *end of day* and *release*.
 
-### Engine changes (gobank-workflow)
+### Engine changes (gobank-workflow): shipped in 0.11.0
 
 | Change | For |
 |---|---|
@@ -124,12 +129,25 @@ with *end of day* and *release*.
 | the library's `Definitions` starts empty; *end of day* moves to gobank, *release* to task-plus | a host sees only what it runs |
 | `writing-workflows.md`: a definition fits across one screen, else split | the pictures rule |
 
+### Deposit
+
+| life-weaver's answer | The photo |
+|---|---|
+| held, checksums matching | receipted |
+| duplicate of item X (the same bag, or the same picture scanned before) | rejected; the batch page shows it with the item it duplicates |
+| anything else (service down, bad request) | still at receipt; deposit is retried |
+
+Deposit is idempotent by checksum, so a re-run of a batch never doubles
+up. Judging that two scans are the same picture is life-weaver's, over its
+whole collection (life-weaver#33); the scanner only shows the answer.
+
 ### Close
 
 | Photo | Counts toward close? |
 |---|---|
 | receipted: life-weaver holds the bag, checksums matching | yes |
-| deposited, no receipt yet | no |
+| rejected as a duplicate: life-weaver holds the original | yes |
+| deposited, no answer yet | no |
 | not yet deposited | no |
 
 A batch closes when every photo counts. Rights do not appear: a photo life

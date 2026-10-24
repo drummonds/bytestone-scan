@@ -17,33 +17,42 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register/registertest"
 )
 
-// scanned is a staging root holding one finished batch of two prints.
-func scanned(t *testing.T) (*App, *batch.Batch) {
+// scanned is a staging root holding one batch whose one load of two
+// prints is through.
+func scanned(t *testing.T) (*App, *batch.Load) {
 	t.Helper()
 	root := t.TempDir()
 	now := time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
-	b, err := batch.Describe(root, registertest.Example,
+	sitting, err := batch.Describe(root, registertest.Example,
 		batch.Description{Text: "SS Bonita & crew", Person: 10, ScanPPI: 600, Provenance: "a shoebox", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	b, err := sitting.NewLoad("", now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store := wf.NewMemStore()
-	runner := wf.NewRunner(store, nil)
 	s := &batchtest.Scanner{Prints: []batchtest.Print{
 		{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000},
 		{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 60000},
 	}}
 	clock := func() time.Time { return now }
-	if _, err := b.Run(context.Background(), runner, s, clock, nil); err != nil {
+	if _, err := b.Run(context.Background(), store, s, clock, nil); err != nil {
 		t.Fatal(err)
 	}
 	b.Confirm()
-	b.Run(context.Background(), runner, s, clock, nil)
+	b.Run(context.Background(), store, s, clock, nil)
 	b.Accept()
-	if rec, err := b.Run(context.Background(), runner, s, clock, nil); err != nil || rec.Status != wf.StatusCompleted {
-		t.Fatalf("batch: %+v, %v", rec, err)
+	if rec, err := b.Run(context.Background(), store, s, clock, nil); err != nil || rec.Status != wf.StatusCompleted {
+		t.Fatalf("load: %+v, %v", rec, err)
 	}
 	return &App{Staging: root, Store: store}, b
+}
+
+// loadKey is the key of the load whose page a redirect landed on.
+func loadKey(loc string) string {
+	return strings.Replace(strings.TrimPrefix(loc, "/batches/"), "/loads/", "/", 1)
 }
 
 func get(t *testing.T, h http.Handler, url string) *httptest.ResponseRecorder {
@@ -72,16 +81,16 @@ func TestBatchesAreTheWorkQueue(t *testing.T) {
 	if w := get(t, h, "/"); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/workflows/" {
 		t.Errorf("GET / = %d to %q, want a redirect to the work queue", w.Code, w.Header().Get("Location"))
 	}
-	page(t, h, "/workflows/", b.ID)
+	page(t, h, "/workflows/", b.Batch)
 }
 
 func TestBatchPage(t *testing.T) {
 	app, b := scanned(t)
-	page(t, app.Handler(), "/batches/"+b.ID,
+	page(t, app.Handler(), "/batches/"+b.Batch+"/loads/1",
 		"SS Bonita &amp; crew", "Ada Example", "600 ppi",
-		"batches/"+b.ID+"/prints.png", `href="photos/0"`, `href="photos/1"`,
+		"batches/"+b.Batch+"/loads/1/prints.png", `href="photos/0"`, `href="photos/1"`,
 		"Preview, 150 ppi")
-	w := get(t, app.Handler(), "/batches/"+b.ID+"/prints.png")
+	w := get(t, app.Handler(), "/batches/"+b.Batch+"/loads/1/prints.png")
 	if _, err := png.Decode(w.Body); err != nil {
 		t.Errorf("prints.png: %v", err)
 	}
@@ -95,7 +104,7 @@ func TestQualityPage(t *testing.T) {
 	h := app.Handler()
 	page(t, h, "/photos/1",
 		`src="photos/1/fit.jpg"`, `<input type="image" name="at"`, "<svg", // the master, clickable, and its histogram
-		"600 ppi", b.ID, "highlights", "Provenance", "a shoebox", "Credit", "Drummond family collection, CC BY 4.0",
+		"600 ppi", b.Batch, "highlights", "Provenance", "a shoebox", "Credit", "Drummond family collection, CC BY 4.0",
 		"Master, 600 ppi,", "shown scaled to fit",
 	)
 	page(t, h, "/photos/1?at.x=50&at.y=40", `src="photos/1/crop.png?`, "1:1, master pixels")

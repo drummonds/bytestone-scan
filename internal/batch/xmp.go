@@ -46,6 +46,7 @@ func xmp(p Photo, side string) []byte {
    <xmp:CreatorTool>bytestone-scan</xmp:CreatorTool>
    <bs:side>` + side + `</bs:side>
    <bs:batch>` + esc(p.Batch) + `</bs:batch>
+   <bs:load>` + fmt.Sprint(p.Load) + `</bs:load>
    <bs:scanner>` + esc(p.Front.Scanner) + `</bs:scanner>
    <bs:scanPPI>` + fmt.Sprint(p.Front.ScanPPI) + `</bs:scanPPI>
    <bs:masterPPI>` + fmt.Sprint(p.Front.MasterPPI) + `</bs:masterPPI>
