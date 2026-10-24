@@ -300,6 +300,35 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		return l.Reshape(r.Context(), a.Store, n-1, edge, by)
 	})
 
+	// Describing a photo prepares its load's photos to go on, then ticks them.
+	mux.HandleFunc("POST /photos/{id}/describe", func(w http.ResponseWriter, r *http.Request) {
+		id, err := pid.Parse(r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		p, _, err := batch.FindPhoto(a.Staging, id)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		l, err := batch.OpenLoad(a.Staging, fmt.Sprintf("%s/%d", p.Batch, p.Load))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		var d batch.PhotoDescription
+		if r.FormValue("skip") == "" {
+			d = batch.PhotoDescription{Date: r.FormValue("date"), Approximate: r.FormValue("approximate") != "",
+				Photographer: r.FormValue("photographer"), Back: r.FormValue("back"), Source: r.FormValue("source")}
+		}
+		if err := a.start(l, func() error { return l.DescribePhoto(id, d) }); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/photos/"+id.String(), http.StatusSeeOther)
+	})
+
 	// Editing the regions needs no scanner, only that no step is running on
 	// the load. Each edit names its print, counted from 1.
 	edit := func(name string, change func(r *http.Request, l *batch.Load) (int, error)) {
@@ -402,7 +431,16 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 		c.HTML(`<div class="notification is-danger">Failed: ` + html.EscapeString(run.Error) + `</div>` +
 			`<div class="buttons">` + button("retry", "Retry", "is-primary") + `</div>`)
 	case run.Status == wf.StatusCompleted:
-		c.HTML(`<div class="notification is-success">Done: every photo is archived.</div>`)
+		if waiting := a.undescribed(r.Context(), l); len(waiting) > 0 {
+			var links []string
+			for _, id := range waiting {
+				links = append(links, fmt.Sprintf(`<a href="photos/%s">%s</a>`, id, id))
+			}
+			c.HTML(fmt.Sprintf(`<div class="notification is-warning">Accepted. %d %s waiting to be described: %s. Say what is known of each on its page, or that nothing is.</div>`,
+				len(waiting), plural(len(waiting), "photo", "photos"), strings.Join(links, ", ")))
+		} else {
+			c.HTML(`<div class="notification is-success">Done: every photo is archived.</div>`)
+		}
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
 			button("confirm", "Confirm and scan", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
@@ -423,9 +461,34 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Load) (bool, s
 	return false, waiting
 }
 
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// undescribed are the load's photos waiting to be described.
+func (a *App) undescribed(ctx context.Context, l *batch.Load) []pid.ID {
+	_, ids, _ := l.Found()
+	var waiting []pid.ID
+	for _, id := range ids {
+		if _, step := a.whereRun(ctx, batch.PhotoWorkflow, id.String()); step == "describe" {
+			waiting = append(waiting, id)
+		}
+	}
+	return waiting
+}
+
 // where is the load's run and the step it waits at, if it is waiting.
 func (a *App) where(ctx context.Context, l *batch.Load) (*wf.RunRecord, string) {
-	run, err := a.Store.FindRunByKey(ctx, batch.LoadWorkflow, l.Key())
+	return a.whereRun(ctx, batch.LoadWorkflow, l.Key())
+}
+
+// whereRun is the run of the instance key of typ and the step it waits
+// at, if it is waiting.
+func (a *App) whereRun(ctx context.Context, typ wf.WorkflowType, key string) (*wf.RunRecord, string) {
+	run, err := a.Store.FindRunByKey(ctx, typ, key)
 	if err != nil || run == nil {
 		return nil, ""
 	}

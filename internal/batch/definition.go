@@ -65,6 +65,7 @@ var Definitions = []wf.Definition{
 			{Name: "awaiting back", Description: "Waits for the load's backs pass to have scanned this print's back", Source: src},
 			{Name: "develop back", Description: "The back's renditions are made the same way", Source: src},
 			{Name: "accepted", Description: "Waits for the operator to accept the load's masters", Source: src},
+			{Name: "describe", Description: "Waits for the operator to say what is known of the photo: the date taken, the photographer and what the back says, each a claim in photo.yaml with its source; nothing known is an answer", Source: src},
 			{Name: "package", Description: "Both masters and the photo.yaml are archived as a photo; final, since an archived photo is never altered", Source: src},
 		},
 	},

@@ -84,6 +84,7 @@ func TestABatchFromStartToTheArchive(t *testing.T) {
 	}
 	act(t, a, h, loc+"/backs", nil)
 
+	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
 	if !archive.Complete(filepath.Join(a.Staging, "archive"), 0) || !archive.Complete(filepath.Join(a.Staging, "archive"), 1) {
 		t.Error("photos not archived after accept")
@@ -310,6 +311,7 @@ func TestABatchOfLoads(t *testing.T) {
 	for _, loc := range []string{one, two} {
 		act(t, a, h, loc+"/confirm", nil)
 		act(t, a, h, loc+"/backs", nil)
+		describeAll(t, a, h, loc)
 		act(t, a, h, loc+"/accept", nil)
 	}
 	if loc := act(t, a, h, "/batches/20261020-1/finish", nil); loc != "/batches/20261020-1" {
@@ -355,6 +357,7 @@ func TestTheBacksOfALoad(t *testing.T) {
 	act(t, a, h, loc+"/rescan-backs", nil)
 	page(t, h, loc, "Scan the backs")
 	act(t, a, h, loc+"/backs", nil)
+	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
 	page(t, h, loc, "Done")
 	page(t, h, "/photos/1", "Back", "photos/1/renditions/1/back/display.jpg")
@@ -377,9 +380,41 @@ func TestSkippingTheBacks(t *testing.T) {
 	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "renditions/1/back/") {
 		t.Error("a back shown for a photo without one")
 	}
+	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
 	page(t, h, loc, "Done")
 	if s.Details != 1 || s.Previews != 1 {
 		t.Errorf("%d passes, %d previews; want 1 and 1", s.Details, s.Previews)
 	}
+}
+
+// Story 040: the photo page takes the photo's description while the load
+// is being checked: the date taken, the photographer and what the back
+// says. A photo not described waits after accept, and the load page says
+// so; once archived the description is shown and fixed.
+func TestDescribingAPhoto(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"Rothesay"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	page(t, h, "/photos/0", `name="date"`, `name="approximate"`, `name="photographer"`, `name="back"`, `name="source"`, "Nothing known")
+	if w := post(t, h, "/photos/0/describe", url.Values{"date": {"July 1952"}}); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "1952-07") {
+		t.Errorf("a date that is not an ISO 8601 prefix: %d %s", w.Code, w.Body)
+	}
+	if loc := act(t, a, h, "/photos/0/describe", url.Values{"date": {"1952-07"}, "approximate": {"on"}, "photographer": {"Jerome Ltd"}, "back": {"Mum &amp; Dad"}, "source": {"back"}}); loc != "/photos/0" {
+		t.Errorf("describe went to %s", loc)
+	}
+	page(t, h, "/photos/0", `value="1952-07"`, "checked", `value="Jerome Ltd"`, "Mum &amp;amp; Dad")
+
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "1 photo waiting to be described", `href="photos/1"`)
+	page(t, h, "/photos/0", "1952-07", "Jerome Ltd", "approximate")
+	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, `name="date"`) {
+		t.Error("an archived photo's description is still a form")
+	}
+	act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}})
+	page(t, h, loc, "Done")
+	page(t, h, "/photos/1", "Nothing known")
 }
