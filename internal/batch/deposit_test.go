@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -104,4 +105,62 @@ func TestEachPhotoIsDepositedAndReceipted(t *testing.T) {
 		t.Error(err)
 	}
 	_ = pid.ID(0)
+}
+
+// Story 055 (life-weaver#39): a photo's deposit carries its renditions,
+// the front's at the current recipe and the back's under back/, developed
+// first if they are not there. A deposit the archive refuses for its
+// renditions, here a recipe left from another master, redevelops both
+// sides at the current recipe and fails the step, so the next tick
+// deposits again.
+func TestADepositCarriesTheRenditions(t *testing.T) {
+	ctx := context.Background()
+	root, store := t.TempDir(), wf.NewMemStore()
+	svc := service(root)
+	scanner := twoSided()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	b.Confirm()
+	scanned(t, b, store, scanner)
+	described(t, b)
+	b.Accept()
+	_, ids, _ := b.Found()
+	stale, lost := ids[0], ids[1]
+	// one photo's front recipe is another master's; the other's renditions are gone
+	recipe := filepath.Join(b.Renditions(stale), "recipe.yaml")
+	if err := os.WriteFile(recipe, []byte("version: 1\nmaster: 0000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(b.Renditions(lost)); err != nil {
+		t.Fatal(err)
+	}
+	env := Env{Store: store, Scanner: scanner, Archive: svc, Now: clock}
+	if _, err := b.Run(ctx, env, nil); err == nil || !strings.Contains(err.Error(), "renditions") {
+		t.Fatalf("a stale recipe: %v, want the archive's refusal", err)
+	}
+	pr := photoRun(t, store, stale)
+	if pr.Status != wf.StatusFailed || runnertest.Steps(t, store, pr.ID)["deposit"] != wf.StatusFailed {
+		t.Fatalf("the stale photo: %s %q %v", pr.Status, pr.Error, runnertest.Steps(t, store, pr.ID))
+	}
+	if raw, _ := os.ReadFile(recipe); strings.Contains(string(raw), "master: 0000") {
+		t.Error("the stale recipe was not redeveloped")
+	}
+	if d, _ := DepositOf(root, stale); d != nil {
+		t.Errorf("deposited though refused: %+v", d)
+	}
+	run(t, b, store, scanner)
+	if d, _ := DepositOf(root, stale); d == nil || d.Status != "held" {
+		t.Fatalf("after redeveloping: %+v", d)
+	}
+	if d, _ := DepositOf(root, lost); d == nil || d.Status != "held" {
+		t.Errorf("the photo whose renditions were lost: %+v, want developed again and held", d)
+	}
+	for _, id := range ids {
+		got := svc.Renditions[id]
+		sort.Strings(got)
+		want := []string{"1/back/display.jpg", "1/back/recipe.yaml", "1/back/thumb.jpg", "1/back/tiny.jpg", "1/display.jpg", "1/recipe.yaml", "1/thumb.jpg", "1/tiny.jpg"}
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("renditions deposited for %s: %v, want %v", id, got, want)
+		}
+	}
 }

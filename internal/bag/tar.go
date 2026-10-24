@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -30,11 +31,25 @@ func Manifest(dir string) (map[string]string, error) {
 	return m, sc.Err()
 }
 
-// Tar writes the bag at dir to w as a tar of its directory, every path
-// relative to the bag: how the archive service takes a deposit.
-func Tar(dir string, w io.Writer) error {
+// Deposit writes a photo's deposit to w: a tar with two top-level
+// directories, bag/, the bag at bagDir relative to itself, and
+// renditions/<recipe>/, the renditions at renditionsDir (the front's, the
+// back's under back/). How the archive service takes a photo.
+func Deposit(w io.Writer, bagDir, renditionsDir string, recipe int) error {
 	tw := tar.NewWriter(w)
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	if err := add(tw, bagDir, "bag/"); err != nil {
+		return err
+	}
+	if err := add(tw, renditionsDir, "renditions/"+strconv.Itoa(recipe)+"/"); err != nil {
+		return fmt.Errorf("renditions: %w", err)
+	}
+	return tw.Close()
+}
+
+// add writes every file under dir to the tar, its path relative to dir
+// under prefix.
+func add(tw *tar.Writer, dir, prefix string) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -46,7 +61,7 @@ func Tar(dir string, w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if err := tw.WriteHeader(&tar.Header{Name: filepath.ToSlash(rel), Mode: 0o644, Size: info.Size(), ModTime: info.ModTime(), Typeflag: tar.TypeReg}); err != nil {
+		if err := tw.WriteHeader(&tar.Header{Name: prefix + filepath.ToSlash(rel), Mode: 0o644, Size: info.Size(), ModTime: info.ModTime(), Typeflag: tar.TypeReg}); err != nil {
 			return err
 		}
 		f, err := os.Open(path)
@@ -57,8 +72,4 @@ func Tar(dir string, w io.Writer) error {
 		_, err = io.Copy(tw, f)
 		return err
 	})
-	if err != nil {
-		return err
-	}
-	return tw.Close()
 }

@@ -130,6 +130,9 @@ func TestReserveDepositAndReceipt(t *testing.T) {
 			_, _ = w.Write([]byte(`{"status":"conflict"}`))
 		case "d":
 			http.Error(w, "bad bag: manifest wrong", http.StatusBadRequest)
+		case "e":
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"status":"renditions","file":"renditions/1/display.jpg"}`))
 		default:
 			http.Error(w, "no item reserved", http.StatusNotFound)
 		}
@@ -166,6 +169,10 @@ func TestReserveDepositAndReceipt(t *testing.T) {
 	}
 	if _, err := c.Deposit(13, strings.NewReader("x")); err == nil || errors.As(err, &ref) || !strings.Contains(err.Error(), "manifest wrong") {
 		t.Errorf("Deposit(d) = %v, want the service's complaint, not a refusal", err)
+	}
+	// story 055: a deposit without its renditions, or with another bag's, is refused, not failed
+	if _, err := c.Deposit(14, strings.NewReader("x")); !errors.As(err, &ref) || ref.Status != "renditions" || ref.File != "renditions/1/display.jpg" || !strings.Contains(err.Error(), "renditions") {
+		t.Errorf("Deposit(e) = %v, want a renditions refusal naming the file", err)
 	}
 	if rec, err := c.Receipt(8); err != nil || rec.Status != Held || rec.Home != 10 {
 		t.Errorf("Receipt(8) = %+v, %v", rec, err)
