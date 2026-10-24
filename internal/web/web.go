@@ -394,7 +394,7 @@ func orUnknown(s string) string {
 func histogram(h quality.Histogram) string {
 	const w, ht = 256, 120
 	peak := 1
-	for c := 0; c < 3; c++ {
+	for c := range 3 {
 		for _, n := range h.Bins[c][1:255] {
 			peak = max(peak, n)
 		}

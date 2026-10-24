@@ -117,16 +117,16 @@ func printMask(img image.Image) []bool {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	rgb := make([][3]int, w*h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			r, g, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
 			rgb[y*w+x] = [3]int{int(r >> 8), int(g >> 8), int(bl >> 8)}
 		}
 	}
 	bg := background(rgb)
 	mask := make([]bool, w*h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			// 3 × 3 mean, to keep scanner noise out of the mask
 			var s [3]int
 			var n int
@@ -146,7 +146,7 @@ func printMask(img image.Image) []bool {
 			// itself keeps the edges where they are.
 			own := rgb[y*w+x]
 			var near, self bool
-			for c := 0; c < 3; c++ {
+			for c := range 3 {
 				near = near || abs(s[c]/n-bg[c]) > backgroundDistance
 				self = self || abs(own[c]-bg[c]) > backgroundDistance
 			}
@@ -184,7 +184,7 @@ func background(rgb [][3]int) [3]int {
 // dilate grows the mask by r pixels in every direction (a square).
 func dilate(mask []bool, w, h, r int) []bool {
 	rows := make([]bool, w*h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		last := -r - 1
 		for x := 0; x < w+r; x++ {
 			if x < w && mask[y*w+x] {
@@ -196,7 +196,7 @@ func dilate(mask []bool, w, h, r int) []bool {
 		}
 	}
 	out := make([]bool, w*h)
-	for x := 0; x < w; x++ {
+	for x := range w {
 		last := -r - 1
 		for y := 0; y < h+r; y++ {
 			if y < h && rows[y*w+x] {
@@ -217,23 +217,23 @@ func erode(mask []bool, w, h, r int) []bool {
 	run := func(get func(i int) bool, n int, set func(i int, v bool)) {
 		// on[i] counts the set cells before i
 		on := make([]int, n+1)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			on[i+1] = on[i]
 			if get(i) {
 				on[i+1]++
 			}
 		}
-		for i := 0; i < n; i++ {
+		for i := range n {
 			lo, hi := i-r, i+r+1
 			set(i, lo >= 0 && hi <= n && on[hi]-on[lo] == 2*r+1)
 		}
 	}
 	rows := make([]bool, w*h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		run(func(x int) bool { return mask[y*w+x] }, w, func(x int, v bool) { rows[y*w+x] = v })
 	}
 	out := make([]bool, w*h)
-	for x := 0; x < w; x++ {
+	for x := range w {
 		run(func(y int) bool { return rows[y*w+x] }, h, func(y int, v bool) { out[y*w+x] = v })
 	}
 	return out
@@ -289,11 +289,11 @@ func shape(mask []bool, labels []int, l, w int, bx image.Rectangle, minSide int)
 		outside[y*bw+x] = true
 		stack = append(stack, y*bw+x)
 	}
-	for x := 0; x < bw; x++ {
+	for x := range bw {
 		push(x, 0)
 		push(x, bh-1)
 	}
-	for y := 0; y < bh; y++ {
+	for y := range bh {
 		push(0, y)
 		push(bw-1, y)
 	}
@@ -309,9 +309,9 @@ func shape(mask []bool, labels []int, l, w int, bx image.Rectangle, minSide int)
 
 	var pts [][2]float64
 	area := 0
-	for y := 0; y < bh; y++ {
+	for y := range bh {
 		lo, hi := -1, -1
-		for x := 0; x < bw; x++ {
+		for x := range bw {
 			if !outside[y*bw+x] {
 				area++
 				if lo < 0 {

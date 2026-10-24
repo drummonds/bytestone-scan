@@ -5,24 +5,21 @@ import (
 	"strings"
 	"testing"
 
-	wf "git.bytestone.uk/hum3/gobank-workflow"
-
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 )
 
-// The engine's registry is seeded with workflows other hosts run; the
-// scanner's Workflows page lists only its own.
+// The Workflows page lists the workflows the scanner runs, and no other.
 func TestDefinitionsAreOnlyTheScanners(t *testing.T) {
 	h := live(t, &batchtest.Scanner{}).Handler()
 	body := get(t, h, "/workflows/definitions").Body.String()
-	if !strings.Contains(body, "<code>"+string(batch.Workflow)+"</code>") {
-		t.Fatalf("definitions page lacks %s", batch.Workflow)
-	}
-	for _, other := range []wf.WorkflowType{wf.WorkflowDailyUpdate, wf.WorkflowRelease} {
-		if strings.Contains(body, "<code>"+string(other)+"</code>") {
-			t.Errorf("definitions page lists %s, which the scanner never runs", other)
+	for _, d := range batch.Definitions {
+		if !strings.Contains(body, "<code>"+string(d.Type)+"</code>") {
+			t.Errorf("definitions page lacks %s", d.Type)
 		}
+	}
+	if n := strings.Count(body, `<td><a href="workflows/definitions/`); n != len(batch.Definitions) {
+		t.Errorf("definitions page lists %d workflows, the scanner runs %d", n, len(batch.Definitions))
 	}
 }
 

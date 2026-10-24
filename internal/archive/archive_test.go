@@ -83,7 +83,7 @@ func TestBagLayout(t *testing.T) {
 	}
 
 	tags := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(read(t, filepath.Join(dir, "tagmanifest-sha256.txt"))), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(read(t, filepath.Join(dir, "tagmanifest-sha256.txt"))), "\n") {
 		h, name, _ := strings.Cut(line, "  ")
 		if got := sum([]byte(read(t, filepath.Join(dir, name)))); got != h {
 			t.Errorf("tagmanifest: %s has %s, file sums to %s", name, h, got)
@@ -155,7 +155,7 @@ func TestCreateRestartsAnUnfinishedPhoto(t *testing.T) {
 func TestReserveTakesTheNextID(t *testing.T) {
 	root := t.TempDir()
 	var got []string
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		id, err := Reserve(root)
 		if err != nil {
 			t.Fatal(err)

@@ -106,16 +106,16 @@ func (b *Batch) CloseUp(n int) (image.Image, error) {
 	k := max(1, min(4, closeUpWidth/max(1, w)))
 	out := image.NewRGBA(image.Rect(0, 0, w*k, h*k))
 	off := color.RGBA{200, 200, 200, 255} // beyond the bed
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			bx, by := view.At((float64(x)+0.5)*mm, (float64(y)+0.5)*mm)
 			at := image.Pt(int(math.Floor(bx/mm)), int(math.Floor(by/mm)))
 			var c color.Color = off
 			if at.In(img.Bounds()) {
 				c = img.At(at.X, at.Y)
 			}
-			for dy := 0; dy < k; dy++ {
-				for dx := 0; dx < k; dx++ {
+			for dy := range k {
+				for dx := range k {
 					out.Set(x*k+dx, y*k+dy, c)
 				}
 			}
