@@ -152,45 +152,6 @@ func TestCreateRestartsAnUnfinishedPhoto(t *testing.T) {
 	}
 }
 
-func TestReserveTakesTheNextID(t *testing.T) {
-	root := t.TempDir()
-	var got []string
-	for range 3 {
-		id, err := Reserve(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got = append(got, id.String())
-	}
-	if strings.Join(got, ",") != "0,1,2" {
-		t.Errorf("first ids %v, want 0,1,2", got)
-	}
-
-	makePhoto(t, root, 31) // "z"
-	os.Mkdir(filepath.Join(root, "notes"), 0o755)
-	os.WriteFile(filepath.Join(root, "README"), nil, 0o644)
-	id, err := Reserve(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id.String() != "10" {
-		t.Errorf("after photo z, reserved %s, want 10 (32)", id)
-	}
-}
-
-func TestReservedIDsAreCreatable(t *testing.T) {
-	root := t.TempDir()
-	id, _ := Reserve(root)
-	makePhoto(t, root, id)
-	if !Complete(root, id) {
-		t.Error("reserved id did not become a complete photo")
-	}
-	next, _ := Reserve(root)
-	if next == id {
-		t.Error("a complete photo's id was reserved again")
-	}
-}
-
 func TestAddRefusesUnsafeNames(t *testing.T) {
 	b, _ := Create(t.TempDir(), 1)
 	for _, name := range []string{"", "../x", "a/b", ".hidden"} {
@@ -212,26 +173,5 @@ func TestManifestIsSorted(t *testing.T) {
 		return strings.SplitN(lines[i], "  ", 2)[1] < strings.SplitN(lines[j], "  ", 2)[1]
 	}) || len(lines) != 3 {
 		t.Errorf("manifest not sorted by path: %v", lines)
-	}
-}
-
-func TestReleaseFreesAReservationButNeverAPhoto(t *testing.T) {
-	root := t.TempDir()
-	id, _ := Reserve(root)
-	if err := Release(root, id); err != nil {
-		t.Fatal(err)
-	}
-	if again, _ := Reserve(root); again != id {
-		t.Errorf("after release, reserved %s, want %s again", again, id)
-	}
-	makePhoto(t, root, 5)
-	if err := Release(root, 5); err == nil {
-		t.Error("released a complete photo")
-	}
-	if !Complete(root, 5) {
-		t.Error("complete photo gone")
-	}
-	if err := Release(root, 9); err != nil {
-		t.Errorf("releasing what was never reserved: %v", err)
 	}
 }

@@ -44,7 +44,7 @@ type App struct {
 	Staging string
 	Store   wf.Store
 	Scanner batch.Scanner
-	People  archive.Register
+	Archive archive.Service
 	Now     func() time.Time
 
 	mu     sync.Mutex // the last master decoded, since a page and its images all want it
@@ -497,8 +497,25 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
 	c.HTML(a.describeSection(id, p))
+	c.HTML(a.archiveSection(id))
 	c.HTML(`</div></div>`)
 	return c.Buffer()
+}
+
+// archiveSection is where the photo stands with the archive.
+func (a *App) archiveSection(id pid.ID) string {
+	d, err := batch.DepositOf(a.Staging, id)
+	switch {
+	case err != nil:
+		return `<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">` + html.EscapeString(err.Error()) + `</p>`
+	case d == nil:
+		return `<h2 class="title is-6 mt-4">Archive</h2><p class="help">Not yet deposited.</p>`
+	case d.Status == "duplicate":
+		return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Rejected by the archive: %s is a duplicate of item <code>%s</code> (home %s). The photo ends here; its bag stays in staging.</p>`,
+			html.EscapeString(d.File), d.DuplicateOf, d.Home)
+	}
+	return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p>Held by the archive since %s: item <code>%s</code>, home %s, %d files, checksums matching.</p>`,
+		d.At.Local().Format("2 Jan 2006 15:04"), id, d.Home, len(d.Payload))
 }
 
 // describeSection is what is known of the photo: a form until it is
@@ -520,7 +537,7 @@ func (a *App) describeSection(id pid.ID, p batch.Photo) string {
 	}
 	var b strings.Builder
 	b.WriteString(`<h2 class="title is-6 mt-4">What is known</h2>`)
-	if bag.Complete(filepath.Join(a.Staging, "archive"), id) {
+	if bag.Complete(filepath.Join(a.Staging, "bags"), id) {
 		if len(p.Claims) == 0 {
 			b.WriteString(`<p class="help">Nothing known when the photo was described.</p>`)
 		}

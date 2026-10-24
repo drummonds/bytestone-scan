@@ -7,7 +7,6 @@ package bag
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -49,34 +48,6 @@ func dir(root string, id pid.ID) string { return filepath.Join(root, id.String()
 func Complete(root string, id pid.ID) bool {
 	fi, err := os.Stat(dir(root, id))
 	return err == nil && fi.IsDir()
-}
-
-// Reserve claims the next photo id under root: one more than the highest
-// id of any photo, complete or unfinished. It returns 0 for an empty root.
-func Reserve(root string) (pid.ID, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return 0, err
-	}
-	next := pid.ID(0)
-	for _, e := range entries {
-		name := strings.TrimSuffix(e.Name(), partial)
-		id, err := pid.Parse(name)
-		if err != nil || id.String() != name || !e.IsDir() {
-			continue
-		}
-		next = max(next, id+1)
-	}
-	for {
-		err := os.Mkdir(dir(root, next)+partial, 0o755)
-		if err == nil {
-			return next, nil
-		}
-		if !errors.Is(err, os.ErrExist) {
-			return 0, err
-		}
-		next++
-	}
 }
 
 // Create starts the photo id, discarding anything left by an unfinished
@@ -163,14 +134,4 @@ func (c *counter) Write(p []byte) (int, error) {
 	n, err := c.w.Write(p)
 	c.n += int64(n)
 	return n, err
-}
-
-// Release gives up a reservation, and anything an unfinished photo left
-// under it, so the id can be reserved again. A complete photo is never
-// released.
-func Release(root string, id pid.ID) error {
-	if Complete(root, id) {
-		return fmt.Errorf("photo %s is complete and cannot be released", id)
-	}
-	return os.RemoveAll(dir(root, id) + partial)
 }

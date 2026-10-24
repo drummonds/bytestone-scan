@@ -24,3 +24,6 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Develop | The photo step that makes one side's renditions |
 | Claim | One thing said about a photo (the date taken, the photographer, what the back says), with its source (the back or front of the print, or a relative's word) and how it was read; kept in photo.yaml, never in the master |
 | Describe (a photo) | The photo step where the operator says what is known of it, as claims, or that nothing is; waits after the load is accepted until answered |
+| Deposit | The photo step that hands its bag to the archive service, which gave out its id; the answer is kept beside the bag |
+| Receipt | The archive's answer that it holds a photo, the bag's checksums matching; read back from the service and checked against the bag |
+| Reject | The archive's answer that it will not take a photo because it already holds the same picture, naming the item it duplicates; ends the photo, its bag left in staging |

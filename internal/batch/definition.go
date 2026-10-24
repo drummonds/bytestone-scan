@@ -58,7 +58,8 @@ var Definitions = []wf.Definition{
 			Description: "Develop each side of one print as it is scanned and archive both as a photo.",
 		},
 		Description: "One print of a load: its front is developed as soon as it is scanned, it waits for its back, develops that too, " +
-			"waits for the load's masters to be accepted, and is archived with its photo.yaml. Final once archived, since an archived photo is never altered.",
+			"waits for the load's masters to be accepted and for its description, is bagged with its photo.yaml, deposited with the archive and receipted. " +
+			"Final once bagged, since a bagged photo is never altered.",
 		InstanceKey: "photo id",
 		Steps: []wf.Step{
 			{Name: "develop front", Description: "The front's renditions are made: the print measured on the master, cropped, turned square, its levels set, and scaled to fit a screen", Source: src},
@@ -66,7 +67,9 @@ var Definitions = []wf.Definition{
 			{Name: "develop back", Description: "The back's renditions are made the same way", Source: src},
 			{Name: "accepted", Description: "Waits for the operator to accept the load's masters", Source: src},
 			{Name: "describe", Description: "Waits for the operator to say what is known of the photo: the date taken, the photographer and what the back says, each a claim in photo.yaml with its source; nothing known is an answer", Source: src},
-			{Name: "package", Description: "Both masters and the photo.yaml are archived as a photo; final, since an archived photo is never altered", Source: src},
+			{Name: "package", Description: "Both masters and the photo.yaml are bagged as a photo; final, since a bagged photo is never altered", Source: src},
+			{Name: "deposit", Description: "The bag is handed to the archive service; held, or refused as a duplicate of an item it holds already, which ends the photo", Source: src},
+			{Name: "receipt", Description: "The archive's record of the item is read and checked against the bag, checksum for checksum", Source: src},
 		},
 	},
 }

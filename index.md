@@ -29,16 +29,19 @@ the steps: check the prints found on the preview (or rescan it), confirm,
 turn the prints over where they lie and scan the backs, check each photo's
 quality and its renditions, front and back (or rescan either side, or go
 back to the prints), say what is known of each photo (the date taken, the
-photographer, what the back says, or nothing), accept. The batch page
+photographer, what the back says, or nothing), accept. Each photo is then
+bagged, deposited with the archive service and receipted, or shown as
+rejected when the archive already holds the picture. The batch page
 lists its loads, takes another, and finishes the batch once every load is
 through.
 Renditions (story [003](docs/stories/003-display-images.md)) are kept
 under `renditions/` beside the archive, by photo and recipe version.
 
-Batches, the archive, recordings and the workflow database live under
-`-staging` (default `~/.local/share/bytestone-scan`). People come from life-weaver's
-register, read through the archive service (`-archive`, default
-`http://localhost:8321`: `life-weaver serve`, or `task serve` in life-weaver).
+Batches, the bags awaiting the archive, recordings and the workflow
+database live under `-staging` (default `~/.local/share/bytestone-scan`).
+The archive service (`-archive`, default `http://localhost:8321`:
+`life-weaver serve`, or `task serve` in life-weaver) is where people come
+from, where photo ids are reserved and where bags are deposited.
 
 Without the scanner, run the UI on a recorded print: `bytestone-scan
 capture -print <name>` records the one print on the bed (its preview and

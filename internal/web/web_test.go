@@ -25,7 +25,8 @@ func scanned(t *testing.T) (*App, *batch.Load) {
 	t.Helper()
 	root := t.TempDir()
 	now := time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
-	sitting, err := batch.Describe(root, archivetest.Example,
+	svc := archivetest.Example()
+	sitting, err := batch.Describe(root, svc,
 		batch.Description{Text: "SS Bonita & crew", Person: 10, ScanPPI: 600, Provenance: "a shoebox", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -40,21 +41,21 @@ func scanned(t *testing.T) (*App, *batch.Load) {
 		{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 60000},
 	}}
 	clock := func() time.Time { return now }
-	if _, err := b.Run(context.Background(), store, s, clock, nil); err != nil {
+	if _, err := b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil); err != nil {
 		t.Fatal(err)
 	}
 	b.Confirm()
-	b.Run(context.Background(), store, s, clock, nil)
+	b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil)
 	b.Turned()
-	b.Run(context.Background(), store, s, clock, nil)
+	b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil)
 	for _, id := range []pid.ID{0, 1} {
 		b.DescribePhoto(id, batch.PhotoDescription{})
 	}
 	b.Accept()
-	if rec, err := b.Run(context.Background(), store, s, clock, nil); err != nil || rec.Status != wf.StatusCompleted {
+	if rec, err := b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil); err != nil || rec.Status != wf.StatusCompleted {
 		t.Fatalf("load: %+v, %v", rec, err)
 	}
-	return &App{Staging: root, Store: store}, b
+	return &App{Staging: root, Store: store, Archive: svc}, b
 }
 
 // describeAll says nothing is known of each of the load's photos, so that

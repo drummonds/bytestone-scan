@@ -58,7 +58,7 @@ func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
 		t.Fatalf("load: %s %s", rec.Status, rec.Error)
 	}
-	arc := filepath.Join(root, "archive")
+	arc := filepath.Join(root, "bags")
 	if !bag.Complete(arc, 0) || bag.Complete(arc, 1) {
 		t.Fatal("the described photo should be archived, the other not")
 	}

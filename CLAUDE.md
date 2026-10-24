@@ -12,8 +12,9 @@ Read the global instructions first; this file adds only what is repo-specific.
   in, not a term. Archive model: life-weaver#19.
 - The scanner is driven through `scanimage` (SANE `epson2`). Tests never
   touch the scanner: they use a fake that serves image files.
-- Images never go in the repo. The archive is written under the staging root
-  (`staging/` locally, gitignored) until the NAS is mounted.
+- Images never go in the repo. Bags are built under the staging root
+  (`staging/` locally, gitignored) and deposited with the archive service;
+  staging holds a photo only until the archive receipts it.
 - Person ids are life-weaver's, lower-case Crockford base32. The register
   is read through the archive service's API (`life-weaver serve`, `-archive`
   URL), never from the archive's tree; tests use `archivetest`. The
