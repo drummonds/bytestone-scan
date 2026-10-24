@@ -21,13 +21,23 @@ task serve      # or: bytestone-scan serve, then open http://localhost:8080
 ```
 
 Start a batch from *New batch*: a description, the home person (chosen
-by name from the register) and the scan ppi. The batch page then leads through the steps: check the
-prints found on the preview (or rescan it), confirm, check each photo's
-quality (or rescan at another ppi, or go back to the prints), accept.
+by name from the register), the prints' provenance and credit (copied
+into every photo, and pre-filled from the last batch) and the scan ppi.
+The batch page then leads through the steps: check the prints found on
+the preview (or rescan it), confirm, check each photo's quality and its
+rendition (or rescan at another ppi, or go back to the prints), accept.
+Renditions (story [003](docs/stories/003-display-images.md)) are kept
+under `renditions/` beside the archive, by photo and recipe version.
 
-Batches, the archive and the workflow database live under `-staging`
-(default `~/.local/share/bytestone-scan`). People come from life-weaver's
+Batches, the archive, recordings and the workflow database live under
+`-staging` (default `~/.local/share/bytestone-scan`). People come from life-weaver's
 register (`-people`, default `~/git/hum3/life-weaver/data/people`).
+
+Without the scanner, run the UI on a recorded print: `bytestone-scan
+capture -print <name>` records the one print on the bed (its preview and
+its region at 2400 ppi) under `fixtures/<name>/`, once per side, and
+`bytestone-scan serve -recorded <name>` replays it (story
+[007](docs/stories/007-recorded-scanner.md)).
 
 ## Glossary
 

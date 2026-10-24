@@ -18,4 +18,6 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Scan ppi | The resolution of the detail pass: 600, 1200 or 2400 |
 | Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches |
 | Master | The archival image of one side, never altered after capture |
-| Rendition | A display image derived from a master |
+| Rendition | A display image derived from a master: cropped to the print, turned square, its levels set, scaled to fit a screen |
+| Recipe | How renditions are made from a master, by version; a new recipe makes new renditions and leaves the old on record |
+| Develop | The batch step that makes each master's renditions |

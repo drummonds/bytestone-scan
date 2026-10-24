@@ -3,6 +3,8 @@ package batch
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"image"
 	"math"
@@ -22,6 +24,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
 var reg = register.Register{Dir: "testdata/people"}
@@ -32,7 +35,8 @@ func clock() time.Time { return now }
 
 func describe(t *testing.T, root string) *Batch {
 	t.Helper()
-	b, err := Describe(root, reg, Description{Text: "SS Bonita and crew", Person: 10, ScanPPI: 600}, now)
+	b, err := Describe(root, reg, Description{Text: "SS Bonita and crew", Person: 10, ScanPPI: 600,
+		Provenance: "  Aunt Jean's shoebox,\n envelope marked 1950s ", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,10 +59,12 @@ func TestDescribe(t *testing.T) {
 		d    Description
 		want string // part of the error; empty for success
 	}{
-		{"recorded", Description{"SS Bonita", 10, 2400}, ""},
-		{"no description", Description{"  ", 10, 2400}, "description"},
-		{"not in the register", Description{"SS Bonita", 12, 2400}, "not in the register"},
-		{"other scan ppi", Description{"SS Bonita", 10, 300}, "600, 1200 or 2400"},
+		{"recorded", Description{Text: "SS Bonita", Person: 10, ScanPPI: 2400, Provenance: " a  shoebox ", Credit: " ©  Example "}, ""},
+		{"no provenance", Description{Text: "SS Bonita", Person: 10, ScanPPI: 2400, Credit: "© Example"}, ""},
+		{"no description", Description{Text: "  ", Person: 10, ScanPPI: 2400, Credit: "© Example"}, "description"},
+		{"no credit", Description{Text: "SS Bonita", Person: 10, ScanPPI: 2400, Credit: " "}, "credit"},
+		{"not in the register", Description{Text: "SS Bonita", Person: 12, ScanPPI: 2400, Credit: "© Example"}, "not in the register"},
+		{"other scan ppi", Description{Text: "SS Bonita", Person: 10, ScanPPI: 300, Credit: "© Example"}, "600, 1200 or 2400"},
 	}
 	for _, tc := range cases {
 		root := t.TempDir()
@@ -69,7 +75,8 @@ func TestDescribe(t *testing.T) {
 				continue
 			}
 			again, err := Open(root, b.ID)
-			if err != nil || again.Description != "SS Bonita" || again.Person != 10 || again.PersonName != "Ada Example" || again.ScanPPI != 2400 {
+			if err != nil || again.Description != "SS Bonita" || again.Person != 10 || again.PersonName != "Ada Example" || again.ScanPPI != 2400 ||
+				again.Provenance != strings.Join(strings.Fields(tc.d.Provenance), " ") || again.Credit != "© Example" {
 				t.Errorf("%s: reopened as %+v, %v", tc.name, again, err)
 			}
 			continue
@@ -77,6 +84,36 @@ func TestDescribe(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: error %v, want one mentioning %q", tc.name, err, tc.want)
 		}
+	}
+}
+
+// Story 014: a blank provenance is left out of photo.yaml, and the latest
+// batch is where the next one's provenance and credit come from.
+func TestProvenanceIsOptional(t *testing.T) {
+	root := t.TempDir()
+	b, err := Describe(root, reg, Description{Text: "loose", Person: 10, ScanPPI: 600, Credit: "© Example"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(b.Dir(), "batch.yaml"))
+	if strings.Contains(string(raw), "provenance") {
+		t.Errorf("batch.yaml records a blank provenance:\n%s", raw)
+	}
+}
+
+func TestLatestBatch(t *testing.T) {
+	root := t.TempDir()
+	if b, err := Latest(root); b != nil || err != nil {
+		t.Fatalf("no batches: %v, %v, want nil, nil", b, err)
+	}
+	first, _ := Describe(root, reg, Description{Text: "first", Person: 10, ScanPPI: 600, Credit: "© One"}, now)
+	later, _ := Describe(root, reg, Description{Text: "later", Person: 10, ScanPPI: 600, Provenance: "box 2", Credit: "© Two"}, now.Add(time.Hour))
+	if first == nil || later == nil {
+		t.Fatal("describe failed")
+	}
+	b, err := Latest(root)
+	if err != nil || b == nil || b.ID != later.ID || b.Provenance != "box 2" || b.Credit != "© Two" {
+		t.Errorf("latest = %+v, %v, want %s", b, err, later.ID)
 	}
 }
 
@@ -116,6 +153,22 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 	if rec = run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
 		t.Fatalf("after confirm: %s, want waiting for the quality check", rec.Status)
 	}
+	// Story 003: each master is developed before the quality check
+	for i := range scanner.Prints {
+		id := pid.ID(i)
+		r, err := rendition.Load(b.Renditions(id))
+		if err != nil {
+			t.Fatalf("photo %s: %v", id, err)
+		}
+		tif, _ := os.ReadFile(filepath.Join(b.Dir(), "masters", id.String()+".tif"))
+		sum := sha256.Sum256(tif)
+		if r.Version != rendition.Version || r.Master != hex.EncodeToString(sum[:]) || r.Display.W == 0 {
+			t.Errorf("photo %s recipe %+v, want version %d of master %x", id, r, rendition.Version, sum)
+		}
+		if _, err := os.Stat(filepath.Join(b.Renditions(id), "display.jpg")); err != nil {
+			t.Error(err)
+		}
+	}
 	if err := b.Accept(); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +177,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		t.Fatalf("after accept: %s, want completed", rec.Status)
 	}
 	steps := runnertest.Steps(t, store, runnertest.OnlyRun(t, store).ID)
-	for _, name := range []string{"describe", "preview", "find prints", "confirm", "detail pass", "check quality", "package"} {
+	for _, name := range []string{"describe", "preview", "find prints", "confirm", "detail pass", "develop", "check quality", "package"} {
 		if steps[name] != wf.StatusCompleted {
 			t.Errorf("step %s: %s", name, steps[name])
 		}
@@ -165,6 +218,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		}
 		if photo.ID != id || photo.Batch != b.ID || photo.Description != "SS Bonita and crew" ||
 			photo.Home.ID != 10 || photo.Home.Name != "Ada Example" ||
+			photo.Provenance != "Aunt Jean's shoebox, envelope marked 1950s" || photo.Credit != "Drummond family collection, CC BY 4.0" ||
 			photo.Front.ScanPPI != 600 || photo.Front.MasterPPI != 600 || photo.Front.Averaging != 1 ||
 			!photo.Front.Captured.Equal(now) || photo.Front.Warning == "" {
 			t.Errorf("photo %s photo.yaml = %+v", id, photo)
@@ -174,7 +228,8 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		}
 
 		tif, _ := os.ReadFile(filepath.Join(arc, id.String(), "data", "front.tif"))
-		for _, want := range []string{"<dc:identifier>" + id.String() + "</dc:identifier>", "<bs:batch>" + b.ID + "</bs:batch>", "<bs:side>front</bs:side>"} {
+		for _, want := range []string{"<dc:identifier>" + id.String() + "</dc:identifier>", "<bs:batch>" + b.ID + "</bs:batch>", "<bs:side>front</bs:side>",
+			"<dc:rights>Drummond family collection, CC BY 4.0</dc:rights>"} {
 			if !bytes.Contains(tif, []byte(want)) {
 				t.Errorf("photo %s master's XMP lacks %s", id, want)
 			}
@@ -354,9 +409,31 @@ func TestRedoTheDetailPassAtAnotherPPI(t *testing.T) {
 	if again.ScanPPI != 1200 {
 		t.Errorf("batch scan ppi %d, want 1200", again.ScanPPI)
 	}
-	photo, _, err := FindPhoto(root, 0)
+	photo, path, err := FindPhoto(root, 0)
 	if err != nil || photo.Front.ScanPPI != 1200 || photo.Front.MasterPPI != 1200 || photo.Front.Warning != "" {
 		t.Errorf("photo after the rescan: %+v, %v", photo.Front, err)
+	}
+	// Story 003: the renditions are of the new master
+	tif, _ := os.ReadFile(path)
+	sum := sha256.Sum256(tif)
+	if r, err := rendition.Load(b.Renditions(0)); err != nil || r.Master != hex.EncodeToString(sum[:]) {
+		t.Errorf("recipe after the rescan: %+v, %v; want master %x", r, err, sum)
+	}
+}
+
+// Story 003, "Develop": going back to the detail pass clears this version's
+// renditions; an older version's stay on record.
+func TestRedoTheDetailPassClearsTheRenditions(t *testing.T) {
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	root, b, store := prepared(t, scanner)
+	old := filepath.Join(root, "renditions", "0", "0")
+	os.MkdirAll(old, 0o755)
+	redo(t, b, store, "detail pass", 0)
+	if _, err := os.Stat(b.Renditions(0)); err == nil {
+		t.Error("renditions of this version survive a redo of the detail pass")
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Error("an older version's renditions were cleared")
 	}
 }
 

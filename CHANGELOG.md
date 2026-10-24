@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-24
+
+ - A develop step makes each master's renditions before the quality check: the print measured on the master, cropped, deskewed, levels set, as an HD display JPEG with 200 px and 64 px thumbnails under renditions/<id>/<recipe>/; bytestone-scan capture records one real print, and serve -recorded replays it as the scanner, so the UI runs on real pixels without the 4990; New batch records the prints' provenance and credit, pre-filled from the last batch and copied into every photo.yaml and the master's XMP
+
+### Added
+
+- A develop step makes each master's renditions before the quality check: the print measured on the master, cropped, deskewed, levels set, as an HD display JPEG with 200 px and 64 px thumbnails under renditions/<id>/<recipe>/ (#3)
+- bytestone-scan capture records one real print, and serve -recorded replays it as the scanner, so the UI runs on real pixels without the 4990 (#7)
+- New batch records the prints' provenance and credit, pre-filled from the last batch and copied into every photo.yaml and the master's XMP (#14)
+
 ## [0.5.0] - 2026-10-23
 
  - New batch chooses the home person from the register by name; a glossary on the About page (Item, Photo, Home, Album; Bag is no longer a term); the staging directory bags/ becomes archive/

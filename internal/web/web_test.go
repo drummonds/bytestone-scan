@@ -23,7 +23,7 @@ func scanned(t *testing.T) (*App, *batch.Batch) {
 	root := t.TempDir()
 	now := time.Date(2026, 10, 20, 15, 4, 5, 0, time.UTC)
 	b, err := batch.Describe(root, register.Register{Dir: "testdata/people"},
-		batch.Description{Text: "SS Bonita & crew", Person: 10, ScanPPI: 600}, now)
+		batch.Description{Text: "SS Bonita & crew", Person: 10, ScanPPI: 600, Provenance: "a shoebox", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,10 +95,18 @@ func TestQualityPage(t *testing.T) {
 	h := app.Handler()
 	page(t, h, "/photos/1",
 		`src="photos/1/fit.jpg"`, `<input type="image" name="at"`, "<svg", // the master, clickable, and its histogram
-		"600 ppi", b.ID, "highlights",
+		"600 ppi", b.ID, "highlights", "Provenance", "a shoebox", "Credit", "Drummond family collection, CC BY 4.0",
 		"Master, 600 ppi,", "shown scaled to fit",
 	)
 	page(t, h, "/photos/1?at.x=50&at.y=40", `src="photos/1/crop.png?`, "1:1, master pixels")
+	// Story 003: the rendition beside the master
+	page(t, h, "/photos/1", `src="photos/1/renditions/1/display.jpg"`, "Rendition, recipe 1", "Rendition")
+	if _, err := jpeg.Decode(get(t, h, "/photos/1/renditions/1/display.jpg").Body); err != nil {
+		t.Errorf("display.jpg: %v", err)
+	}
+	if w := get(t, h, "/photos/1/renditions/1/recipe.yaml"); w.Code != http.StatusNotFound {
+		t.Errorf("only the images are served: %d", w.Code)
+	}
 	page(t, h, "/photos/1", "Corners at 1:1", `src="photos/1/crop.png?x=0&amp;y=0&amp;size=256"`)
 	if n := strings.Count(get(t, h, "/photos/1").Body.String(), "&amp;size=256\""); n != 4 {
 		t.Errorf("%d corner crops, want 4", n)

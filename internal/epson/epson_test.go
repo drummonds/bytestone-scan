@@ -1,6 +1,7 @@
 package epson
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -95,6 +96,27 @@ func TestScanimageFailingIsAnErrorWithItsMessage(t *testing.T) {
 	}
 	if _, err := s.Preview(context.Background()); err == nil || !strings.Contains(err.Error(), "Device busy") {
 		t.Errorf("preview: %v, want scanimage's message", err)
+	}
+}
+
+// Story 007: a capture keeps the exact command line of each pass.
+func TestTraceRecordsEachPassesCommandLine(t *testing.T) {
+	s, _ := fake(t)
+	var trace bytes.Buffer
+	s.Trace = &trace
+	if _, err := s.Preview(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rc, err := s.Detail(context.Background(), find.Rect{X0: 10, Y0: 20, X1: 30, Y1: 50}, 2400)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc.Close()
+	lines := strings.Split(strings.TrimSpace(trace.String()), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "--resolution 150 --format=png") ||
+		!strings.Contains(lines[1], "--resolution 2400 -l 10.00 -t 20.00 -x 20.00 -y 30.00 --format=pnm") ||
+		!strings.HasPrefix(lines[1], s.Command+" -d epson2:libusb:") {
+		t.Errorf("trace:\n%s", trace.String())
 	}
 }
 

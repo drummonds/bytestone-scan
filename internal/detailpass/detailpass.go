@@ -29,7 +29,7 @@ type Region struct {
 // running past the scan's edge is cut at it.
 func Read(r io.Reader, regions []Region) ([]*master.Image, error) {
 	br := bufio.NewReaderSize(r, 1<<20)
-	w, h, err := readHeader(br)
+	w, h, err := ReadHeader(br)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,9 @@ func Read(r io.Reader, regions []Region) ([]*master.Image, error) {
 }
 
 // readHeader reads a P6 header with maxval 65535.
-func readHeader(br *bufio.Reader) (w, h int, err error) {
+// ReadHeader reads a 16-bit colour PNM header, leaving br at the first
+// sample.
+func ReadHeader(br *bufio.Reader) (w, h int, err error) {
 	var fields [4]string
 	for i := range fields {
 		tok, err := token(br)

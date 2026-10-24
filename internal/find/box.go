@@ -35,8 +35,9 @@ func (b Box) At(u, v float64) (x, y float64) {
 	return b.CX + u*ux + v*vx, b.CY + u*uy + v*vy
 }
 
-// in is the bed point x, y in the box's own axes, from its top left corner.
-func (b Box) in(x, y float64) (u, v float64) {
+// In is the bed point x, y in the box's own axes, from its top left corner:
+// the inverse of At.
+func (b Box) In(x, y float64) (u, v float64) {
 	ux, uy, vx, vy := b.axes()
 	dx, dy := x-b.CX, y-b.CY
 	return dx*ux + dy*uy + b.W/2, dx*vx + dy*vy + b.H/2
@@ -80,7 +81,7 @@ func (b Box) Inside() Rect {
 
 // Contains reports whether the bed point x, y lies within the box.
 func (b Box) Contains(x, y float64) bool {
-	u, v := b.in(x, y)
+	u, v := b.In(x, y)
 	return u >= 0 && u <= b.W && v >= 0 && v <= b.H
 }
 
@@ -94,7 +95,7 @@ func (b Box) InImage(frame Rect, ppi int) Box {
 // Within is b's extent in frame's own axes, from frame's top left corner;
 // b is taken to lie at frame's angle.
 func (b Box) Within(frame Box) Rect {
-	u, v := frame.in(b.CX, b.CY)
+	u, v := frame.In(b.CX, b.CY)
 	return Rect{u - b.W/2, v - b.H/2, u + b.W/2, v + b.H/2}
 }
 
