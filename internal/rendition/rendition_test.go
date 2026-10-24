@@ -29,8 +29,8 @@ func synth(t *testing.T, wmm, hmm, angle float64, lo, hi uint16, tornMM float64)
 	print.CX, print.CY = float64(w)/2, float64(h)/2
 	m := master.NewImage(w, h)
 	torn := px(tornMM)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			u, v := print.In(float64(x)+0.5, float64(y)+0.5)
 			val := uint16(65535)
 			if u >= 0 && u < print.W && v >= 0 && v < print.H && u+v >= torn {
@@ -39,7 +39,7 @@ func synth(t *testing.T, wmm, hmm, angle float64, lo, hi uint16, tornMM float64)
 					val = lo
 				}
 			}
-			for c := 0; c < 3; c++ {
+			for c := range 3 {
 				m.Set(x, y, c, val)
 			}
 		}

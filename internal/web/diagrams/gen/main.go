@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/diagram"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
@@ -21,10 +22,12 @@ import (
 func main() {
 	out := flag.String("out", "internal/web/diagrams", "directory the pictures are written to")
 	flag.Parse()
+	// A sub-process box links to its child's page, at the view's address.
+	href := func(t wf.WorkflowType) string { return "workflows/definitions/" + string(t) }
 	for _, d := range batch.Definitions {
 		path := filepath.Join(*out, string(d.Type)+".svg")
 		cmd := exec.Command("d2", "-", path)
-		cmd.Stdin = strings.NewReader(diagram.Definition(d))
+		cmd.Stdin = strings.NewReader(diagram.Definition(d, href))
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			log.Fatalf("d2 %s: %v", d.Type, err)

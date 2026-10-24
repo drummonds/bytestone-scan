@@ -13,9 +13,9 @@ import (
 // extremes, and neighbours whose difference wraps around 16 bits.
 func testImage(w, h int) *Image {
 	img := NewImage(w, h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			for c := 0; c < 3; c++ {
+	for y := range h {
+		for x := range w {
+			for c := range 3 {
 				v := uint16((x*7919 + y*104729 + c*31337) % 65536)
 				switch {
 				case x == 0 && y == 0:
@@ -144,7 +144,7 @@ func readIFD(t *testing.T, data []byte) (map[uint16]entry, []uint16) {
 	n := int(le.Uint16(data[off:]))
 	tags := map[uint16]entry{}
 	var order []uint16
-	for i := 0; i < n; i++ {
+	for i := range n {
 		e := data[int(off)+2+12*i:]
 		tag, typ, count := le.Uint16(e[0:]), le.Uint16(e[2:]), le.Uint32(e[4:])
 		size := map[uint16]uint32{1: 1, 3: 2, 4: 4, 5: 8, 7: 1}[typ]
@@ -161,11 +161,11 @@ func readIFD(t *testing.T, data []byte) (map[uint16]entry, []uint16) {
 		case 1, 7:
 			en.raw = append([]byte(nil), val[:count]...)
 		case 3:
-			for j := uint32(0); j < count; j++ {
+			for j := range count {
 				en.values = append(en.values, uint32(le.Uint16(val[2*j:])))
 			}
 		case 4:
-			for j := uint32(0); j < count; j++ {
+			for j := range count {
 				en.values = append(en.values, le.Uint32(val[4*j:]))
 			}
 		case 5:

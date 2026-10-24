@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -48,10 +49,8 @@ type Capture struct {
 var Sides = []string{"front", "back"}
 
 func sideDir(dir, side string) (string, error) {
-	for _, s := range Sides {
-		if s == side {
-			return filepath.Join(dir, side), nil
-		}
+	if slices.Contains(Sides, side) {
+		return filepath.Join(dir, side), nil
 	}
 	return "", fmt.Errorf("side %q, want front or back", side)
 }
@@ -260,7 +259,7 @@ func (r replay) run(w io.Writer) error {
 			for x := 0; x < r.outW; x++ {
 				for j := 0; j < r.factor; j++ {
 					sx := r.ox + x*r.factor + j
-					for c := 0; c < 3; c++ {
+					for c := range 3 {
 						v := uint32(65535)
 						if sx >= 0 && sx < r.w {
 							v = uint32(binary.BigEndian.Uint16(row[(sx*3+c)*2:]))

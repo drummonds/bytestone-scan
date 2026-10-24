@@ -58,7 +58,7 @@ func Read(r io.Reader, regions []Region) ([]*master.Image, error) {
 	}
 
 	row := make([]byte, w*6)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		if _, err := io.ReadFull(br, row); err != nil {
 			return nil, fmt.Errorf("detail pass: scan short at row %d of %d: %w", y+1, h, err)
 		}
@@ -70,7 +70,7 @@ func Read(r io.Reader, regions []Region) ([]*master.Image, error) {
 			}
 			for i := range st.sums {
 				mx, c := i/3, i%3
-				for dx := 0; dx < f; dx++ {
+				for dx := range f {
 					st.sums[i] += uint32(binary.BigEndian.Uint16(row[((rect.Min.X+mx*f+dx)*3+c)*2:]))
 				}
 			}

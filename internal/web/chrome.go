@@ -5,6 +5,7 @@ import (
 	"html"
 	"html/template"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/glossary"
@@ -30,18 +31,19 @@ func version() string {
 	if !ok {
 		return "unknown"
 	}
-	v := bi.Main.Version
+	var v strings.Builder
+	v.WriteString(bi.Main.Version)
 	for _, s := range bi.Settings {
 		switch s.Key {
 		case "vcs.revision":
-			v += ", commit " + s.Value[:min(12, len(s.Value))]
+			v.WriteString(", commit " + s.Value[:min(12, len(s.Value))])
 		case "vcs.modified":
 			if s.Value == "true" {
-				v += " (modified)"
+				v.WriteString(" (modified)")
 			}
 		}
 	}
-	return v
+	return v.String()
 }
 
 func (a *App) about() string {
@@ -63,9 +65,9 @@ func (a *App) about() string {
 }
 
 func glossaryRows() string {
-	var s string
+	var s strings.Builder
 	for _, t := range glossary.Terms() {
-		s += "<tr><th>" + html.EscapeString(t.Term) + "</th><td>" + html.EscapeString(t.Meaning) + "</td></tr>"
+		s.WriteString("<tr><th>" + html.EscapeString(t.Term) + "</th><td>" + html.EscapeString(t.Meaning) + "</td></tr>")
 	}
-	return s
+	return s.String()
 }

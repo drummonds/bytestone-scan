@@ -16,7 +16,7 @@ type Term struct{ Term, Meaning string }
 // Terms are the glossary's rows, in order.
 func Terms() []Term {
 	var terms []Term
-	for _, line := range strings.Split(source, "\n") {
+	for line := range strings.SplitSeq(source, "\n") {
 		cells := strings.Split(strings.Trim(strings.TrimSpace(line), "|"), "|")
 		if !strings.HasPrefix(line, "|") || len(cells) != 2 {
 			continue

@@ -45,15 +45,13 @@ func (a *App) start(b *batch.Batch, prepare func() error) error {
 		}
 	}
 	a.work.batch, a.work.started = b.ID, time.Now()
-	a.work.running.Add(1)
-	go func() {
-		defer a.work.running.Done()
+	a.work.running.Go(func() {
 		// a failure is recorded on the run, where the batch page reads it
 		b.Run(context.Background(), wf.NewRunner(a.Store, nil), a.Scanner, a.Now)
 		a.work.mu.Lock()
 		a.work.batch = ""
 		a.work.mu.Unlock()
-	}()
+	})
 	return nil
 }
 
@@ -123,27 +121,28 @@ func (a *App) prefilled() entered {
 }
 
 func personOptions(people []register.Person, selected string) string {
-	s := `<option value="">Choose…</option>`
+	var s strings.Builder
+	s.WriteString(`<option value="">Choose…</option>`)
 	for _, p := range people {
 		sel := ""
 		if p.ID.String() == selected {
 			sel = " selected"
 		}
-		s += fmt.Sprintf(`<option value="%s"%s>%s (%s)</option>`, p.ID, sel, html.EscapeString(p.Name), p.ID)
+		s.WriteString(fmt.Sprintf(`<option value="%s"%s>%s (%s)</option>`, p.ID, sel, html.EscapeString(p.Name), p.ID))
 	}
-	return s
+	return s.String()
 }
 
 func ppiOptions(selected int) string {
-	var s string
+	var s strings.Builder
 	for _, p := range []int{600, 1200, 2400} {
 		sel := ""
 		if p == selected {
 			sel = " selected"
 		}
-		s += fmt.Sprintf(`<option value="%d"%s>%d ppi</option>`, p, sel, p)
+		s.WriteString(fmt.Sprintf(`<option value="%d"%s>%d ppi</option>`, p, sel, p))
 	}
-	return s
+	return s.String()
 }
 
 func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, string, string)) {

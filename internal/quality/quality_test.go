@@ -9,8 +9,8 @@ import (
 
 func ramp(w, h int) *master.Image {
 	m := master.NewImage(w, h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			m.Set(x, y, 0, uint16(x*100))
 			m.Set(x, y, 1, uint16(y*100))
 			m.Set(x, y, 2, 30000)
@@ -21,7 +21,7 @@ func ramp(w, h int) *master.Image {
 
 func TestHistogramAndClipping(t *testing.T) {
 	m := master.NewImage(4, 1)
-	for c := 0; c < 3; c++ {
+	for c := range 3 {
 		m.Set(0, 0, c, 0)
 		m.Set(1, 0, c, 65535)
 		m.Set(2, 0, c, 65535)
@@ -45,7 +45,7 @@ func TestAnalyseOnlyWithinThePrint(t *testing.T) {
 	}
 	for y := 2; y < 8; y++ {
 		for x := 2; x < 8; x++ {
-			for c := 0; c < 3; c++ {
+			for c := range 3 {
 				m.Set(x, y, c, 30000)
 			}
 		}

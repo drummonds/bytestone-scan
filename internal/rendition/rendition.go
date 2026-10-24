@@ -229,7 +229,7 @@ func fitEdge(m *master.Image, hint find.Box, k int, out, in float64) edgeFit {
 			return d, t
 		}
 	}
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		t := length * (0.1 + 0.8*float64(i)/float64(samples-1))
 		for d := -out; d <= in; d++ {
 			u, v := point(t, d)
@@ -252,7 +252,7 @@ func fitEdge(m *master.Image, hint find.Box, k int, out, in float64) edgeFit {
 	if e.found < 2 {
 		return e
 	}
-	for pass := 0; pass < 3; pass++ {
+	for range 3 {
 		e.a, e.b = leastSquares(e.along, e.across)
 		var ss float64
 		for i := range e.along {
@@ -316,7 +316,7 @@ func Levels(m *master.Image, print find.Box, ppi int) (black, white uint16) {
 			if !inset.Contains(float64(x)+0.5, float64(y)+0.5) {
 				continue
 			}
-			for c := 0; c < 3; c++ {
+			for c := range 3 {
 				hist[m.At(x, y, c)]++
 			}
 			n += 3
@@ -399,18 +399,18 @@ func levelled(m *master.Image, black, white uint16, k int) *image.RGBA64 {
 	out := image.NewRGBA64(image.Rect(0, 0, w, h))
 	span := float64(white) - float64(black)
 	n := float64(k * k)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			var sum [3]float64
 			for yy := y * k; yy < (y+1)*k; yy++ {
 				for xx := x * k; xx < (x+1)*k; xx++ {
-					for c := 0; c < 3; c++ {
+					for c := range 3 {
 						sum[c] += float64(m.At(xx, yy, c))
 					}
 				}
 			}
 			i := out.PixOffset(x, y)
-			for c := 0; c < 3; c++ {
+			for c := range 3 {
 				v := (sum[c]/n - float64(black)) / span * 65535
 				u := uint16(math.Round(min(65535, max(0, v))))
 				out.Pix[i+2*c], out.Pix[i+2*c+1] = uint8(u>>8), uint8(u)

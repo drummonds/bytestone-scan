@@ -38,7 +38,7 @@ func Analyse(m *master.Image, r image.Rectangle) Histogram {
 		}
 	}
 	n := float64(max(1, r.Dx()*r.Dy()))
-	for c := 0; c < 3; c++ {
+	for c := range 3 {
 		h.Shadows[c] = float64(lo[c]) / n
 		h.Highlights[c] = float64(hi[c]) / n
 	}
@@ -53,14 +53,14 @@ func Fit(m *master.Image, width int) image.Image {
 	}
 	w, h := width, max(1, m.H*width/m.W)
 	out := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
+	for y := range h {
 		y0, y1 := y*m.H/h, max((y+1)*m.H/h, y*m.H/h+1)
-		for x := 0; x < w; x++ {
+		for x := range w {
 			x0, x1 := x*m.W/w, max((x+1)*m.W/w, x*m.W/w+1)
 			var s [3]int
 			for yy := y0; yy < y1; yy++ {
 				for xx := x0; xx < x1; xx++ {
-					for c := 0; c < 3; c++ {
+					for c := range 3 {
 						s[c] += int(m.At(xx, yy, c))
 					}
 				}
@@ -79,8 +79,8 @@ func Crop(m *master.Image, at image.Point, size int) image.Image {
 	x0 := min(max(at.X-size/2, 0), m.W-w)
 	y0 := min(max(at.Y-size/2, 0), m.H-h)
 	out := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			out.SetRGBA(x, y, color.RGBA{
 				uint8(m.At(x0+x, y0+y, 0) >> 8), uint8(m.At(x0+x, y0+y, 1) >> 8), uint8(m.At(x0+x, y0+y, 2) >> 8), 255})
 		}

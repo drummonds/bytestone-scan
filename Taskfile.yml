@@ -5,6 +5,7 @@ tasks:
     desc: Format Go code
     cmds:
       - go fmt ./...
+      - go fix ./...
   vet:
     desc: Vet Go code
     cmds:

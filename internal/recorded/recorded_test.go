@@ -137,8 +137,8 @@ func TestReplayServesTheArea(t *testing.T) {
 			t.Fatalf("%d ppi: replay is %d × %d, the scanner %d × %d", ppi, gw, gh, ww, wh)
 		}
 		differ := 0
-		for y := 0; y < gh; y++ {
-			for x := 0; x < gw; x++ {
+		for y := range gh {
+			for x := range gw {
 				if gpx(x, y) != wpx(x, y) {
 					differ++
 				}
