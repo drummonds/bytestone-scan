@@ -1,6 +1,6 @@
 module git.bytestone.uk/hum3/bytestone-scan
 
-go 1.26.4
+go 1.27.3
 
 require (
 	git.bytestone.uk/hum3/go-postgres v0.11.0
