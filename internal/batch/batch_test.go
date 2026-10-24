@@ -45,7 +45,7 @@ func service(root string) *archivetest.Fake {
 // sitting describes a batch under root.
 func sitting(t *testing.T, root string) *Batch {
 	t.Helper()
-	b, err := Describe(root, service(root), Description{Text: "SS Bonita and crew", Person: 10, ScanPPI: 600,
+	b, err := Describe(root, service(root), nil, Description{Text: "SS Bonita and crew", Person: 10, ScanPPI: 600,
 		Provenance: "  Aunt Jean's shoebox,\n envelope marked 1950s ", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestDescribe(t *testing.T) {
 	}
 	for _, tc := range cases {
 		root := t.TempDir()
-		b, err := Describe(root, service(root), tc.d, now)
+		b, err := Describe(root, service(root), nil, tc.d, now)
 		if tc.want == "" {
 			if err != nil {
 				t.Errorf("%s: %v", tc.name, err)
@@ -111,7 +111,7 @@ func TestDescribe(t *testing.T) {
 // batch is where the next one's provenance and credit come from.
 func TestProvenanceIsOptional(t *testing.T) {
 	root := t.TempDir()
-	b, err := Describe(root, service(root), Description{Text: "loose", Person: 10, ScanPPI: 600, Credit: "© Example"}, now)
+	b, err := Describe(root, service(root), nil, Description{Text: "loose", Person: 10, ScanPPI: 600, Credit: "© Example"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,8 +126,8 @@ func TestLatestBatch(t *testing.T) {
 	if b, err := Latest(root); b != nil || err != nil {
 		t.Fatalf("no batches: %v, %v, want nil, nil", b, err)
 	}
-	first, _ := Describe(root, service(root), Description{Text: "first", Person: 10, ScanPPI: 600, Credit: "© One"}, now)
-	later, _ := Describe(root, service(root), Description{Text: "later", Person: 10, ScanPPI: 600, Provenance: "box 2", Credit: "© Two"}, now.Add(time.Hour))
+	first, _ := Describe(root, service(root), nil, Description{Text: "first", Person: 10, ScanPPI: 600, Credit: "© One"}, now)
+	later, _ := Describe(root, service(root), nil, Description{Text: "later", Person: 10, ScanPPI: 600, Provenance: "box 2", Credit: "© Two"}, now.Add(time.Hour))
 	if first == nil || later == nil {
 		t.Fatal("describe failed")
 	}
@@ -739,7 +739,7 @@ func TestExpectedDurationOfAStep(t *testing.T) {
 	// and detail pass took as given.
 	past := func(ppi int, w, h float64, preview, detail time.Duration) {
 		t.Helper()
-		past, err := Describe(root, service(root), Description{Text: "past", Person: 10, ScanPPI: ppi, Credit: "c"}, now)
+		past, err := Describe(root, service(root), nil, Description{Text: "past", Person: 10, ScanPPI: ppi, Credit: "c"}, now)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -63,7 +63,8 @@ const layout = `<!DOCTYPE html>
 </head><body>
 <nav class="navbar is-primary"><div class="navbar-brand">
 <a class="navbar-item has-text-weight-bold" href="workflows/">bytestone-scan</a>
-<a class="navbar-item" href="workflows/">Batches</a>
+<a class="navbar-item" href="workflows/">Queue</a>
+<a class="navbar-item" href="batches">Batches</a>
 <a class="navbar-item" href="batches/new">New batch</a>
 <a class="navbar-item" href="workflows/definitions">Workflows</a>
 <a class="navbar-item" href="about">About</a>
@@ -282,14 +283,16 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 			class, at.Local().Format("2 Jan 2006"), msg, int(batch.DefaultGrace.Hours()/24)))
 		return c.Buffer()
 	}
+	// not closed: the operator can still delete it, so long as the archive holds none of its photos
+	del := fmt.Sprintf(`<a class="button is-danger is-light" href="batches/%s/delete">Delete</a>`, html.EscapeString(b.ID))
 	if b.Finished() {
 		msg, class := a.batchOutcome(b)
-		c.HTML(fmt.Sprintf(`<div class="notification %s">Finished: %s.</div>`, class, msg))
+		c.HTML(fmt.Sprintf(`<div class="notification %s">Finished: %s.</div><div class="buttons">%s</div>`, class, msg, del))
 		return c.Buffer()
 	}
 	c.HTML(fmt.Sprintf(`<div class="buttons"><a class="button is-primary" href="batches/%s/scans/new">Do one more scan</a> `+
-		`<form action="batches/%s/finish" method="post" style="display:inline"><button class="button" type="submit">Finish scanning</button></form></div>`,
-		html.EscapeString(b.ID), html.EscapeString(b.ID)))
+		`<form action="batches/%s/finish" method="post" style="display:inline"><button class="button" type="submit">Finish scanning</button></form> %s</div>`,
+		html.EscapeString(b.ID), html.EscapeString(b.ID), del))
 	return c.Buffer()
 }
 

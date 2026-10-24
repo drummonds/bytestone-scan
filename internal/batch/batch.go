@@ -233,8 +233,10 @@ type found struct {
 
 // Describe records a new batch under root, its home person looked up in
 // the archive service's register, refusing a description the story's
-// rules reject.
-func Describe(root string, svc archive.Service, d Description, now time.Time) (*Batch, error) {
+// rules reject. Its id is the day's next: one no batch directory and, when
+// store is given, no batch run has taken, so a deleted batch's id is not
+// given out again.
+func Describe(root string, svc archive.Service, store wf.Store, d Description, now time.Time) (*Batch, error) {
 	text, provenance, credit := oneLine(d.Text), oneLine(d.Provenance), oneLine(d.Credit)
 	if text == "" {
 		return nil, errors.New("a batch needs a title")
@@ -257,6 +259,13 @@ func Describe(root string, svc archive.Service, d Description, now time.Time) (*
 		Provenance: provenance, Credit: credit, Created: now, root: root}
 	for n := 1; ; n++ {
 		b.ID = now.Format("20060102") + "-" + strconv.Itoa(n)
+		if store != nil {
+			if r, err := store.FindRunByKey(context.Background(), Workflow, b.ID); err != nil {
+				return nil, err
+			} else if r != nil {
+				continue
+			}
+		}
 		err := os.Mkdir(b.Dir(), 0o755)
 		if err == nil {
 			break
@@ -270,6 +279,28 @@ func Describe(root string, svc archive.Service, d Description, now time.Time) (*
 
 // oneLine collapses what the operator typed to single spaces.
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// All are the readable batches under root, newest first.
+func All(root string) ([]*Batch, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "batches"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var all []*Batch
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if b, err := Open(root, e.Name()); err == nil {
+			all = append(all, b)
+		}
+	}
+	slices.SortFunc(all, func(a, b *Batch) int { return b.Created.Compare(a.Created) })
+	return all, nil
+}
 
 // Latest is the most recently created batch under root, or nil when there
 // is none.

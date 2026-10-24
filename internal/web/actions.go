@@ -217,7 +217,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		var b *batch.Batch
 		if err == nil {
-			b, err = batch.Describe(a.Staging, a.Archive, batch.Description{
+			b, err = batch.Describe(a.Staging, a.Archive, a.Store, batch.Description{
 				Text: e.title, Person: person, ScanPPI: e.ppi, Provenance: e.provenance, Credit: e.credit}, a.Now())
 		}
 		if err != nil {
@@ -376,6 +376,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		return 1, l.Remove(n - 1)
 	})
+	a.deletion(mux, render, fail)
 }
 
 // parseMove reads an arrow's "<print> <edge> <mm>", mm outwards when positive.
