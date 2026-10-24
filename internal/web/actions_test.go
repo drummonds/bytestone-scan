@@ -227,3 +227,9 @@ func TestNewBatchWithNoPeopleIsRefused(t *testing.T) {
 		t.Errorf("new batch with no people: want the register named and no form:\n%s", body)
 	}
 }
+
+// #36: the usual rights line is typed without hunting for the sign.
+func TestNewBatchHasButtonsThatInsertTheCreditTerms(t *testing.T) {
+	a := live(t, &batchtest.Scanner{})
+	page(t, a.Handler(), "/batches/new", `data-insert="©"`, `data-insert="CC BY 4.0"`, `name="credit"`)
+}
