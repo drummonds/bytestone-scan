@@ -55,9 +55,11 @@ type Scanner interface {
 
 // Description is what the operator says about a batch before scanning.
 type Description struct {
-	Text    string
-	Person  pid.ID // the home person: whose album the photos belong to
-	ScanPPI int    // 600, 1200 or 2400
+	Text       string
+	Person     pid.ID // the home person: whose collection the photos belong to
+	ScanPPI    int    // 600, 1200 or 2400
+	Provenance string // where the prints came from; may be unknown
+	Credit     string // the rights line the photos are shown under
 }
 
 // Batch is one load of the bed.
@@ -67,6 +69,8 @@ type Batch struct {
 	Person      pid.ID    `yaml:"person"`
 	PersonName  string    `yaml:"person_name"`
 	ScanPPI     int       `yaml:"scan_ppi"`
+	Provenance  string    `yaml:"provenance,omitempty"`
+	Credit      string    `yaml:"credit"`
 	Created     time.Time `yaml:"created"`
 
 	root string
@@ -78,12 +82,15 @@ type Person struct {
 	Name string `yaml:"name"`
 }
 
-// Photo is an archived photo's photo.yaml: what is known of one print.
+// Photo is an archived photo's photo.yaml: what is known of one print at
+// capture. Its provenance and credit are its batch's.
 type Photo struct {
 	ID          pid.ID `yaml:"id"`
 	Batch       string `yaml:"batch"`
 	Description string `yaml:"description"`
 	Home        Person `yaml:"home"`
+	Provenance  string `yaml:"provenance,omitempty"`
+	Credit      string `yaml:"credit"`
 	Front       Side   `yaml:"front"`
 }
 
@@ -115,9 +122,12 @@ type found struct {
 // Describe records a new batch under root, refusing a description the
 // story's rules reject.
 func Describe(root string, reg register.Register, d Description, now time.Time) (*Batch, error) {
-	text := strings.Join(strings.Fields(d.Text), " ")
+	text, provenance, credit := oneLine(d.Text), oneLine(d.Provenance), oneLine(d.Credit)
 	if text == "" {
 		return nil, errors.New("a batch needs a description")
+	}
+	if credit == "" {
+		return nil, errors.New("a batch needs a credit: the terms its photos are shown under")
 	}
 	if d.ScanPPI != 600 && d.ScanPPI != 1200 && d.ScanPPI != 2400 {
 		return nil, fmt.Errorf("scan ppi %d, want 600, 1200 or 2400", d.ScanPPI)
@@ -130,7 +140,8 @@ func Describe(root string, reg register.Register, d Description, now time.Time) 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	b := &Batch{Description: text, Person: d.Person, PersonName: name, ScanPPI: d.ScanPPI, Created: now, root: root}
+	b := &Batch{Description: text, Person: d.Person, PersonName: name, ScanPPI: d.ScanPPI,
+		Provenance: provenance, Credit: credit, Created: now, root: root}
 	for n := 1; ; n++ {
 		b.ID = now.Format("20060102") + "-" + strconv.Itoa(n)
 		err := os.Mkdir(b.Dir(), 0o755)
@@ -142,6 +153,35 @@ func Describe(root string, reg register.Register, d Description, now time.Time) 
 		}
 	}
 	return b, writeYAML(filepath.Join(b.Dir(), "batch.yaml"), b)
+}
+
+// oneLine collapses what the operator typed to single spaces.
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// Latest is the most recently created batch under root, or nil when there
+// is none.
+func Latest(root string) (*Batch, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "batches"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var latest *Batch
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		b, err := Open(root, e.Name())
+		if err != nil {
+			continue // a batch whose record is missing or broken is not the one to copy
+		}
+		if latest == nil || b.Created.After(latest.Created) {
+			latest = b
+		}
+	}
+	return latest, nil
 }
 
 // Open reads the batch id under root.
@@ -443,7 +483,7 @@ func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time)
 		pr, m := f.Prints[i], p.Masters[i]
 		photo := Photo{
 			ID: f.IDs[i], Batch: b.ID, Description: b.Description,
-			Home: Person{b.Person, b.PersonName},
+			Home: Person{b.Person, b.PersonName}, Provenance: b.Provenance, Credit: b.Credit,
 			Front: Side{
 				Captured: captured, Print: pr.Print, Region: pr.Region, Bounds: pr.Region.On(f.Bed),
 				ScanPPI: p.ScanPPI, MasterPPI: m.PPI, Averaging: m.Factor,

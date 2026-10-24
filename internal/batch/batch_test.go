@@ -35,7 +35,8 @@ func clock() time.Time { return now }
 
 func describe(t *testing.T, root string) *Batch {
 	t.Helper()
-	b, err := Describe(root, reg, Description{Text: "SS Bonita and crew", Person: 10, ScanPPI: 600}, now)
+	b, err := Describe(root, reg, Description{Text: "SS Bonita and crew", Person: 10, ScanPPI: 600,
+		Provenance: "  Aunt Jean's shoebox,\n envelope marked 1950s ", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,10 +59,12 @@ func TestDescribe(t *testing.T) {
 		d    Description
 		want string // part of the error; empty for success
 	}{
-		{"recorded", Description{"SS Bonita", 10, 2400}, ""},
-		{"no description", Description{"  ", 10, 2400}, "description"},
-		{"not in the register", Description{"SS Bonita", 12, 2400}, "not in the register"},
-		{"other scan ppi", Description{"SS Bonita", 10, 300}, "600, 1200 or 2400"},
+		{"recorded", Description{Text: "SS Bonita", Person: 10, ScanPPI: 2400, Provenance: " a  shoebox ", Credit: " ©  Example "}, ""},
+		{"no provenance", Description{Text: "SS Bonita", Person: 10, ScanPPI: 2400, Credit: "© Example"}, ""},
+		{"no description", Description{Text: "  ", Person: 10, ScanPPI: 2400, Credit: "© Example"}, "description"},
+		{"no credit", Description{Text: "SS Bonita", Person: 10, ScanPPI: 2400, Credit: " "}, "credit"},
+		{"not in the register", Description{Text: "SS Bonita", Person: 12, ScanPPI: 2400, Credit: "© Example"}, "not in the register"},
+		{"other scan ppi", Description{Text: "SS Bonita", Person: 10, ScanPPI: 300, Credit: "© Example"}, "600, 1200 or 2400"},
 	}
 	for _, tc := range cases {
 		root := t.TempDir()
@@ -72,7 +75,8 @@ func TestDescribe(t *testing.T) {
 				continue
 			}
 			again, err := Open(root, b.ID)
-			if err != nil || again.Description != "SS Bonita" || again.Person != 10 || again.PersonName != "Ada Example" || again.ScanPPI != 2400 {
+			if err != nil || again.Description != "SS Bonita" || again.Person != 10 || again.PersonName != "Ada Example" || again.ScanPPI != 2400 ||
+				again.Provenance != strings.Join(strings.Fields(tc.d.Provenance), " ") || again.Credit != "© Example" {
 				t.Errorf("%s: reopened as %+v, %v", tc.name, again, err)
 			}
 			continue
@@ -80,6 +84,36 @@ func TestDescribe(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: error %v, want one mentioning %q", tc.name, err, tc.want)
 		}
+	}
+}
+
+// Story 014: a blank provenance is left out of photo.yaml, and the latest
+// batch is where the next one's provenance and credit come from.
+func TestProvenanceIsOptional(t *testing.T) {
+	root := t.TempDir()
+	b, err := Describe(root, reg, Description{Text: "loose", Person: 10, ScanPPI: 600, Credit: "© Example"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(b.Dir(), "batch.yaml"))
+	if strings.Contains(string(raw), "provenance") {
+		t.Errorf("batch.yaml records a blank provenance:\n%s", raw)
+	}
+}
+
+func TestLatestBatch(t *testing.T) {
+	root := t.TempDir()
+	if b, err := Latest(root); b != nil || err != nil {
+		t.Fatalf("no batches: %v, %v, want nil, nil", b, err)
+	}
+	first, _ := Describe(root, reg, Description{Text: "first", Person: 10, ScanPPI: 600, Credit: "© One"}, now)
+	later, _ := Describe(root, reg, Description{Text: "later", Person: 10, ScanPPI: 600, Provenance: "box 2", Credit: "© Two"}, now.Add(time.Hour))
+	if first == nil || later == nil {
+		t.Fatal("describe failed")
+	}
+	b, err := Latest(root)
+	if err != nil || b == nil || b.ID != later.ID || b.Provenance != "box 2" || b.Credit != "© Two" {
+		t.Errorf("latest = %+v, %v, want %s", b, err, later.ID)
 	}
 }
 
@@ -184,6 +218,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		}
 		if photo.ID != id || photo.Batch != b.ID || photo.Description != "SS Bonita and crew" ||
 			photo.Home.ID != 10 || photo.Home.Name != "Ada Example" ||
+			photo.Provenance != "Aunt Jean's shoebox, envelope marked 1950s" || photo.Credit != "Drummond family collection, CC BY 4.0" ||
 			photo.Front.ScanPPI != 600 || photo.Front.MasterPPI != 600 || photo.Front.Averaging != 1 ||
 			!photo.Front.Captured.Equal(now) || photo.Front.Warning == "" {
 			t.Errorf("photo %s photo.yaml = %+v", id, photo)
@@ -193,7 +228,8 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		}
 
 		tif, _ := os.ReadFile(filepath.Join(arc, id.String(), "data", "front.tif"))
-		for _, want := range []string{"<dc:identifier>" + id.String() + "</dc:identifier>", "<bs:batch>" + b.ID + "</bs:batch>", "<bs:side>front</bs:side>"} {
+		for _, want := range []string{"<dc:identifier>" + id.String() + "</dc:identifier>", "<bs:batch>" + b.ID + "</bs:batch>", "<bs:side>front</bs:side>",
+			"<dc:rights>Drummond family collection, CC BY 4.0</dc:rights>"} {
 			if !bytes.Contains(tif, []byte(want)) {
 				t.Errorf("photo %s master's XMP lacks %s", id, want)
 			}

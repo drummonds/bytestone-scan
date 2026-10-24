@@ -26,7 +26,7 @@ func TestArrowsOnlyWhereARegionCanMove(t *testing.T) {
 	}}
 	a := live(t, s)
 	h := a.Handler()
-	loc := act(t, a, h, "/batches", url.Values{"description": {"two"}, "person": {"a"}, "ppi": {"600"}})
+	loc := act(t, a, h, "/batches", url.Values{"description": {"two"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	body := get(t, h, loc).Body.String()
 
 	for _, absent := range []string{"top 0.5", "top 3", "left 0.5", "left 3"} {
@@ -59,7 +59,7 @@ func TestAnArrowMovesTheEdge(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000}}}
 	a := live(t, s)
 	h := a.Handler()
-	loc := act(t, a, h, "/batches", url.Values{"description": {"one"}, "person": {"a"}, "ppi": {"600"}})
+	loc := act(t, a, h, "/batches", url.Values{"description": {"one"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	b, _ := batch.Open(a.Staging, strings.TrimPrefix(loc, "/batches/"))
 	prints, _, _ := b.Found()
 	before := prints[0].Region
@@ -86,7 +86,7 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000}}}
 	a := live(t, s)
 	h := a.Handler()
-	loc := act(t, a, h, "/batches", url.Values{"description": {"one"}, "person": {"a"}, "ppi": {"600"}})
+	loc := act(t, a, h, "/batches", url.Values{"description": {"one"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
 	page(t, h, "/photos/0", `action="`+loc[1:]+`/reshape"`, arrow(1, "right 0.5"), arrow(1, "left -0.5"))
 
@@ -118,7 +118,7 @@ func TestArrowsOnTurnedPrints(t *testing.T) {
 	}}
 	a := live(t, s)
 	h := a.Handler()
-	loc := act(t, a, h, "/batches", url.Values{"description": {"two"}, "person": {"a"}, "ppi": {"600"}})
+	loc := act(t, a, h, "/batches", url.Values{"description": {"two"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	body := get(t, h, loc).Body.String()
 	for _, present := range []string{"top 0.5", "right 3", "bottom -0.5", "left -3"} {
 		if !strings.Contains(body, arrow(1, present)) {
@@ -149,7 +149,7 @@ func TestSplitAndRemoveRegions(t *testing.T) {
 	}}
 	a := live(t, s)
 	h := a.Handler()
-	loc := act(t, a, h, "/batches", url.Values{"description": {"three"}, "person": {"a"}, "ppi": {"600"}})
+	loc := act(t, a, h, "/batches", url.Values{"description": {"three"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	body := get(t, h, loc).Body.String()
 	if strings.Count(body, `action="`+loc[1:]+`/split"`) != 1 {
 		t.Error("want a split button on the merged region only")
