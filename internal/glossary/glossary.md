@@ -15,6 +15,7 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Region | Where a print lies on the bed, with a margin, found from the preview; square to the print, turned with it up to 10° |
 | Bounds | The rectangle square to the bed that covers a region: what the detail pass scans and the master covers |
 | Preview | The 150 ppi bed scan regions are found from |
+| Background | The lid or black card behind the prints on the preview, as a field: its level estimated per row and per column of the bed, so the lid's shading is background wherever it falls. A pixel over 14 levels from it on any channel is print; a speck under 1 mm is noise |
 | Detail pass | One pass of the scanner over every region in the scan: the fronts pass at the scan ppi, then, the prints turned over in place, the backs pass at 300 ppi over the same regions |
 | Scan ppi | The resolution of the fronts pass: 600, 1200 or 2400. Backs are scanned at 300 |
 | Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches |
@@ -22,6 +23,7 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Rendition | A display image derived from a master: cropped to the print, turned square, its levels set, scaled to fit a screen |
 | Recipe | How renditions are made from a master, by version; a new recipe makes new renditions and leaves the old on record |
 | Develop | The photo step that makes one side's renditions |
+| Caption | What a photo shows, in the archivist's own words: "Air Raid Wardens". Not a claim: it has no source or reading; kept in photo.yaml as caption beside the scan's description, blank meaning none |
 | Claim | One thing said about a photo (the date taken, the photographer, what the back says), with its source (the back or front of the print, or a relative's word) and how it was read; kept in photo.yaml, never in the master |
 | Describe (a photo) | The photo step where the operator says what is known of it, as claims, or that nothing is; waits after the scan is accepted until answered |
 | Deposit | The photo step that hands its bag to the archive service, which gave out its id; the answer is kept beside the bag |

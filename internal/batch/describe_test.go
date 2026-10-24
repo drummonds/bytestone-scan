@@ -115,3 +115,40 @@ func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 		t.Errorf("claims after describing again: %+v", photo.Claims)
 	}
 }
+
+// #66: a caption is what the picture shows, in the archivist's own words:
+// not a claim, kept in photo.yaml as caption beside the scan's description,
+// blank or whitespace meaning none.
+func TestACaptionSaysWhatThePictureShows(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	scanner := twoSided()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	b.Confirm()
+	scanned(t, b, store, scanner)
+
+	if err := b.DescribePhoto(0, PhotoDescription{Caption: "  Air Raid\n Wardens ", Photographer: "A"}); err != nil {
+		t.Fatal(err)
+	}
+	var photo Photo
+	readYAML(b.masterPath(0, "yaml"), &photo)
+	if photo.Caption != "Air Raid Wardens" || photo.Description != b.Description || len(photo.Claims) != 1 {
+		t.Errorf("captioned photo: caption %q, description %q, claims %+v", photo.Caption, photo.Description, photo.Claims)
+	}
+	if err := b.DescribePhoto(1, PhotoDescription{Caption: "   "}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(b.masterPath(1, "yaml"))
+	if strings.Contains(string(raw), "caption") {
+		t.Errorf("a whitespace caption is kept:\n%s", raw)
+	}
+
+	b.Accept()
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
+		t.Fatalf("scan: %s %s", rec.Status, rec.Error)
+	}
+	raw, _ = os.ReadFile(filepath.Join(root, "bags", "0", "data", "photo.yaml"))
+	if !strings.Contains(string(raw), "caption: Air Raid Wardens") {
+		t.Errorf("archived photo.yaml lacks the caption:\n%s", raw)
+	}
+}
