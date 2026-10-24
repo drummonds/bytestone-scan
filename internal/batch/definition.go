@@ -7,8 +7,11 @@ const Workflow wf.WorkflowType = "scan_batch"
 
 const src = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/batch.go"
 
-func init() {
-	wf.Definitions = append(wf.Definitions, wf.Definition{
+// Definitions are the workflows the scanner runs: what its Workflows page
+// lists and draws. The engine's own registry is seeded with other hosts'
+// workflows, so the scanner never hands that to the view.
+var Definitions = []wf.Definition{
+	{
 		Type: Workflow,
 		Purpose: wf.Purpose{
 			Name:        "Archive photographs",
@@ -28,5 +31,5 @@ func init() {
 			{Name: "check quality", Description: "Waits for the operator to accept the masters, or to send the batch back a step", Source: src},
 			{Name: "package", Description: "Each master and its photo.yaml are archived as a photo; final, since an archived photo is never altered", Source: src},
 		},
-	})
+	},
 }
