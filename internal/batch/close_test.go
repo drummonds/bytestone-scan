@@ -13,9 +13,9 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
-// through takes a fresh batch's one load to the archive: every photo held,
+// through takes a fresh batch's one scan to the archive: every photo held,
 // or rejected for the ids in reject.
-func through(t *testing.T, root string, store wf.Store, reject ...pid.ID) (*Batch, *Load) {
+func through(t *testing.T, root string, store wf.Store, reject ...pid.ID) (*Batch, *Scan) {
 	t.Helper()
 	scanner := twoSided()
 	l := describe(t, root)
@@ -31,7 +31,7 @@ func through(t *testing.T, root string, store wf.Store, reject ...pid.ID) (*Batc
 	described(t, l)
 	l.Accept()
 	if rec := run(t, l, store, scanner); rec.Status != wf.StatusCompleted {
-		t.Fatalf("load: %s %s", rec.Status, rec.Error)
+		t.Fatalf("scan: %s %s", rec.Status, rec.Error)
 	}
 	return l.Sitting(), l
 }
@@ -72,7 +72,7 @@ func TestABatchClosesAndIsPurged(t *testing.T) {
 	if err != nil || len(purged) != 1 || purged[0] != a.ID {
 		t.Fatalf("31 days after closing: purged %v, %v", purged, err)
 	}
-	for _, gone := range []string{filepath.Join(a.Dir(), "loads"), filepath.Join(root, "bags", held.String()), filepath.Join(root, "renditions", held.String())} {
+	for _, gone := range []string{filepath.Join(a.Dir(), "scans"), filepath.Join(root, "bags", held.String()), filepath.Join(root, "renditions", held.String())} {
 		if _, err := os.Stat(gone); err == nil {
 			t.Errorf("%s survives the purge", gone)
 		}
@@ -86,8 +86,8 @@ func TestABatchClosesAndIsPurged(t *testing.T) {
 	if at, ok := a.Purged(); !ok || !at.Equal(p.Now()) {
 		t.Errorf("purged at %v %v, want %v", at, ok, p.Now())
 	}
-	if loads, _ := a.Loads(); len(loads) != 0 {
-		t.Errorf("%d loads after the purge", len(loads))
+	if scans, _ := a.Scans(); len(scans) != 0 {
+		t.Errorf("%d scans after the purge", len(scans))
 	}
 	if purged, _ := p.Sweep(); len(purged) != 0 {
 		t.Errorf("purged again: %v", purged)

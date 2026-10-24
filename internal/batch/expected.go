@@ -10,17 +10,17 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 )
 
-// Expected is how long step should take for load b, judged from the loads
-// run before it: the fronts from loads scanned at the same ppi and the
+// Expected is how long step should take for scan b, judged from the scans
+// run before it: the fronts from scans scanned at the same ppi and the
 // backs from any, by the area each scanned; any other step from how long
 // it last took. The median of the last few is taken. ok is false with
 // nothing to judge from.
-func Expected(ctx context.Context, store wf.Store, root string, b *Load, step string) (d time.Duration, ok bool) {
-	runs, err := store.ListRuns(ctx, wf.RunFilter{Types: []wf.WorkflowType{LoadWorkflow}, Limit: 20})
+func Expected(ctx context.Context, store wf.Store, root string, b *Scan, step string) (d time.Duration, ok bool) {
+	runs, err := store.ListRuns(ctx, wf.RunFilter{Types: []wf.WorkflowType{ScanWorkflow}, Limit: 20})
 	if err != nil {
 		return 0, false
 	}
-	var area float64 // mm² this load's pass covers; 0 for any other step
+	var area float64 // mm² this scan's pass covers; 0 for any other step
 	if step == "fronts" || step == "backs" {
 		p, _, err := b.pass()
 		if err != nil {
@@ -40,7 +40,7 @@ func Expected(ctx context.Context, store wf.Store, root string, b *Load, step st
 			}
 			v := time.Duration(s.DurationNs).Seconds()
 			if area > 0 {
-				past, err := OpenLoad(root, r.Key)
+				past, err := OpenScan(root, r.Key)
 				if err != nil || (step == "fronts" && past.batch.ScanPPI != b.batch.ScanPPI) {
 					continue
 				}

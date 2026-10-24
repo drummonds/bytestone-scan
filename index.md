@@ -20,11 +20,11 @@ run from a web UI: stories [001](docs/stories/001-capture-fronts.md) and
 task serve      # or: bytestone-scan serve, then open http://localhost:8080
 ```
 
-A batch is one sitting of scanning, over as many loads of the bed as the
+A batch is one sitting of scanning, over as many scans of the bed as the
 shoebox needs. Start one from *New batch*: a title, the home person
 (chosen by name from the register), the prints' provenance and credit
 (copied into every photo, and pre-filled from the last batch) and the
-scan ppi. Its first load starts at once; each load's page leads through
+scan ppi. Its first scan starts at once; each scan's page leads through
 the steps: check the prints found on the preview (or rescan it), confirm,
 turn the prints over where they lie and scan the backs, check each photo's
 quality and its renditions, front and back (or rescan either side, or go
@@ -32,9 +32,12 @@ back to the prints), say what is known of each photo (the date taken, the
 photographer, what the back says, or nothing), accept. Each photo is then
 bagged, deposited with the archive service and receipted, or shown as
 rejected when the archive already holds the picture. The batch page
-lists its loads, takes another, and finishes the batch once every load is
+lists its scans, takes another, and finishes the batch once every scan is
 through; it then closes, and its work files are purged 30 days later, or
-sooner when staging is short of space.
+sooner when staging is short of space. A batch that will never close (a
+test, or one abandoned) is deleted from its page, so long as the archive
+holds none of its photos; the *Batches* page lists every batch and the
+stale data no batch claims, each deletable the same way.
 Renditions (story [003](docs/stories/003-display-images.md)) are kept
 under `renditions/` beside the archive, by photo and recipe version.
 

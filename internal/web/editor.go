@@ -73,9 +73,9 @@ func edgeGrid(action string, n int, p find.Print, bed find.Rect, middle string) 
 }
 
 // regionEditor is one print's close-up with arrows on its edges, at confirm.
-func regionEditor(b *batch.Load, i int, p find.Print) string {
+func regionEditor(b *batch.Scan, i int, p find.Print) string {
 	n := i + 1
-	id := loadURL(b.Key())
+	id := scanURL(b.Key())
 	return fmt.Sprintf(`<div class="box" id="print-%d">
 <h2 class="title is-5">Print %d: %.1f × %.1f mm</h2>
 %s
@@ -95,7 +95,7 @@ func turnedBack(region find.Box) string {
 	return fmt.Sprintf(", turned back %.1f° so the print sits square", math.Abs(region.Angle))
 }
 
-// regionButton posts an edit of print n to the load at url.
+// regionButton posts an edit of print n to the scan at url.
 func regionButton(url, action string, n int, label, class string) string {
 	return fmt.Sprintf(`<form action="%s/%s" method="post" style="display:inline"><input type="hidden" name="print" value="%d"><button class="button is-small %s" type="submit">%s</button></form> `,
 		url, action, n, class, label)
@@ -110,12 +110,12 @@ func splitButton(url string, n int, p find.Print) string {
 }
 
 // rescanEditor is the same arrows on the quality page, where each move
-// rescans the load.
-func rescanEditor(b *batch.Load, i int, p find.Print) string {
+// rescans the bed.
+func rescanEditor(b *batch.Scan, i int, p find.Print) string {
 	return fmt.Sprintf(`<div class="box"><h2 class="title is-6">Margins</h2>
 %s
-<p class="help">Each arrow moves that edge of the region and rescans the load at %d ppi.</p></div>`,
-		edgeGrid(loadURL(b.Key())+"/reshape", i+1, p, b.Bed(),
+<p class="help">Each arrow moves that edge of the region and rescans the bed at %d ppi.</p></div>`,
+		edgeGrid(scanURL(b.Key())+"/reshape", i+1, p, b.Bed(),
 			fmt.Sprintf(`<p class="has-text-centered">print %d<br>%.1f × %.1f mm</p>`, i+1, p.Print.W, p.Print.H)),
 		b.Sitting().ScanPPI)
 }

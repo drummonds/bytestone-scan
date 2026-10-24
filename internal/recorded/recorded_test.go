@@ -196,11 +196,11 @@ func TestABatchRunsOnTheRecording(t *testing.T) {
 	_, dir := one(t)
 	root := t.TempDir()
 	svc := archivetest.Example()
-	sitting, err := batch.Describe(root, svc, batch.Description{Text: "recorded", Person: 10, ScanPPI: 600, Credit: "Example family collection, CC BY 4.0"}, now)
+	sitting, err := batch.Describe(root, svc, nil, batch.Description{Text: "recorded", Person: 10, ScanPPI: 600, Credit: "Example family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := sitting.NewLoad("", now)
+	b, err := sitting.NewScan("", now)
 	if err != nil {
 		t.Fatal(err)
 	}

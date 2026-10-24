@@ -16,7 +16,7 @@ import (
 // Story 040: before a photo is archived the operator describes it: the
 // date taken, the photographer and what the back says, each a claim with
 // its source, transcribed by a person. A photo not yet described waits
-// after its load is accepted; the bag carries the claims; an archived
+// after its scan is accepted; the bag carries the claims; an archived
 // photo takes no more.
 func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 	ctx := context.Background()
@@ -56,7 +56,7 @@ func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 
 	b.Accept()
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
-		t.Fatalf("load: %s %s", rec.Status, rec.Error)
+		t.Fatalf("scan: %s %s", rec.Status, rec.Error)
 	}
 	arc := filepath.Join(root, "bags")
 	if !bag.Complete(arc, 0) || bag.Complete(arc, 1) {
@@ -66,7 +66,7 @@ func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 		t.Errorf("photo 1: %v, want waiting to be described", runnertest.Steps(t, store, pr.ID))
 	}
 	if done, _ := b.done(ctx, store); done {
-		t.Error("load done with a photo still to describe")
+		t.Error("scan done with a photo still to describe")
 	}
 	raw, _ := os.ReadFile(filepath.Join(arc, "0", "data", "photo.yaml"))
 	for _, s := range []string{"kind: date taken", "value: 1952-07", "approximate: true", "read: transcribed", "Jerome Ltd"} {
@@ -88,7 +88,7 @@ func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 		t.Errorf("skipped photo.yaml:\n%s", raw)
 	}
 	if done, _ := b.done(ctx, store); !done {
-		t.Error("load not done once every photo is archived")
+		t.Error("scan not done once every photo is archived")
 	}
 	if err := b.DescribePhoto(0, said); err == nil || !strings.Contains(err.Error(), "archived") {
 		t.Errorf("described an archived photo: %v", err)
