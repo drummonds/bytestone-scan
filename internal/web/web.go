@@ -354,11 +354,15 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
+	cut := ""
+	if l.Confirmed() {
+		cut = ", cut to the regions"
+	}
 	c.HTML(fmt.Sprintf(`<figure><img src="%s/prints.png" alt="The bed, with the prints found">
-<figcaption class="help">Preview, 150 ppi, with the regions found: green as found, red to review.</figcaption></figure>`, scanURL(l.Key())))
+<figcaption class="help">Preview, 150 ppi%s, with the regions found: green as found, red to review.</figcaption></figure>`, scanURL(l.Key()), cut))
 	if _, err := os.Stat(filepath.Join(l.Dir(), "backs.png")); err == nil {
 		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="%s/backs.png" alt="The bed turned over, with the fronts' regions">
-<figcaption class="help">The backs, 150 ppi, with the fronts' regions: each back was scanned where its front lay.</figcaption></figure>`, scanURL(l.Key())))
+<figcaption class="help">The backs, 150 ppi%s, with the fronts' regions: each back was scanned where its front lay.</figcaption></figure>`, scanURL(l.Key()), cut))
 	}
 	if waiting == "confirm" && !busy {
 		for i, p := range prints {

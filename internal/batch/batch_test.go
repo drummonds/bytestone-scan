@@ -557,7 +557,18 @@ func TestCloseUpsAndTheAnnotatedPreview(t *testing.T) {
 	if img, err := b.Annotated(); err != nil || img.Bounds().Dx() != 1272 { // the bed at 150 ppi, in whole 8 px as the 4990 scans it
 		t.Errorf("annotated preview: %v, %v", img, err)
 	}
-	img, err := b.CloseUp(0)
+	// #64: once confirmed, the preview is cut to the regions plus 10 mm
+	// each way, square to the bed: here 9.5–70.5 × 9.5–60.5 mm
+	b.Confirm()
+	img, err := b.Annotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := img.Bounds(), image.Rect(px150(9.5), px150(9.5), px150(70.5), px150(60.5)); !withinAPixel(got, want) {
+		t.Errorf("confirmed preview %v, want cut to the regions plus 10 mm, %v", got, want)
+	}
+	os.Remove(b.path("confirmed"))
+	img, err = b.CloseUp(0)
 	if err != nil || img.Bounds().Dx() < 300 {
 		t.Errorf("close-up: %v, %v; want one enlarged to at least 300 px", img.Bounds(), err)
 	}
@@ -781,5 +792,34 @@ func TestExpectedDurationOfAStep(t *testing.T) {
 		if ok != (c.want != 0) || got != c.want {
 			t.Errorf("%s: got %v %v, want %v", c.step, got, ok, c.want)
 		}
+	}
+}
+
+// px150 is mm on the bed in preview pixels.
+func px150(mm float64) int { return int(mm / 25.4 * PreviewPPI) }
+
+// withinAPixel allows the preview's pixel grid to fall either side of a
+// region's edge in mm.
+func withinAPixel(got, want image.Rectangle) bool {
+	near := func(a, b int) bool { return a-b <= 1 && b-a <= 1 }
+	return near(got.Min.X, want.Min.X) && near(got.Min.Y, want.Min.Y) && near(got.Max.X, want.Max.X) && near(got.Max.Y, want.Max.Y)
+}
+
+// #64: the backs preview is cut the same way, and a cut never leaves the
+// bed: a print against the bed's edge is cut at the edge.
+func TestTheBacksPreviewIsCutToTheRegions(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 0, Y0: 0, X1: 60, Y1: 50, Value: 20000}, {X0: 100, Y0: 20, X1: 140, Y1: 80, Value: 30000}}}
+	b := describe(t, root)
+	store := wf.NewMemStore()
+	run(t, b, store, scanner)
+	b.Confirm()
+	scanned(t, b, store, scanner)
+	img, err := b.AnnotatedBacks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := img.Bounds(), image.Rect(0, 0, px150(150.5), px150(90.5)); !withinAPixel(got, want) {
+		t.Errorf("confirmed backs preview %v, want %v", got, want)
 	}
 }
