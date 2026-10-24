@@ -23,7 +23,10 @@ task serve      # or: bytestone-scan serve, then open http://localhost:8080
 Start a batch from *New batch*: a description, the home person (chosen
 by name from the register) and the scan ppi. The batch page then leads through the steps: check the
 prints found on the preview (or rescan it), confirm, check each photo's
-quality (or rescan at another ppi, or go back to the prints), accept.
+quality and its rendition (or rescan at another ppi, or go back to the
+prints), accept. Renditions (story
+[003](docs/stories/003-display-images.md)) are kept under `renditions/`
+beside the archive, by photo and recipe version.
 
 Batches, the archive and the workflow database live under `-staging`
 (default `~/.local/share/bytestone-scan`). People come from life-weaver's

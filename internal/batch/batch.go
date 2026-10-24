@@ -1,6 +1,6 @@
 // Package batch runs one load of the scanner bed as a gobank-workflow
 // instance keyed by batch id: describe, preview, find prints, confirm, the
-// detail pass, and an archived photo for each print.
+// detail pass, develop, and an archived photo for each print.
 //
 // A batch's state lives in its directory under the staging root, not in
 // the run: the workflow records only which steps are done, and every step
@@ -8,7 +8,10 @@
 package batch
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"image"
@@ -30,6 +33,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/plan"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/register"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
 // PreviewPPI is the resolution of the preview prints are found on. The
@@ -317,6 +321,17 @@ func (b *Batch) Redo(ctx context.Context, runner *wf.Runner, from string, ppi in
 			}
 		}
 	}
+	if cleared["develop"] {
+		// the master is about to change: this recipe's renditions of it go,
+		// an older recipe's stay on record
+		if _, ids, err := b.Found(); err == nil {
+			for _, id := range ids {
+				if err := os.RemoveAll(b.Renditions(id)); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -359,6 +374,7 @@ func (b *Batch) Stages(s Scanner, now func() time.Time) []wf.Stage {
 			Run: b.reserveIDs,
 		},
 		{Name: "detail pass", Run: func(ctx context.Context) error { return b.detailPass(ctx, s, now) }},
+		{Name: "develop", Run: func(context.Context) error { return b.develop() }},
 		{Name: "check quality", Until: func(context.Context) (bool, error) {
 			_, err := os.Stat(b.path("accepted"))
 			return err == nil, nil
@@ -443,6 +459,48 @@ func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time)
 		}
 		if err := writeYAML(filepath.Join(dir, name+".yaml"), photo); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// Renditions is where the photo id's renditions at the current recipe
+// are kept: beside the archive, never in it.
+func (b *Batch) Renditions(id pid.ID) string {
+	return filepath.Join(b.root, "renditions", id.String(), strconv.Itoa(rendition.Version))
+}
+
+// develop makes each master's renditions at the current recipe, skipping
+// a photo already developed at it.
+func (b *Batch) develop() error {
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return err
+	}
+	for _, id := range f.IDs {
+		dir := b.Renditions(id)
+		if _, err := rendition.Load(dir); err == nil {
+			continue
+		}
+		var photo Photo
+		name := filepath.Join(b.path("masters"), id.String())
+		if err := readYAML(name+".yaml", &photo); err != nil {
+			return err
+		}
+		tif, err := os.ReadFile(name + ".tif")
+		if err != nil {
+			return err
+		}
+		img, err := master.Decode(bytes.NewReader(tif))
+		if err != nil {
+			return fmt.Errorf("photo %s: %w", id, err)
+		}
+		side := photo.Front
+		r, imgs := rendition.Develop(img, side.Print.InImage(side.Bounds, side.MasterPPI), side.MasterPPI)
+		sum := sha256.Sum256(tif)
+		r.Master = hex.EncodeToString(sum[:])
+		if err := rendition.Save(dir, r, imgs); err != nil {
+			return fmt.Errorf("photo %s: %w", id, err)
 		}
 	}
 	return nil

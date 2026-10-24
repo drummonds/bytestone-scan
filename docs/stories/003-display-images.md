@@ -1,7 +1,7 @@
 # 003 — Display images: crop, deskew, levels (#3)
 
-**Status:** proposed (revised 2026-10-23: sizes, where renditions are
-made, what is split out)
+**Status:** done (revised 2026-10-23: sizes, where renditions are made,
+what is split out)
 
 ## Why
 
@@ -51,16 +51,16 @@ away and made again whenever the processing improves.
 | `display.jpg` | fits within 1920 × 1080 (a portrait print is 1080 tall), never scaled up | quality 90, sRGB |
 | `thumb.jpg` | 200 px on the long edge | quality 85 |
 | `tiny.jpg` | 64 px on the long edge | quality 80 |
-| `recipe.yaml` | recipe version; the measured skew; the crop in master pixels; the black and white points; the master's sha256 | — |
+| `recipe.yaml` | recipe version; the print measured on the master (centre, size, angle, in master pixels); the region's angle and the skew applied; the black and white points; the display size; flags; the master's sha256 | — |
 
 ### Deskew
 
 | Print on the master | Rendition |
 |---|---|
 | square to the bed | not rotated |
-| skewed 0.1° to 10° | rotated square, measured to 0.1° |
+| skewed 0.1° to 10° | rotated square, measured to 0.1° from the edges found at full resolution, 48 profiles per edge, the middle 80% of it |
 | skewed over 10° | not rotated; flagged for the operator (find already asks for it to be straightened) |
-| not rectangular (torn, trimmed) | rotated by its longest straight edge; flagged |
+| not rectangular (torn, trimmed): an edge loses more than two profiles to outliers, or the edges' angles disagree by over 0.3° | rotated by its longest straight edge; flagged |
 
 | Measured against the region's angle | |
 |---|---|
@@ -71,7 +71,7 @@ away and made again whenever the processing improves.
 
 | | |
 |---|---|
-| margin and lid | none left after rotation: the largest rectangle square to the print within its edges |
+| margin and lid | none left after rotation: the largest rectangle square to the print within its edges, less the two or three master pixels the resampling kernel would blur lid into |
 | a print against the bed's edge | cropped at the bed's edge |
 
 ### Levels
@@ -81,13 +81,14 @@ away and made again whenever the processing improves.
 | black point | 0.1% of the print's samples darker |
 | white point | 0.1% lighter, the lid excluded |
 | sepia and colour | the balance kept: one curve for all three channels |
-| already full range | unchanged |
+| already full range: a point within one 8-bit level of 0 or 65535 | taken to 0 or 65535, so the print is shown unchanged |
+| samples counted | 1 mm in from the print's edges: the lid and a curled corner do not count |
 
 ### Quality page
 
 | Shows | |
 |---|---|
-| the rendition | `display.jpg`, beside the master, with its size and the recipe version |
+| the rendition | `display.jpg`, below the master, with the recipe version, its size, the skew applied and the levels |
 | flags | skew over 10°, not rectangular, measured angle far from the region's |
 
 ## Out of scope
