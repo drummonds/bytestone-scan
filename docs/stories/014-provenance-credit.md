@@ -18,7 +18,7 @@ claims (roadmap: transcribe backs into claims) and stay out.
 - **New batch** asks for two more things: **provenance**, where the
   prints came from ("Aunt Jean's shoebox, envelope marked 1950s"), and
   **credit**, the rights line life-weaver's album entries carry
-  (`© Drummond Family, CC BY 4.0`).
+  (`Drummond family collection, CC BY 4.0`).
 - Both are pre-filled from the most recent batch: a shoebox is many loads
   of the bed.
 - Each photo.yaml carries the batch's provenance and credit. The master's

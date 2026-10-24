@@ -84,7 +84,7 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 <div class="control"><input class="input" name="provenance" value="%s" placeholder="Aunt Jean’s shoebox, envelope marked 1950s"></div>
 <p class="help">Copied into every photo. Leave it blank if unknown.</p></div>
 <div class="field"><label class="label">Credit: the terms the photos are shown under</label>
-<div class="control"><input class="input" name="credit" value="%s" placeholder="© Example Family, CC BY 4.0" required></div></div>
+<div class="control"><input class="input" name="credit" value="%s" placeholder="Drummond family collection, CC BY 4.0" required></div></div>
 <div class="field"><label class="label">Scan at</label>
 <div class="control"><div class="select"><select name="ppi">%s</select></div></div>
 <p class="help">The detail pass scans at this ppi and is averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick.</p>

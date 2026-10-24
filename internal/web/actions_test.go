@@ -210,14 +210,14 @@ func TestNewBatchIsPrefilledFromTheLatestBatch(t *testing.T) {
 		t.Errorf("first batch: want blank provenance and credit:\n%s", body)
 	}
 	act(t, a, h, "/batches", url.Values{"description": {"one"}, "person": {"a"}, "ppi": {"600"},
-		"provenance": {"Aunt Jean's shoebox"}, "credit": {"© Example Family, CC BY 4.0"}})
-	page(t, h, "/batches/new", `name="provenance" value="Aunt Jean&#39;s shoebox"`, `name="credit" value="© Example Family, CC BY 4.0"`)
+		"provenance": {"Aunt Jean's shoebox"}, "credit": {"Drummond family collection, CC BY 4.0"}})
+	page(t, h, "/batches/new", `name="provenance" value="Aunt Jean&#39;s shoebox"`, `name="credit" value="Drummond family collection, CC BY 4.0"`)
 	// a refused form keeps what was typed, not the latest batch's
 	w := post(t, h, "/batches", url.Values{"description": {""}, "person": {"a"}, "ppi": {"600"}, "provenance": {"box two"}, "credit": {"© Other"}})
 	if !strings.Contains(w.Body.String(), `name="provenance" value="box two"`) || !strings.Contains(w.Body.String(), `name="credit" value="© Other"`) {
 		t.Errorf("refused form does not keep what was typed:\n%s", w.Body)
 	}
-	page(t, h, "/batches/20261020-1", "Provenance", "Aunt Jean&#39;s shoebox", "Credit", "© Example Family, CC BY 4.0")
+	page(t, h, "/batches/20261020-1", "Provenance", "Aunt Jean&#39;s shoebox", "Credit", "Drummond family collection, CC BY 4.0")
 }
 
 func TestNewBatchWithNoPeopleIsRefused(t *testing.T) {

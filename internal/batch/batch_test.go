@@ -33,7 +33,7 @@ func clock() time.Time { return now }
 func describe(t *testing.T, root string) *Batch {
 	t.Helper()
 	b, err := Describe(root, reg, Description{Text: "SS Bonita and crew", Person: 10, ScanPPI: 600,
-		Provenance: "  Aunt Jean's shoebox,\n envelope marked 1950s ", Credit: "© Example Family, CC BY 4.0"}, now)
+		Provenance: "  Aunt Jean's shoebox,\n envelope marked 1950s ", Credit: "Drummond family collection, CC BY 4.0"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 		}
 		if photo.ID != id || photo.Batch != b.ID || photo.Description != "SS Bonita and crew" ||
 			photo.Home.ID != 10 || photo.Home.Name != "Ada Example" ||
-			photo.Provenance != "Aunt Jean's shoebox, envelope marked 1950s" || photo.Credit != "© Example Family, CC BY 4.0" ||
+			photo.Provenance != "Aunt Jean's shoebox, envelope marked 1950s" || photo.Credit != "Drummond family collection, CC BY 4.0" ||
 			photo.Front.ScanPPI != 600 || photo.Front.MasterPPI != 600 || photo.Front.Averaging != 1 ||
 			!photo.Front.Captured.Equal(now) || photo.Front.Warning == "" {
 			t.Errorf("photo %s photo.yaml = %+v", id, photo)
@@ -210,7 +210,7 @@ func TestBatchRunsToTheArchive(t *testing.T) {
 
 		tif, _ := os.ReadFile(filepath.Join(arc, id.String(), "data", "front.tif"))
 		for _, want := range []string{"<dc:identifier>" + id.String() + "</dc:identifier>", "<bs:batch>" + b.ID + "</bs:batch>", "<bs:side>front</bs:side>",
-			"<dc:rights>© Example Family, CC BY 4.0</dc:rights>"} {
+			"<dc:rights>Drummond family collection, CC BY 4.0</dc:rights>"} {
 			if !bytes.Contains(tif, []byte(want)) {
 				t.Errorf("photo %s master's XMP lacks %s", id, want)
 			}
