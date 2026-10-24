@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"html"
 	"math"
 	"strings"
 
@@ -74,17 +73,17 @@ func edgeGrid(action string, n int, p find.Print, bed find.Rect, middle string) 
 }
 
 // regionEditor is one print's close-up with arrows on its edges, at confirm.
-func regionEditor(b *batch.Batch, i int, p find.Print) string {
+func regionEditor(b *batch.Load, i int, p find.Print) string {
 	n := i + 1
-	id := html.EscapeString(b.ID)
+	id := loadURL(b.Key())
 	return fmt.Sprintf(`<div class="box" id="print-%d">
 <h2 class="title is-5">Print %d: %.1f × %.1f mm</h2>
 %s
 <p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. Single arrows move an edge %.1f mm, double arrows %.0f mm.</p>
 <div class="buttons mt-3">%s%s</div>
 </div>`, n, n, p.Print.W, p.Print.H,
-		edgeGrid("batches/"+id+"/adjust", n, p, b.Bed(),
-			fmt.Sprintf(`<img src="batches/%s/regions/%d.png" alt="Print %d's region, close up">`, id, n, n)),
+		edgeGrid(id+"/adjust", n, p, b.Bed(),
+			fmt.Sprintf(`<img src="%s/regions/%d.png" alt="Print %d's region, close up">`, id, n, n)),
 		turnedBack(p.Region), smallStep, largeStep, splitButton(id, n, p), regionButton(id, "remove", n, "Remove this region", "is-danger is-light"))
 }
 
@@ -96,26 +95,27 @@ func turnedBack(region find.Box) string {
 	return fmt.Sprintf(", turned back %.1f° so the print sits square", math.Abs(region.Angle))
 }
 
-func regionButton(id, action string, n int, label, class string) string {
-	return fmt.Sprintf(`<form action="batches/%s/%s" method="post" style="display:inline"><input type="hidden" name="print" value="%d"><button class="button is-small %s" type="submit">%s</button></form> `,
-		id, action, n, class, label)
+// regionButton posts an edit of print n to the load at url.
+func regionButton(url, action string, n int, label, class string) string {
+	return fmt.Sprintf(`<form action="%s/%s" method="post" style="display:inline"><input type="hidden" name="print" value="%d"><button class="button is-small %s" type="submit">%s</button></form> `,
+		url, action, n, class, label)
 }
 
 // splitButton is offered only on a region holding more than one print.
-func splitButton(id string, n int, p find.Print) string {
+func splitButton(url string, n int, p find.Print) string {
 	if p.Parts < 2 {
 		return ""
 	}
-	return regionButton(id, "split", n, fmt.Sprintf("Split into %d", p.Parts), "is-warning")
+	return regionButton(url, "split", n, fmt.Sprintf("Split into %d", p.Parts), "is-warning")
 }
 
 // rescanEditor is the same arrows on the quality page, where each move
-// rescans the batch.
-func rescanEditor(b *batch.Batch, i int, p find.Print) string {
+// rescans the load.
+func rescanEditor(b *batch.Load, i int, p find.Print) string {
 	return fmt.Sprintf(`<div class="box"><h2 class="title is-6">Margins</h2>
 %s
-<p class="help">Each arrow moves that edge of the region and rescans the batch at %d ppi.</p></div>`,
-		edgeGrid("batches/"+html.EscapeString(b.ID)+"/reshape", i+1, p, b.Bed(),
+<p class="help">Each arrow moves that edge of the region and rescans the load at %d ppi.</p></div>`,
+		edgeGrid(loadURL(b.Key())+"/reshape", i+1, p, b.Bed(),
 			fmt.Sprintf(`<p class="has-text-centered">print %d<br>%.1f × %.1f mm</p>`, i+1, p.Print.W, p.Print.H)),
-		b.ScanPPI)
+		b.Sitting().ScanPPI)
 }

@@ -1,10 +1,12 @@
-// Package batch runs one load of the scanner bed as a gobank-workflow
-// instance keyed by batch id: describe, preview, find prints, confirm, the
-// detail pass, develop, and an archived photo for each print.
+// Package batch runs a batch, one sitting of scanning, as a gobank-workflow
+// instance keyed by batch id, and each load of the scanner bed within it
+// as a child instance keyed by the load: describe, preview, find prints,
+// confirm, the detail pass, develop, and an archived photo for each print.
 //
-// A batch's state lives in its directory under the staging root, not in
-// the run: the workflow records only which steps are done, and every step
-// reads back what it needs, so a batch resumes after a crash.
+// A batch's and a load's state lives in its directory under the staging
+// root, not in the run: the workflow records only which steps are done,
+// and every step reads back what it needs, so a load resumes after a
+// crash.
 package batch
 
 import (
@@ -19,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -55,25 +58,38 @@ type Scanner interface {
 
 // Description is what the operator says about a batch before scanning.
 type Description struct {
-	Text       string
+	Text       string // the batch's title: what is being scanned
 	Person     pid.ID // the home person: whose collection the photos belong to
 	ScanPPI    int    // 600, 1200 or 2400
 	Provenance string // where the prints came from; may be unknown
 	Credit     string // the rights line the photos are shown under
 }
 
-// Batch is one load of the bed.
+// Batch is one sitting of scanning: one home person, provenance, credit
+// and scan ppi, over as many loads of the bed as the shoebox needs.
 type Batch struct {
-	ID          string    `yaml:"id"`
-	Description string    `yaml:"description"`
-	Person      pid.ID    `yaml:"person"`
-	PersonName  string    `yaml:"person_name"`
-	ScanPPI     int       `yaml:"scan_ppi"`
-	Provenance  string    `yaml:"provenance,omitempty"`
-	Credit      string    `yaml:"credit"`
-	Created     time.Time `yaml:"created"`
+	ID         string    `yaml:"id"`
+	Title      string    `yaml:"title"`
+	Person     pid.ID    `yaml:"person"`
+	PersonName string    `yaml:"person_name"`
+	ScanPPI    int       `yaml:"scan_ppi"`
+	Provenance string    `yaml:"provenance,omitempty"`
+	Credit     string    `yaml:"credit"`
+	Created    time.Time `yaml:"created"`
 
 	root string
+}
+
+// Load is one load of the bed within a batch: its description, preview,
+// prints, detail pass, masters and the photos archived from them.
+type Load struct {
+	Batch       string    `yaml:"batch"`
+	N           int       `yaml:"load"` // counted from 1 within the batch
+	Description string    `yaml:"description"`
+	Created     time.Time `yaml:"created"`
+
+	batch *Batch
+	root  string
 }
 
 // Person is the home of a photo: whose album it belongs to.
@@ -83,10 +99,12 @@ type Person struct {
 }
 
 // Photo is an archived photo's photo.yaml: what is known of one print at
-// capture. Its provenance and credit are its batch's.
+// capture. Its provenance and credit are its batch's, its description its
+// load's.
 type Photo struct {
 	ID          pid.ID `yaml:"id"`
 	Batch       string `yaml:"batch"`
+	Load        int    `yaml:"load,omitempty"`
 	Description string `yaml:"description"`
 	Home        Person `yaml:"home"`
 	Provenance  string `yaml:"provenance,omitempty"`
@@ -124,7 +142,7 @@ type found struct {
 func Describe(root string, reg register.Register, d Description, now time.Time) (*Batch, error) {
 	text, provenance, credit := oneLine(d.Text), oneLine(d.Provenance), oneLine(d.Credit)
 	if text == "" {
-		return nil, errors.New("a batch needs a description")
+		return nil, errors.New("a batch needs a title")
 	}
 	if credit == "" {
 		return nil, errors.New("a batch needs a credit: the terms its photos are shown under")
@@ -140,7 +158,7 @@ func Describe(root string, reg register.Register, d Description, now time.Time) 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	b := &Batch{Description: text, Person: d.Person, PersonName: name, ScanPPI: d.ScanPPI,
+	b := &Batch{Title: text, Person: d.Person, PersonName: name, ScanPPI: d.ScanPPI,
 		Provenance: provenance, Credit: credit, Created: now, root: root}
 	for n := 1; ; n++ {
 		b.ID = now.Format("20060102") + "-" + strconv.Itoa(n)
@@ -198,20 +216,175 @@ func (b *Batch) Dir() string { return filepath.Join(b.root, "batches", b.ID) }
 
 func (b *Batch) path(name string) string { return filepath.Join(b.Dir(), name) }
 
+// NewLoad adds the next load of the bed to the batch, described as given
+// or, left blank, by the batch's title. A finished batch takes no more.
+func (b *Batch) NewLoad(description string, now time.Time) (*Load, error) {
+	if b.Finished() {
+		return nil, fmt.Errorf("batch %s: scanning is finished", b.ID)
+	}
+	description = oneLine(description)
+	if description == "" {
+		description = b.Title
+	}
+	if err := os.MkdirAll(b.path("loads"), 0o755); err != nil {
+		return nil, err
+	}
+	l := &Load{Batch: b.ID, Description: description, Created: now, batch: b, root: b.root}
+	for l.N = 1; ; l.N++ {
+		err := os.Mkdir(l.Dir(), 0o755)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+	}
+	return l, writeYAML(l.path("load.yaml"), l)
+}
+
+// Loads are the batch's loads in order.
+func (b *Batch) Loads() ([]*Load, error) {
+	entries, err := os.ReadDir(b.path("loads"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var loads []*Load
+	for _, e := range entries {
+		n, err := strconv.Atoi(e.Name())
+		if err != nil || !e.IsDir() {
+			continue
+		}
+		l, err := b.Load(n)
+		if err != nil {
+			return nil, err
+		}
+		loads = append(loads, l)
+	}
+	slices.SortFunc(loads, func(a, b *Load) int { return a.N - b.N })
+	return loads, nil
+}
+
+// Load reads the batch's load n.
+func (b *Batch) Load(n int) (*Load, error) {
+	l := &Load{batch: b, root: b.root}
+	if err := readYAML(filepath.Join(b.path("loads"), strconv.Itoa(n), "load.yaml"), l); err != nil {
+		return nil, fmt.Errorf("load %s/%d: %w", b.ID, n, err)
+	}
+	return l, nil
+}
+
+// OpenLoad reads the load under root by its key, <batch id>/<n>.
+func OpenLoad(root, key string) (*Load, error) {
+	id, n, ok := strings.Cut(key, "/")
+	num, err := strconv.Atoi(n)
+	if !ok || err != nil {
+		return nil, fmt.Errorf("load %q: want <batch id>/<n>", key)
+	}
+	b, err := Open(root, id)
+	if err != nil {
+		return nil, err
+	}
+	return b.Load(num)
+}
+
+// Finished reports whether the operator has ended the batch's scanning.
+func (b *Batch) Finished() bool {
+	_, err := os.Stat(b.path("finished"))
+	return err == nil
+}
+
+// Finish ends the batch's scanning, once every load is through, and ticks
+// the batch's workflow on.
+func (b *Batch) Finish(ctx context.Context, store wf.Store) (*wf.RunRecord, error) {
+	loads, err := b.Loads()
+	if err != nil {
+		return nil, err
+	}
+	if len(loads) == 0 {
+		return nil, fmt.Errorf("batch %s: nothing has been scanned", b.ID)
+	}
+	for _, l := range loads {
+		if done, err := l.done(ctx, store); err != nil {
+			return nil, err
+		} else if !done {
+			return nil, fmt.Errorf("batch %s: load %d is not through yet", b.ID, l.N)
+		}
+	}
+	if err := os.WriteFile(b.path("finished"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644); err != nil {
+		return nil, err
+	}
+	return b.Run(ctx, store)
+}
+
+// Run ticks the batch's workflow once: it waits at loads until scanning
+// is finished and every load is through.
+func (b *Batch) Run(ctx context.Context, store wf.Store) (*wf.RunRecord, error) {
+	date := wf.NewBusinessDate(b.Created.Year(), b.Created.Month(), b.Created.Day())
+	return wf.NewRunner(store, nil).RunPipeline(ctx, Workflow, b.ID, date, b.Stages(ctx, store))
+}
+
+// Stages are the batch's workflow steps, in order.
+func (b *Batch) Stages(ctx context.Context, store wf.Store) []wf.Stage {
+	return []wf.Stage{
+		{Name: "describe", Run: func(context.Context) error {
+			_, err := os.Stat(b.path("batch.yaml"))
+			return err
+		}},
+		{Name: "loads", Until: func(context.Context) (bool, error) {
+			if !b.Finished() {
+				return false, nil
+			}
+			loads, err := b.Loads()
+			if err != nil {
+				return false, err
+			}
+			for _, l := range loads {
+				if done, err := l.done(ctx, store); err != nil || !done {
+					return false, err
+				}
+			}
+			return true, nil
+		}},
+	}
+}
+
+// Key identifies the load's workflow instance: <batch id>/<n>.
+func (l *Load) Key() string { return l.Batch + "/" + strconv.Itoa(l.N) }
+
+// Dir is the load's directory.
+func (l *Load) Dir() string { return filepath.Join(l.batch.Dir(), "loads", strconv.Itoa(l.N)) }
+
+func (l *Load) path(name string) string { return filepath.Join(l.Dir(), name) }
+
+// Sitting is the batch the load belongs to.
+func (l *Load) Sitting() *Batch { return l.batch }
+
+// done reports whether the load's workflow has completed.
+func (l *Load) done(ctx context.Context, store wf.Store) (bool, error) {
+	run, err := store.FindRunByKey(ctx, LoadWorkflow, l.Key())
+	if err != nil {
+		return false, err
+	}
+	return run != nil && run.Status == wf.StatusCompleted, nil
+}
+
 // Confirm accepts the prints found on the preview.
-func (b *Batch) Confirm() error {
+func (b *Load) Confirm() error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
-		return fmt.Errorf("batch %s: nothing to confirm yet: %w", b.ID, err)
+		return fmt.Errorf("load %s: nothing to confirm yet: %w", b.Key(), err)
 	}
 	if len(f.Prints) == 0 {
-		return fmt.Errorf("batch %s: no prints were found on the bed", b.ID)
+		return fmt.Errorf("load %s: no prints were found on the bed", b.Key())
 	}
 	return os.WriteFile(b.path("confirmed"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
 
 // Bed is the bed the preview covers, in mm; zero before the preview.
-func (b *Batch) Bed() find.Rect {
+func (b *Load) Bed() find.Rect {
 	var f found
 	readYAML(b.path("prints.yaml"), &f)
 	return f.Bed
@@ -219,7 +392,7 @@ func (b *Batch) Bed() find.Rect {
 
 // Adjust moves one edge of print n's region by mm, outwards when mm is
 // positive. Regions can be adjusted only until they are confirmed.
-func (b *Batch) Adjust(n int, e find.Edge, mm float64) error {
+func (b *Load) Adjust(n int, e find.Edge, mm float64) error {
 	f, err := b.editable(n)
 	if err != nil {
 		return err
@@ -234,23 +407,23 @@ func (b *Batch) Adjust(n int, e find.Edge, mm float64) error {
 
 // editable reads the prints for an edit, refusing once they are confirmed
 // or when there is no print n.
-func (b *Batch) editable(n int) (found, error) {
+func (b *Load) editable(n int) (found, error) {
 	var f found
 	if _, err := os.Stat(b.path("confirmed")); err == nil {
-		return f, fmt.Errorf("batch %s: the prints are confirmed; go back to the prints to change them", b.ID)
+		return f, fmt.Errorf("load %s: the prints are confirmed; go back to the prints to change them", b.Key())
 	}
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
-		return f, fmt.Errorf("batch %s: no prints yet: %w", b.ID, err)
+		return f, fmt.Errorf("load %s: no prints yet: %w", b.Key(), err)
 	}
 	if n < 0 || n >= len(f.Prints) {
-		return f, fmt.Errorf("batch %s has no print %d", b.ID, n+1)
+		return f, fmt.Errorf("load %s has no print %d", b.Key(), n+1)
 	}
 	return f, nil
 }
 
 // Split replaces print n's region, when it holds prints too close to be
 // told apart, with one region for each print within it.
-func (b *Batch) Split(n int) error {
+func (b *Load) Split(n int) error {
 	f, err := b.editable(n)
 	if err != nil {
 		return err
@@ -274,7 +447,7 @@ func (b *Batch) Split(n int) error {
 }
 
 // Remove drops print n's region: a mark that is not a print.
-func (b *Batch) Remove(n int) error {
+func (b *Load) Remove(n int) error {
 	f, err := b.editable(n)
 	if err != nil {
 		return err
@@ -287,13 +460,13 @@ func (b *Batch) Remove(n int) error {
 // batch goes back to confirm, the edge moves, and the prints are confirmed
 // again, so the next tick rescans them. A move that cannot happen is
 // refused before anything is undone.
-func (b *Batch) Reshape(ctx context.Context, runner *wf.Runner, n int, e find.Edge, mm float64) error {
+func (b *Load) Reshape(ctx context.Context, runner *wf.Runner, n int, e find.Edge, mm float64) error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
 	}
 	if n < 0 || n >= len(f.Prints) {
-		return fmt.Errorf("batch %s has no print %d", b.ID, n+1)
+		return fmt.Errorf("load %s has no print %d", b.Key(), n+1)
 	}
 	if _, err := f.Prints[n].Region.Move(e, mm, f.Bed); err != nil {
 		return fmt.Errorf("print %d: %w", n+1, err)
@@ -308,9 +481,9 @@ func (b *Batch) Reshape(ctx context.Context, runner *wf.Runner, n int, e find.Ed
 }
 
 // Accept passes the masters at the quality check.
-func (b *Batch) Accept() error {
+func (b *Load) Accept() error {
 	if _, err := os.Stat(b.path("masters")); err != nil {
-		return fmt.Errorf("batch %s: no masters to accept yet", b.ID)
+		return fmt.Errorf("load %s: no masters to accept yet", b.Key())
 	}
 	return os.WriteFile(b.path("accepted"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
@@ -320,12 +493,12 @@ func (b *Batch) Accept() error {
 // scan ppi first. What the operator decided at the steps cleared is
 // cleared with them: the confirmation, the acceptance, and, when the
 // prints are found again, their photo ids.
-func (b *Batch) Redo(ctx context.Context, runner *wf.Runner, from string, ppi int) error {
+func (b *Load) Redo(ctx context.Context, runner *wf.Runner, from string, ppi int) error {
 	if ppi != 0 && ppi != 600 && ppi != 1200 && ppi != 2400 {
 		return fmt.Errorf("scan ppi %d, want 600, 1200 or 2400", ppi)
 	}
 	stages := b.Stages(nil, nil)
-	if _, err := runner.Rewind(ctx, Workflow, b.ID, from, stages); err != nil {
+	if _, err := runner.Rewind(ctx, LoadWorkflow, b.Key(), from, stages); err != nil {
 		return err
 	}
 	cleared := map[string]bool{}
@@ -336,9 +509,9 @@ func (b *Batch) Redo(ctx context.Context, runner *wf.Runner, from string, ppi in
 			}
 		}
 	}
-	if ppi != 0 && ppi != b.ScanPPI {
-		b.ScanPPI = ppi
-		if err := writeYAML(b.path("batch.yaml"), b); err != nil {
+	if ppi != 0 && ppi != b.batch.ScanPPI {
+		b.batch.ScanPPI = ppi
+		if err := writeYAML(b.batch.path("batch.yaml"), b.batch); err != nil {
 			return err
 		}
 	}
@@ -375,11 +548,23 @@ func (b *Batch) Redo(ctx context.Context, runner *wf.Runner, from string, ppi in
 	return nil
 }
 
-// Run ticks the batch's workflow once: it runs until it completes, fails
-// or waits for the operator. progress, when given, is told each step as
-// it starts.
-func (b *Batch) Run(ctx context.Context, runner *wf.Runner, s Scanner, now func() time.Time, progress func(step string)) (*wf.RunRecord, error) {
+// Run ticks the load's workflow once: it runs until it completes, fails
+// or waits for the operator. The load runs as a child of its batch's
+// workflow, which is ticked first so that it exists to be the parent.
+// progress, when given, is told each step as it starts.
+func (b *Load) Run(ctx context.Context, store wf.Store, s Scanner, now func() time.Time, progress func(step string)) (*wf.RunRecord, error) {
 	date := wf.NewBusinessDate(b.Created.Year(), b.Created.Month(), b.Created.Day())
+	runner := wf.NewRunner(store, nil)
+	if _, err := b.batch.Run(ctx, store); err != nil {
+		return nil, err
+	}
+	parent, err := store.FindRunByKey(ctx, Workflow, b.Batch)
+	if err != nil || parent == nil {
+		return nil, fmt.Errorf("load %s: no run for batch %s: %v", b.Key(), b.Batch, err)
+	}
+	if _, err := runner.StartChild(ctx, parent.ID, LoadWorkflow, b.Key(), date); err != nil {
+		return nil, err
+	}
 	stages := b.Stages(s, now)
 	if progress != nil {
 		for i := range stages {
@@ -393,14 +578,14 @@ func (b *Batch) Run(ctx context.Context, runner *wf.Runner, s Scanner, now func(
 			}
 		}
 	}
-	return runner.RunPipeline(ctx, Workflow, b.ID, date, stages)
+	return runner.RunPipeline(ctx, LoadWorkflow, b.Key(), date, stages)
 }
 
-// Stages are the batch's workflow steps, in order.
-func (b *Batch) Stages(s Scanner, now func() time.Time) []wf.Stage {
+// Stages are the load's workflow steps, in order.
+func (b *Load) Stages(s Scanner, now func() time.Time) []wf.Stage {
 	return []wf.Stage{
 		{Name: "describe", Run: func(context.Context) error {
-			_, err := os.Stat(b.path("batch.yaml"))
+			_, err := os.Stat(b.path("load.yaml"))
 			return err
 		}},
 		{Name: "preview", Run: func(ctx context.Context) error {
@@ -438,10 +623,10 @@ func (b *Batch) Stages(s Scanner, now func() time.Time) []wf.Stage {
 	}
 }
 
-func (b *Batch) archive() string { return filepath.Join(b.root, "archive") }
+func (b *Load) archive() string { return filepath.Join(b.root, "archive") }
 
 // reserveIDs gives each confirmed print its photo id, once.
-func (b *Batch) reserveIDs(context.Context) error {
+func (b *Load) reserveIDs(context.Context) error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
@@ -467,18 +652,18 @@ func (b *Batch) reserveIDs(context.Context) error {
 }
 
 // pass is the detail pass the batch's prints call for, with the prints.
-func (b *Batch) pass() (plan.Pass, found, error) {
+func (b *Load) pass() (plan.Pass, found, error) {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return plan.Pass{}, f, err
 	}
-	p, err := plan.New(f.Prints, f.Bed, b.ScanPPI)
+	p, err := plan.New(f.Prints, f.Bed, b.batch.ScanPPI)
 	return p, f, err
 }
 
 // detailPass scans every region once and writes each master, with its
 // photo.yaml, into the batch's masters directory.
-func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time) error {
+func (b *Load) detailPass(ctx context.Context, s Scanner, now func() time.Time) error {
 	p, f, err := b.pass()
 	if err != nil {
 		return err
@@ -502,8 +687,8 @@ func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time)
 	for i, img := range imgs {
 		pr, m := f.Prints[i], p.Masters[i]
 		photo := Photo{
-			ID: f.IDs[i], Batch: b.ID, Description: b.Description,
-			Home: Person{b.Person, b.PersonName}, Provenance: b.Provenance, Credit: b.Credit,
+			ID: f.IDs[i], Batch: b.Batch, Load: b.N, Description: b.Description,
+			Home: Person{b.batch.Person, b.batch.PersonName}, Provenance: b.batch.Provenance, Credit: b.batch.Credit,
 			Front: Side{
 				Captured: captured, Print: pr.Print, Region: pr.Region, Bounds: pr.Region.On(f.Bed),
 				ScanPPI: p.ScanPPI, MasterPPI: m.PPI, Averaging: m.Factor,
@@ -526,13 +711,13 @@ func (b *Batch) detailPass(ctx context.Context, s Scanner, now func() time.Time)
 
 // Renditions is where the photo id's renditions at the current recipe
 // are kept: beside the archive, never in it.
-func (b *Batch) Renditions(id pid.ID) string {
+func (b *Load) Renditions(id pid.ID) string {
 	return filepath.Join(b.root, "renditions", id.String(), strconv.Itoa(rendition.Version))
 }
 
 // develop makes each master's renditions at the current recipe, skipping
 // a photo already developed at it.
-func (b *Batch) develop() error {
+func (b *Load) develop() error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
@@ -568,7 +753,7 @@ func (b *Batch) develop() error {
 
 // pack archives each print's master and photo.yaml as a photo, skipping
 // photos already complete, then clears the batch's masters.
-func (b *Batch) pack(now func() time.Time) error {
+func (b *Load) pack(now func() time.Time) error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
@@ -587,7 +772,7 @@ func (b *Batch) pack(now func() time.Time) error {
 				return err
 			}
 		}
-		if err := ph.Close(archive.Info{Batch: b.ID, Description: b.Description, Bagged: now()}); err != nil {
+		if err := ph.Close(archive.Info{Batch: b.Batch, Load: b.N, Description: b.Description, Bagged: now()}); err != nil {
 			return err
 		}
 	}
@@ -655,7 +840,7 @@ func readPNG(path string) (image.Image, error) {
 
 // Found is the prints found on the preview and, once confirmed, their
 // photo ids.
-func (b *Batch) Found() ([]find.Print, []pid.ID, error) {
+func (b *Load) Found() ([]find.Print, []pid.ID, error) {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return nil, nil, err
@@ -664,14 +849,14 @@ func (b *Batch) Found() ([]find.Print, []pid.ID, error) {
 }
 
 // FindPhoto is a photo's record and the path of its front master: in its
-// archive, or before packaging in its batch.
+// archive, or before packaging in its load.
 func FindPhoto(root string, id pid.ID) (Photo, string, error) {
 	var p Photo
 	data := filepath.Join(root, "archive", id.String(), "data")
 	if err := readYAML(filepath.Join(data, "photo.yaml"), &p); err == nil {
 		return p, filepath.Join(data, "front.tif"), nil
 	}
-	found, _ := filepath.Glob(filepath.Join(root, "batches", "*", "masters", id.String()+".yaml"))
+	found, _ := filepath.Glob(filepath.Join(root, "batches", "*", "loads", "*", "masters", id.String()+".yaml"))
 	if len(found) == 0 {
 		return Photo{}, "", fmt.Errorf("photo %s: %w", id, os.ErrNotExist)
 	}

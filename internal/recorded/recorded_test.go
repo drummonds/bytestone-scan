@@ -196,14 +196,18 @@ func TestABatchRunsOnTheRecording(t *testing.T) {
 	_, dir := one(t)
 	root := t.TempDir()
 	reg := registertest.Example
-	b, err := batch.Describe(root, reg, batch.Description{Text: "recorded", Person: 10, ScanPPI: 600, Credit: "Example family collection, CC BY 4.0"}, now)
+	sitting, err := batch.Describe(root, reg, batch.Description{Text: "recorded", Person: 10, ScanPPI: 600, Credit: "Example family collection, CC BY 4.0"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := sitting.NewLoad("", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	store := wf.NewMemStore()
 	rec := &Scanner{Dir: dir}
 	clock := func() time.Time { return now }
-	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), rec, clock, nil); err != nil {
+	if _, err := b.Run(context.Background(), store, rec, clock, nil); err != nil {
 		t.Fatal(err)
 	}
 	prints, _, err := b.Found()
@@ -213,7 +217,7 @@ func TestABatchRunsOnTheRecording(t *testing.T) {
 	if err := b.Confirm(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Run(context.Background(), wf.NewRunner(store, nil), rec, clock, nil); err != nil {
+	if _, err := b.Run(context.Background(), store, rec, clock, nil); err != nil {
 		t.Fatal(err)
 	}
 	photo, path, err := batch.FindPhoto(root, 0)
