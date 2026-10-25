@@ -74,8 +74,9 @@ func edgeGrid(action string, n int, p find.Print, bed find.Rect, middle string) 
 }
 
 // regionEditor is one print's close-up with rulers along its top and
-// left and arrows on its edges, at confirm.
-func regionEditor(b *batch.Scan, i int, p find.Print) string {
+// left and arrows on its edges, at confirm. Adjusting ends on the last
+// print, so that box offers Confirm and scan beside its own buttons.
+func regionEditor(b *batch.Scan, i int, p find.Print, last bool) string {
 	n := i + 1
 	id := scanURL(b.Key())
 	img := fmt.Sprintf(`<img src="%s/regions/%d.png" alt="Print %d's region, close up" style="display:block">`, id, n, n)
@@ -86,10 +87,19 @@ func regionEditor(b *batch.Scan, i int, p find.Print) string {
 <h2 class="title is-5">Print %d: %.1f × %.1f mm</h2>
 %s
 <p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm.</p>
-<div class="buttons mt-3">%s%s</div>
+<div class="buttons mt-3">%s%s%s</div>
 </div>`, n, n, p.Print.W, p.Print.H,
 		edgeGrid(id+"/adjust", n, p, b.Bed(), img),
-		turnedBack(p.Region), tickMM, smallStep, largeStep, splitButton(id, n, p), regionButton(id, "remove", n, "Remove this region", "is-danger is-light"))
+		turnedBack(p.Region), tickMM, smallStep, largeStep, confirmButton(id, last), splitButton(id, n, p), regionButton(id, "remove", n, "Remove this region", "is-danger is-light"))
+}
+
+// confirmButton is the last print's Confirm and scan, the same step as
+// the state bar's, where the adjusting ends.
+func confirmButton(url string, last bool) string {
+	if !last {
+		return ""
+	}
+	return fmt.Sprintf(`<form action="%s/confirm" method="post" style="display:inline"><button class="button is-small is-primary" type="submit">Confirm and scan ›</button></form> `, url)
 }
 
 // Rulers: a tick every tickMM, labelled every labelMM, in a band rulerPx
