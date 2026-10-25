@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +23,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
 // scanned is a staging root holding one batch whose one scan of two
@@ -136,11 +140,11 @@ func TestQualityPage(t *testing.T) {
 	)
 	page(t, h, "/photos/1?at.x=50&at.y=40", `src="photos/1/crop.png?`, "1:1, master pixels")
 	// Story 003: the rendition beside the master
-	page(t, h, "/photos/1", `src="photos/1/renditions/1/display.jpg"`, "Rendition, recipe 1", "Rendition")
-	if _, err := jpeg.Decode(get(t, h, "/photos/1/renditions/1/display.jpg").Body); err != nil {
+	page(t, h, "/photos/1", `src="photos/1/renditions/2/display.jpg"`, "Rendition, recipe 2", "Rendition")
+	if _, err := jpeg.Decode(get(t, h, "/photos/1/renditions/2/display.jpg").Body); err != nil {
 		t.Errorf("display.jpg: %v", err)
 	}
-	if w := get(t, h, "/photos/1/renditions/1/recipe.yaml"); w.Code != http.StatusNotFound {
+	if w := get(t, h, "/photos/1/renditions/2/recipe.yaml"); w.Code != http.StatusNotFound {
 		t.Errorf("only the images are served: %d", w.Code)
 	}
 	page(t, h, "/photos/1", "Corners at 1:1", `src="photos/1/crop.png?x=0&amp;y=0&amp;size=256"`)
@@ -162,6 +166,29 @@ func TestQualityPage(t *testing.T) {
 	}
 	if w := get(t, h, "/photos/zz"); w.Code != http.StatusNotFound {
 		t.Errorf("unknown photo: %d", w.Code)
+	}
+}
+
+// #75: a photo developed at an earlier recipe keeps its renditions on the
+// page until it is re-developed (#18): the latest recipe present is shown,
+// and the caption says which.
+func TestAnEarlierRecipesRenditionsAreShown(t *testing.T) {
+	a, _ := scanned(t)
+	h := a.Handler()
+	dir := filepath.Join(a.Staging, "renditions", "1")
+	if err := os.Rename(filepath.Join(dir, strconv.Itoa(rendition.Version)), filepath.Join(dir, "1")); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"recipe.yaml", "back/recipe.yaml"} {
+		raw, err := os.ReadFile(filepath.Join(dir, "1", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(dir, "1", f), []byte(strings.Replace(string(raw), "version: "+strconv.Itoa(rendition.Version), "version: 1", 1)), 0o644)
+	}
+	page(t, h, "/photos/1", `src="photos/1/renditions/1/display.jpg"`, "Rendition, recipe 1", `src="photos/1/renditions/1/back/display.jpg"`)
+	if _, err := jpeg.Decode(get(t, h, "/photos/1/renditions/1/display.jpg").Body); err != nil {
+		t.Errorf("display.jpg at recipe 1: %v", err)
 	}
 }
 

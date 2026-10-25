@@ -367,8 +367,8 @@ func TestTheBacksOfAScan(t *testing.T) {
 	if w := get(t, h, loc+"/backs.png"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/png" {
 		t.Errorf("backs.png: %d %s", w.Code, w.Header().Get("Content-Type"))
 	}
-	page(t, h, "/photos/1", "Back", "photos/1/renditions/1/back/display.jpg", "was the print turned over in place?", "300 ppi")
-	if w := get(t, h, "/photos/1/renditions/1/back/display.jpg"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/jpeg" {
+	page(t, h, "/photos/1", "Back", "photos/1/renditions/2/back/display.jpg", "was the print turned over in place?", "300 ppi")
+	if w := get(t, h, "/photos/1/renditions/2/back/display.jpg"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/jpeg" {
 		t.Errorf("back rendition: %d %s", w.Code, w.Header().Get("Content-Type"))
 	}
 
@@ -378,7 +378,7 @@ func TestTheBacksOfAScan(t *testing.T) {
 	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
 	page(t, h, loc, "Done")
-	page(t, h, "/photos/1", "Back", "photos/1/renditions/1/back/display.jpg")
+	page(t, h, "/photos/1", "Back", "photos/1/renditions/2/back/display.jpg")
 	if s.Details != 3 {
 		t.Errorf("%d passes, want 3", s.Details)
 	}
@@ -395,7 +395,7 @@ func TestSkippingTheBacks(t *testing.T) {
 	page(t, h, loc, "Preview the backs", "No backs")
 	act(t, a, h, loc+"/no-backs", nil)
 	page(t, h, loc, "Accept, then describe 1 photo ›", "Rescan the backs", "<td>none</td>")
-	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "renditions/1/back/") {
+	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "renditions/2/back/") {
 		t.Error("a back shown for a photo without one")
 	}
 	describeAll(t, a, h, loc)
