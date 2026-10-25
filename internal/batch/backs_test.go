@@ -14,6 +14,7 @@ import (
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
@@ -488,5 +489,34 @@ func TestABlankBackIsDeclaredPerPrint(t *testing.T) {
 	}
 	if err := b.SetBackBlank(0, false); err == nil {
 		t.Error("an archived photo's record changed")
+	}
+}
+
+// A back is checked against the front as the operator left it: when the
+// finder took a band of bed for print and the region was brought in to
+// the print, the back is the size of that print, not of the finder's.
+func TestABackIsCheckedAgainstTheAdjustedFront(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	scanner := &batchtest.Scanner{
+		Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}},
+		Backs:  []batchtest.Print{{X0: 20, Y0: 20, X1: 50, Y1: 50, Value: 50000}},
+	}
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	if err := b.Adjust(0, find.Right, -10); err != nil {
+		t.Fatal(err)
+	}
+	b.Confirm()
+	run(t, b, store, scanner)
+	backs(t, b, store, scanner)
+	var photo Photo
+	if err := readYAML(filepath.Join(b.path("masters"), "0.yaml"), &photo); err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(photo.Front.Print.W-30) > 0.5 {
+		t.Errorf("front print %.1f mm wide, want 30: the region's 30.5 less the margin", photo.Front.Print.W)
+	}
+	if back := photo.Back; back == nil || back.Review || math.Abs(back.Print.W-30) > 1 {
+		t.Errorf("back %+v, want a 30 mm back found and not for review", back)
 	}
 }

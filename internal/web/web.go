@@ -379,7 +379,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	}
 	if waiting == "confirm" && !busy {
 		for i, p := range prints {
-			c.HTML(regionEditor(l, i, p))
+			c.HTML(regionEditor(l, i, p, i == len(prints)-1))
 		}
 	}
 	c.HTML(a.diagnosisSection(l))
