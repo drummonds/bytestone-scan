@@ -402,3 +402,91 @@ func backs(t *testing.T, b *Scan, store wf.Store, scanner Scanner) {
 	}
 	run(t, b, store, scanner)
 }
+
+// #78: one print's back can be blank. Declared at the backs preview, that
+// photo goes on without a back while the others' backs are scanned;
+// declared at the quality check, a back already scanned is discarded with
+// its renditions, since a back the operator says should not exist is
+// withdrawn before the photo is bagged. The record says blank rather than
+// not scanned.
+func TestABlankBackIsDeclaredPerPrint(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	scanner := twoSided()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	if err := b.SetBackBlank(0, true); err == nil {
+		t.Error("a back declared blank before the print was scanned")
+	}
+	b.Confirm()
+	run(t, b, store, scanner)
+	b.Turned()
+	run(t, b, store, scanner) // the backs preview, waiting to be confirmed
+	if err := b.SetBackBlank(1, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SetBackBlank(1, false); err != nil {
+		t.Fatal("not yet scanned, the declaration can be withdrawn:", err)
+	}
+	if err := b.SetBackBlank(1, true); err != nil {
+		t.Fatal(err)
+	}
+	b.ConfirmBacks()
+	run(t, b, store, scanner)
+	var p0, p1 Photo
+	readYAML(filepath.Join(b.path("masters"), "0.yaml"), &p0)
+	readYAML(filepath.Join(b.path("masters"), "1.yaml"), &p1)
+	if p0.Back == nil || p0.BackBlank {
+		t.Errorf("photo 0: back %+v, blank %v", p0.Back, p0.BackBlank)
+	}
+	if p1.Back != nil || !p1.BackBlank {
+		t.Errorf("photo 1: back %+v, blank %v; want no back, blank", p1.Back, p1.BackBlank)
+	}
+	if _, err := os.Stat(b.path("masters/1.back.tif")); err == nil {
+		t.Error("a back master for the blank back")
+	}
+	if pr := photoRun(t, store, 1); runnertest.Steps(t, store, pr.ID)["accepted"] != wf.StatusWaiting {
+		t.Errorf("the blank-backed photo: %v, want waiting to be accepted", runnertest.Steps(t, store, pr.ID))
+	}
+	if err := b.SetBackBlank(1, false); err == nil {
+		t.Error("the backs scanned, the declaration withdrawn without a rescan")
+	}
+
+	// at the quality check: a back already scanned is discarded
+	if err := b.SetBackBlank(0, true); err != nil {
+		t.Fatal(err)
+	}
+	var again Photo // a fresh record: a key left out leaves a reused one as it was
+	readYAML(filepath.Join(b.path("masters"), "0.yaml"), &again)
+	if again.Back != nil || !again.BackBlank {
+		t.Errorf("photo 0 after: back %+v, blank %v", again.Back, again.BackBlank)
+	}
+	if _, err := os.Stat(b.path("masters/0.back.tif")); err == nil {
+		t.Error("the discarded back master is still there")
+	}
+	if _, err := os.Stat(filepath.Join(b.Renditions(0), "back")); err == nil {
+		t.Error("the discarded back's renditions are still there")
+	}
+	if _, err := rendition.Load(b.Renditions(0)); err != nil {
+		t.Error("the front's renditions went with the back:", err)
+	}
+	if err := b.DescribePhoto(0, PhotoDescription{Back: "Mum"}); err == nil {
+		t.Error("the back's text taken for a blank back")
+	}
+	described(t, b)
+	b.Accept()
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
+		t.Fatalf("%s %s", rec.Status, rec.Error)
+	}
+	for _, id := range []string{"0", "1"} {
+		if _, err := os.Stat(filepath.Join(root, "bags", id, "data", "back.tif")); err == nil {
+			t.Errorf("bag %s has a back.tif", id)
+		}
+		raw, _ := os.ReadFile(filepath.Join(root, "bags", id, "data", "photo.yaml"))
+		if !strings.Contains(string(raw), "back_blank: true") {
+			t.Errorf("bag %s's record does not say the back was blank:\n%s", id, raw)
+		}
+	}
+	if err := b.SetBackBlank(0, false); err == nil {
+		t.Error("an archived photo's record changed")
+	}
+}

@@ -333,18 +333,12 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	}
 	var t strings.Builder
 	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Photo</th><th>Back</th></tr></thead><tbody>`)
+	backsFound, _ := l.BacksFound()
 	for i, p := range prints {
 		photo, back := "—", "—"
 		if i < len(ids) {
 			photo = fmt.Sprintf(`<a href="photos/%s">%s</a>`, ids[i], ids[i])
-			if rec, _, err := batch.FindPhoto(a.Staging, ids[i]); err == nil && rec.Back != nil {
-				back = fmt.Sprintf("%.0f × %.0f mm", rec.Back.Print.W, rec.Back.Print.H)
-				if rec.Back.Review {
-					back = `<span class="tag is-danger">review</span> ` + html.EscapeString(rec.Back.Warning)
-				}
-			} else if l.BacksSkipped() {
-				back = "none"
-			}
+			back = a.backCell(l, ids[i], i, backsFound)
 		}
 		review := ""
 		if p.Review {
@@ -372,6 +366,47 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	}
 	c.HTML(a.diagnosisSection(l))
 	return c.Buffer()
+}
+
+// backCell is the scan page's word on print i's back: scanned, found on
+// the backs preview, skipped, or declared blank, with the button that
+// declares it blank, or not after all while the backs are still to scan.
+func (a *App) backCell(l *batch.Scan, id pid.ID, i int, found []batch.Side) string {
+	blankButton := func(blank bool, label string) string {
+		v := "0"
+		if blank {
+			v = "1"
+		}
+		return fmt.Sprintf(` <form action="%s/blank-back" method="post" style="display:inline"><input type="hidden" name="photo" value="%s"><input type="hidden" name="blank" value="%s"><button class="button is-small is-light" type="submit">%s</button></form>`,
+			scanURL(l.Key()), id, v, label)
+	}
+	rec, _, err := batch.FindPhoto(a.Staging, id)
+	archived := bag.Complete(filepath.Join(a.Staging, "bags"), id)
+	switch {
+	case err == nil && rec.BackBlank:
+		if l.BacksConfirmed() || archived {
+			return "blank"
+		}
+		return "blank" + blankButton(false, "Not blank")
+	case err == nil && rec.Back != nil:
+		cell := fmt.Sprintf("%.0f × %.0f mm", rec.Back.Print.W, rec.Back.Print.H)
+		if rec.Back.Review {
+			cell = `<span class="tag is-danger">review</span> ` + html.EscapeString(rec.Back.Warning)
+		}
+		if !archived {
+			cell += blankButton(true, "Blank")
+		}
+		return cell
+	case l.BacksSkipped():
+		return "none"
+	case i < len(found) && !l.BacksConfirmed():
+		cell := fmt.Sprintf("found %.0f × %.0f mm", found[i].Print.W, found[i].Print.H)
+		if found[i].Review {
+			cell = `<span class="tag is-danger">review</span> ` + html.EscapeString(found[i].Warning)
+		}
+		return cell + blankButton(true, "Blank")
+	}
+	return "—"
 }
 
 // diagnosisSection is the scan page's Keep for diagnosis form, at every
@@ -485,6 +520,9 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		}
 	}
 	// the back, once scanned: its rendition and what the backs preview said
+	if p.BackBlank {
+		c.HTML(`<h2 class="title is-5 mt-5">Back</h2><p class="help">The back is blank: not kept.</p>`)
+	}
 	if p.Back != nil {
 		c.HTML(`<h2 class="title is-5 mt-5">Back</h2>`)
 		if rec, err := rendition.Load(filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(rendition.Version), "back")); err == nil {

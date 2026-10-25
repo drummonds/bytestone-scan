@@ -438,6 +438,30 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
 	})
+	// A back declared blank, or not after all: the photo's record changes
+	// and a back master may go, so it waits for a step of the scan.
+	mux.HandleFunc("POST /batches/{id}/scans/{n}/blank-back", func(w http.ResponseWriter, r *http.Request) {
+		l, err := batch.OpenScan(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		id, err := pid.Parse(r.FormValue("photo"))
+		if err != nil {
+			fail(w, fmt.Errorf("photo %q: %w", r.FormValue("photo"), err), http.StatusUnprocessableEntity)
+			return
+		}
+		if busy, _, _ := a.busyWith(l.Key()); busy {
+			fail(w, fmt.Errorf("%w: wait for scan %s's step to finish", errBusy, l.Key()), http.StatusConflict)
+			return
+		}
+		if err := l.SetBackBlank(id, r.FormValue("blank") == "1"); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		a.tick(l) // a photo waiting for its back goes on without one
+		http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
+	})
 	mux.HandleFunc("POST /diagnosis/discard", func(w http.ResponseWriter, r *http.Request) {
 		if err := batch.DiscardDiagnosis(a.Staging, r.FormValue("name")); err != nil {
 			fail(w, err, http.StatusUnprocessableEntity)

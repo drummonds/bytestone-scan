@@ -137,7 +137,8 @@ type Photo struct {
 	Provenance  string `yaml:"provenance,omitempty"`
 	Credit      string `yaml:"credit"`
 	Front       Side   `yaml:"front"`
-	Back        *Side  `yaml:"back,omitempty"` // once the backs are scanned
+	Back        *Side  `yaml:"back,omitempty"`       // once the backs are scanned
+	BackBlank   bool   `yaml:"back_blank,omitempty"` // the operator said the back is blank: not scanned, or discarded
 	// Claims are what the operator said of the photo at its describe
 	// step; Described is when, nothing known being an answer too.
 	Claims    []Claim    `yaml:"claims,omitempty"`
@@ -792,6 +793,48 @@ func (b *Scan) Turned() error {
 	return os.WriteFile(b.path("turned"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
 
+// SetBackBlank records that photo id's back is blank, or withdraws that.
+// A back already scanned is discarded with its renditions: a back the
+// operator says should not exist is withdrawn before the photo is bagged,
+// which is not an alteration of a master. Withdrawing the declaration
+// once the backs are scanned needs a rescan of the backs, which scans
+// this one too.
+func (b *Scan) SetBackBlank(id pid.ID, blank bool) error {
+	if bag.Complete(b.bags(), id) {
+		return fmt.Errorf("photo %s is archived; its record is no longer the scan's to change", id)
+	}
+	var photo Photo
+	if err := readYAML(b.masterPath(id, "yaml"), &photo); err != nil {
+		return fmt.Errorf("photo %s: not scanned yet: %w", id, err)
+	}
+	if blank {
+		if err := os.Remove(b.masterPath(id, "back")); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := os.RemoveAll(filepath.Join(b.Renditions(id), "back")); err != nil {
+			return err
+		}
+		photo.Back = nil
+	} else if photo.BackBlank && b.BacksConfirmed() {
+		return fmt.Errorf("photo %s: the backs are scanned; rescan them to scan this one", id)
+	}
+	photo.BackBlank = blank
+	return writeYAML(b.masterPath(id, "yaml"), photo)
+}
+
+// backBlank reports whether photo id's back was declared blank.
+func (b *Scan) backBlank(id pid.ID) bool {
+	var photo Photo
+	return readYAML(b.masterPath(id, "yaml"), &photo) == nil && photo.BackBlank
+}
+
+// BacksConfirmed reports whether the operator confirmed the backs on
+// their preview, so that they are, or are being, scanned.
+func (b *Scan) BacksConfirmed() bool {
+	_, err := os.Stat(b.path("backs-confirmed"))
+	return err == nil
+}
+
 // NoBacks records that the prints have nothing on their backs, once the
 // fronts are scanned: the backs are skipped and each photo goes on
 // without one.
@@ -1008,10 +1051,10 @@ func (b *Scan) photoStages(id pid.ID, env Env) []wf.Stage {
 		{Name: "develop front", Run: func(context.Context) error { return b.develop(id, "front") }},
 		{Name: "awaiting back", Until: func(context.Context) (bool, error) {
 			_, err := os.Stat(b.masterPath(id, "back"))
-			return err == nil || b.BacksSkipped(), nil
+			return err == nil || b.BacksSkipped() || b.backBlank(id), nil
 		}},
 		{Name: "develop back", Run: func(context.Context) error {
-			if _, err := os.Stat(b.masterPath(id, "back")); err != nil && b.BacksSkipped() {
+			if _, err := os.Stat(b.masterPath(id, "back")); err != nil && (b.BacksSkipped() || b.backBlank(id)) {
 				return nil
 			}
 			return b.develop(id, "back")
@@ -1476,6 +1519,9 @@ func (b *Scan) backsPass(ctx context.Context, s Scanner, now func() time.Time) e
 		var photo Photo
 		if err := readYAML(b.masterPath(f.IDs[i], "yaml"), &photo); err != nil {
 			return err
+		}
+		if photo.BackBlank {
+			continue // declared blank: no back master, and the record says so
 		}
 		side := backs[i]
 		side.Captured, side.ScanPPI, side.MasterPPI, side.Averaging = captured, p.ScanPPI, p.Masters[i].PPI, p.Masters[i].Factor
