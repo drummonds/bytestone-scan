@@ -322,7 +322,27 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 	act("backs", func(r *http.Request, l *batch.Scan) error { return l.Turned() })
 	act("no-backs", func(r *http.Request, l *batch.Scan) error { return l.NoBacks() })
-	act("confirm-backs", func(r *http.Request, l *batch.Scan) error { return l.ConfirmBacks() })
+	// the ticks say which backs are scanned: an unticked back is declared
+	// blank, a ticked one not after all; a post without them scans every
+	// back not already declared blank
+	act("confirm-backs", func(r *http.Request, l *batch.Scan) error {
+		if r.FormValue("select") != "" {
+			_, ids, err := l.Found()
+			if err != nil {
+				return err
+			}
+			ticked := map[string]bool{}
+			for _, n := range r.Form["scan"] {
+				ticked[n] = true
+			}
+			for i, id := range ids {
+				if err := l.SetBackBlank(id, !ticked[strconv.Itoa(i+1)]); err != nil {
+					return err
+				}
+			}
+		}
+		return l.ConfirmBacks()
+	})
 	// previewing again, and a rescan from the quality check, go through
 	// the backs preview with the prints still turned
 	act("preview-backs", func(r *http.Request, l *batch.Scan) error {
@@ -579,7 +599,7 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then preview the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
 			button("backs", "Preview the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "backs":
-		notice := "Check that each back lies where its front did, then scan the backs. A print that moved is put back and the backs previewed again."
+		notice := "Check that each back lies where its front did, and untick any back with nothing on it, then scan the backs. A print that moved is put back and the backs previewed again."
 		if backs, err := l.BacksFound(); err == nil {
 			var warnings []string
 			for i, s := range backs {
@@ -592,7 +612,8 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 			}
 		}
 		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
-			button("confirm-backs", "Scan the backs ›", "is-primary") + button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
+			fmt.Sprintf(`<form id="scan-backs" action="%s/confirm-backs" method="post" style="display:inline"><input type="hidden" name="select" value="1"><button class="button is-primary" type="submit">Scan the backs ›</button></form> `, scanURL(l.Key())) +
+			button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
 		// the forward step is what accepting leads to: the describing
 		// still to do, or, every photo described, the archive

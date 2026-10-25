@@ -185,6 +185,22 @@ func (b *Scan) CloseUp(n int) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
+	return b.closeUp(img, n)
+}
+
+// BackCloseUp is print n's back on the backs preview, in the same view as
+// the front's close-up, once the backs are previewed.
+func (b *Scan) BackCloseUp(n int) (image.Image, error) {
+	img, err := readPNG(b.path("backs.png"))
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: the backs are not previewed yet: %w", b.Key(), err)
+	}
+	return b.closeUp(img, n)
+}
+
+// closeUp is print n's view of the 150 ppi bed image img, enlarged, with
+// the print and its region outlined.
+func (b *Scan) closeUp(img image.Image, n int) (image.Image, error) {
 	prints, _, err := b.Found()
 	if err != nil {
 		return nil, err
