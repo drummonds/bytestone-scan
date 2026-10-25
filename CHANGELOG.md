@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-25
+
+ - Saving a photo's description goes on to the scan's next photo still to be described, and after the last back to the batch, where the next move is another scan or finishing; A moved region edge carries the print's own edge with it, 0.5 mm inside, so the front's renditions are cropped to the print as the operator left it and the back is checked against that size, not against what the finder first took for the print
+
+### Changed
+
+- Saving a photo's description goes on to the scan's next photo still to be described, and after the last back to the batch, where the next move is another scan or finishing (#87)
+
+### Fixed
+
+- A moved region edge carries the print's own edge with it, 0.5 mm inside, so the front's renditions are cropped to the print as the operator left it and the back is checked against that size, not against what the finder first took for the print (#92)
+
 ## [0.17.0] - 2026-10-25
 
  - The last print's region editor offers Confirm and scan beside Remove this region, so the crop is confirmed where adjusting it ends; No backs is offered once the backs are previewed as well as before, since seeing them is often what shows they are blank
