@@ -568,7 +568,7 @@ func TestScanButtonsSayWhichWayTheyGo(t *testing.T) {
 	act(t, a, h, loc+"/confirm", nil)
 	page(t, h, loc, ">Preview the backs ›<", ">No backs ›<", ">‹ Back to the prints<")
 	act(t, a, h, loc+"/backs", nil)
-	page(t, h, loc, ">Scan the backs ›<", ">Preview the backs again<", ">‹ Back to the prints<")
+	page(t, h, loc, ">Scan the backs ›<", ">No backs ›<", ">Preview the backs again<", ">‹ Back to the prints<")
 	act(t, a, h, loc+"/confirm-backs", nil)
 	page(t, h, loc, ">Accept, then describe 2 photos ›<", ">Rescan the backs<", ">‹ Back to the prints<", "2 photos still to be described")
 	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
@@ -673,6 +673,27 @@ func TestDescribingAPhotoStillBeingScannedWaits(t *testing.T) {
 	close(sc.release)
 	a.wait()
 	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
+}
+
+// #86: seeing the backs on their preview is often what shows they are
+// blank, so No backs is offered at the backs wait as well as before the
+// preview, and takes the scan on to the quality check without a back.
+func TestSkippingTheBacksAfterTheirPreview(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"blank after all"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	page(t, h, loc, ">Scan the backs ›<", ">No backs ›<", ">Preview the backs again<")
+	act(t, a, h, loc+"/no-backs", nil)
+	page(t, h, loc, "Accept, then describe 1 photo ›", "<td>none</td>")
+	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "renditions/2/back/") {
+		t.Error("a back shown for a photo without one")
+	}
+	if s.Details != 1 || s.Previews != 2 {
+		t.Errorf("%d passes, %d previews; want 1 and 2", s.Details, s.Previews)
+	}
 }
 
 // #85: adjusting the crop ends on the last print's box, so that box
