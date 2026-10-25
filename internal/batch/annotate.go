@@ -100,7 +100,8 @@ func (b *Scan) Annotated() (image.Image, error) {
 }
 
 // AnnotatedBacks is the backs preview with the fronts' regions drawn on
-// it: where each back was scanned; cut to the regions like the preview.
+// it, where each back is scanned, and each back as found in blue; cut to
+// the regions like the preview.
 func (b *Scan) AnnotatedBacks() (image.Image, error) {
 	img, err := readPNG(b.path("backs.png"))
 	if err != nil {
@@ -110,11 +111,71 @@ func (b *Scan) AnnotatedBacks() (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	return b.cut(annotate(img, prints, PreviewPPI), prints), nil
+	out := annotate(img, prints, PreviewPPI)
+	if backs, err := b.BacksFound(); err == nil {
+		mm := 25.4 / float64(PreviewPPI)
+		for _, s := range backs {
+			corners := s.Print.Corners()
+			for k := range corners {
+				p, q := corners[k], corners[(k+1)%len(corners)]
+				line(out, p[0]/mm, p[1]/mm, q[0]/mm, q[1]/mm, color.RGBA{0, 90, 220, 255})
+			}
+		}
+	}
+	return b.cut(out, prints), nil
 }
 
 // closeUpWidth is the width a close-up is enlarged towards, at most 4×.
 const closeUpWidth = 480
+
+// closeUpContext is how far round the region a close-up shows, mm.
+const closeUpContext = 6.0
+
+// closeUpView is the box of the bed a close-up of p shows, the
+// enlargement k, and the view's size in preview pixels.
+func closeUpView(p find.Print, bed find.Rect) (view find.Box, k, w, h int) {
+	const mm = 25.4 / PreviewPPI
+	view = p.Region
+	view.W += 2 * closeUpContext
+	view.H += 2 * closeUpContext
+	if view.Angle == 0 {
+		view = find.BoxOf(view.On(bed)) // square to the bed, it stops at the bed as before
+	}
+	w, h = int(view.W/mm), int(view.H/mm)
+	k = max(1, min(4, closeUpWidth/max(1, w)))
+	return view, k, w, h
+}
+
+// CloseUpFrame is where print n's close-up lies in the region's own
+// frame: the image's size in pixels, its scale in pixels per mm, and the
+// region-frame coordinates (u along the region's width from its left
+// edge, v down from its top) at the image's top left corner.
+type CloseUpFrame struct {
+	W, H   int
+	Scale  float64
+	U0, V0 float64
+}
+
+// CloseUpFrame is the frame of print n's close-up, for drawing on it.
+func (b *Scan) CloseUpFrame(n int) (CloseUpFrame, error) {
+	prints, _, err := b.Found()
+	if err != nil {
+		return CloseUpFrame{}, err
+	}
+	if n < 0 || n >= len(prints) {
+		return CloseUpFrame{}, fmt.Errorf("scan %s has no print %d", b.Key(), n+1)
+	}
+	const mm = 25.4 / PreviewPPI
+	p := prints[n]
+	view, k, w, h := closeUpView(p, b.Bed())
+	f := CloseUpFrame{W: w * k, H: h * k, Scale: float64(k) / mm, U0: -closeUpContext, V0: -closeUpContext}
+	if p.Region.Angle == 0 {
+		// clamped to the bed: the image may start short of the context
+		f.U0 = view.CX - view.W/2 - (p.Region.CX - p.Region.W/2)
+		f.V0 = view.CY - view.H/2 - (p.Region.CY - p.Region.H/2)
+	}
+	return f, nil
+}
 
 // CloseUp is print n's region on the preview with 6 mm round it, turned
 // so the print sits square and enlarged pixel for pixel: the region
@@ -133,15 +194,7 @@ func (b *Scan) CloseUp(n int) (image.Image, error) {
 	}
 	const mm = 25.4 / PreviewPPI
 	p := prints[n]
-	const context = 6.0
-	view := p.Region
-	view.W += 2 * context
-	view.H += 2 * context
-	if view.Angle == 0 {
-		view = find.BoxOf(view.On(b.Bed())) // square to the bed, it stops at the bed as before
-	}
-	w, h := int(view.W/mm), int(view.H/mm)
-	k := max(1, min(4, closeUpWidth/max(1, w)))
+	view, k, w, h := closeUpView(p, b.Bed())
 	out := image.NewRGBA(image.Rect(0, 0, w*k, h*k))
 	off := color.RGBA{200, 200, 200, 255} // beyond the bed
 	for y := range h {

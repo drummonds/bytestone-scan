@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"database/sql"
 	"image/jpeg"
 	"image/png"
 	"net/http"
@@ -14,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	_ "git.bytestone.uk/hum3/go-postgres"
 	wf "git.bytestone.uk/hum3/gobank-workflow"
+	"git.bytestone.uk/hum3/gobank-workflow/sqlstore"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
@@ -51,6 +54,8 @@ func scanned(t *testing.T) (*App, *batch.Scan) {
 	b.Confirm()
 	b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil)
 	b.Turned()
+	b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil)
+	b.ConfirmBacks()
 	b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil)
 	for _, id := range []pid.ID{0, 1} {
 		b.DescribePhoto(id, batch.PhotoDescription{})
@@ -184,5 +189,35 @@ func TestAnEarlierRecipesRenditionsAreShown(t *testing.T) {
 	page(t, h, "/photos/1", `src="photos/1/renditions/1/display.jpg"`, "Rendition, recipe 1", `src="photos/1/renditions/1/back/display.jpg"`)
 	if _, err := jpeg.Decode(get(t, h, "/photos/1/renditions/1/display.jpg").Body); err != nil {
 		t.Errorf("display.jpg at recipe 1: %v", err)
+	}
+}
+
+// #63: the workflow database is browsed in the app, read-only, through
+// go-dbexplorer at db/, from a Database entry in the navbar; without a
+// database (a store in memory) there is neither.
+func TestTheDatabaseExplorer(t *testing.T) {
+	db, err := sql.Open("pglike", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := sqlstore.New(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{Staging: t.TempDir(), Store: store, DB: db, Archive: archivetest.Example()}
+	h := a.Handler()
+	page(t, h, "/batches", `href="db/"`, "Database")
+	page(t, h, "/db/", "workflow_runs", "workflow_steps", `href="db/workflow_runs`)
+	page(t, h, "/db/workflow_runs", "workflow_type", "business_date")
+	page(t, h, "/db/workflow_runs?sort=created_at&dir=desc", "workflow_runs")
+
+	none := &App{Staging: t.TempDir(), Store: wf.NewMemStore(), Archive: archivetest.Example()}
+	h = none.Handler()
+	if body := get(t, h, "/batches").Body.String(); strings.Contains(body, `href="db/"`) {
+		t.Error("a Database entry without a database")
+	}
+	if w := get(t, h, "/db/"); w.Code != http.StatusNotFound {
+		t.Errorf("the explorer without a database: %d", w.Code)
 	}
 }

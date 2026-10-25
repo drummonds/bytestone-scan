@@ -4,6 +4,7 @@
 package web
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"html"
@@ -20,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	dbexplorer "git.bytestone.uk/hum3/go-dbexplorer"
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/view"
 	"git.bytestone.uk/hum3/lofigui"
@@ -43,6 +45,7 @@ const (
 type App struct {
 	Staging string
 	Store   wf.Store
+	DB      *sql.DB // the workflow database the store reads, for the explorer; nil without one
 	Scanner batch.Scanner
 	Archive archive.Service
 	Now     func() time.Time
@@ -67,6 +70,7 @@ const layout = `<!DOCTYPE html>
 <a class="navbar-item" href="batches">Batches</a>
 <a class="navbar-item" href="batches/new">New batch</a>
 <a class="navbar-item" href="workflows/definitions">Workflows</a>
+{{if .database}}<a class="navbar-item" href="db/">Database</a>{{end}}
 <a class="navbar-item" href="about">About</a>
 {{.status}}
 </div></nav>
@@ -79,7 +83,7 @@ func (a *App) Handler() http.Handler {
 		panic(err)
 	}
 	render := func(w http.ResponseWriter, title string, content string) {
-		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator()})
+		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "database": a.DB != nil})
 	}
 	views := &view.Views{
 		Store:       a.Store,
@@ -99,6 +103,20 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /assets/bulma.min.css", lofigui.ServeBulma)
 	mux.HandleFunc("GET /favicon.ico", lofigui.ServeFavicon)
 	mux.Handle("/workflows/", http.StripPrefix("/workflows", views.Handler()))
+	// the workflow database, browsed read-only through go-dbexplorer in
+	// the app's own layout; its links are relative to db/
+	mux.HandleFunc("GET /db/", func(w http.ResponseWriter, r *http.Request) {
+		if a.DB == nil {
+			http.NotFound(w, r)
+			return
+		}
+		ex := &dbexplorer.Explorer{DB: a.DB, BasePath: "db", UUIDLen: 8, TimeFormat: "2006-01-02 15:04:05"}
+		rel := strings.TrimPrefix(r.URL.Path, "/db")
+		if r.URL.RawQuery != "" {
+			rel += "?" + r.URL.RawQuery
+		}
+		render(w, "Database", ex.Render(r.Context(), rel))
+	})
 
 	mux.HandleFunc("GET /batches/{id}", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
@@ -328,22 +346,17 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	prints, ids, err := l.Found()
 	if err != nil {
 		c.HTML(`<p>No preview yet.</p>`)
+		c.HTML(a.diagnosisSection(l))
 		return c.Buffer()
 	}
 	var t strings.Builder
 	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Photo</th><th>Back</th></tr></thead><tbody>`)
+	backsFound, _ := l.BacksFound()
 	for i, p := range prints {
 		photo, back := "—", "—"
 		if i < len(ids) {
 			photo = fmt.Sprintf(`<a href="photos/%s">%s</a>`, ids[i], ids[i])
-			if rec, _, err := batch.FindPhoto(a.Staging, ids[i]); err == nil && rec.Back != nil {
-				back = fmt.Sprintf("%.0f × %.0f mm", rec.Back.Print.W, rec.Back.Print.H)
-				if rec.Back.Review {
-					back = `<span class="tag is-danger">review</span> ` + html.EscapeString(rec.Back.Warning)
-				}
-			} else if l.BacksSkipped() {
-				back = "none"
-			}
+			back = a.backCell(l, ids[i], i, backsFound)
 		}
 		review := ""
 		if p.Review {
@@ -362,14 +375,88 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 <figcaption class="help">Preview, 150 ppi%s, with the regions found: green as found, red to review.</figcaption></figure>`, scanURL(l.Key()), cut))
 	if _, err := os.Stat(filepath.Join(l.Dir(), "backs.png")); err == nil {
 		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="%s/backs.png" alt="The bed turned over, with the fronts' regions">
-<figcaption class="help">The backs, 150 ppi%s, with the fronts' regions: each back was scanned where its front lay.</figcaption></figure>`, scanURL(l.Key()), cut))
+<figcaption class="help">The backs, 150 ppi%s: the fronts' regions in green (red to review), where each back is scanned, and each back as found in blue.</figcaption></figure>`, scanURL(l.Key()), cut))
 	}
 	if waiting == "confirm" && !busy {
 		for i, p := range prints {
 			c.HTML(regionEditor(l, i, p))
 		}
 	}
+	c.HTML(a.diagnosisSection(l))
 	return c.Buffer()
+}
+
+// backCell is the scan page's word on print i's back: scanned, found on
+// the backs preview, skipped, or declared blank, with the button that
+// declares it blank, or not after all while the backs are still to scan.
+func (a *App) backCell(l *batch.Scan, id pid.ID, i int, found []batch.Side) string {
+	blankButton := func(blank bool, label string) string {
+		v := "0"
+		if blank {
+			v = "1"
+		}
+		return fmt.Sprintf(` <form action="%s/blank-back" method="post" style="display:inline"><input type="hidden" name="photo" value="%s"><input type="hidden" name="blank" value="%s"><button class="button is-small is-light" type="submit">%s</button></form>`,
+			scanURL(l.Key()), id, v, label)
+	}
+	rec, _, err := batch.FindPhoto(a.Staging, id)
+	archived := bag.Complete(filepath.Join(a.Staging, "bags"), id)
+	switch {
+	case err == nil && rec.BackBlank:
+		if l.BacksConfirmed() || archived {
+			return "blank"
+		}
+		return "blank" + blankButton(false, "Not blank")
+	case err == nil && rec.Back != nil:
+		cell := fmt.Sprintf("%.0f × %.0f mm", rec.Back.Print.W, rec.Back.Print.H)
+		if rec.Back.Review {
+			cell = `<span class="tag is-danger">review</span> ` + html.EscapeString(rec.Back.Warning)
+		}
+		if !archived {
+			cell += blankButton(true, "Blank")
+		}
+		return cell
+	case l.BacksSkipped():
+		return "none"
+	case i < len(found) && !l.BacksConfirmed():
+		cell := fmt.Sprintf("found %.0f × %.0f mm", found[i].Print.W, found[i].Print.H)
+		if found[i].Review {
+			cell = `<span class="tag is-danger">review</span> ` + html.EscapeString(found[i].Warning)
+		}
+		return cell + blankButton(true, "Blank")
+	}
+	return "—"
+}
+
+// diagnosisSection is the scan page's Keep for diagnosis form, at every
+// state, and what has been kept of this scan so far.
+func (a *App) diagnosisSection(l *batch.Scan) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `<h2 class="title is-5 mt-5">Diagnosis</h2>
+<form action="%s/keep" method="post" class="box">
+<p class="help">When something has gone wrong, keep what the scan has now, with a note, where a purge and a batch delete leave it. The scan itself is untouched.</p>
+<div class="field has-addons"><div class="control is-expanded"><input class="input is-small" type="text" name="note" placeholder="what you saw"></div>
+<div class="control"><button class="button is-small" type="submit">Keep for diagnosis</button></div></div>
+<label class="checkbox is-size-7"><input type="checkbox" name="masters"> include the masters</label>
+</form>`, scanURL(l.Key()))
+	kept, _ := batch.ListDiagnoses(a.Staging)
+	var rows []string
+	for _, d := range kept {
+		if d.Scan == l.Key() {
+			rows = append(rows, fmt.Sprintf(`<li><code>%s</code> %s: %s</li>`, html.EscapeString(d.Name), d.Kept.Local().Format("2 Jan 2006 15:04"), html.EscapeString(orNothing(d.Note))))
+		}
+	}
+	if len(rows) > 0 {
+		b.WriteString(`<p>Kept for diagnosis:</p><ul>` + strings.Join(rows, "") + `</ul>`)
+	}
+	return b.String()
+}
+
+// orNothing is s, or a dash when blank.
+func orNothing(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 // photo reads the photo the request names, writing a 404 when there is none.
@@ -451,6 +538,9 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		}
 	}
 	// the back, once scanned: its rendition and what the backs preview said
+	if p.BackBlank {
+		c.HTML(`<h2 class="title is-5 mt-5">Back</h2><p class="help">The back is blank: not kept.</p>`)
+	}
 	if p.Back != nil {
 		c.HTML(`<h2 class="title is-5 mt-5">Back</h2>`)
 		if rec, err := rendition.Load(filepath.Join(a.renditionDir(id), "back")); err == nil {
