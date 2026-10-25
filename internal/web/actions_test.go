@@ -576,3 +576,76 @@ func TestTheAcceptedNoticeHasADescribeButton(t *testing.T) {
 		t.Error("every photo described, yet a Describe button remains")
 	}
 }
+
+// #74: describing a photo needs no scanner. Once the photo's run has
+// reached the accepted wait, or waits to be described, Save records the
+// description whatever the scanner is doing, and the photo's run is
+// ticked when the step running ends.
+func TestDescribingAPhotoWhileTheScannerIsBusy(t *testing.T) {
+	a := live(t, &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}})
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "1 photo waiting to be described")
+
+	sc := hold(&batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}})
+	a.Scanner = sc
+	if w := post(t, h, "/batches", url.Values{"title": {"second"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("second batch: %d %s", w.Code, w.Body)
+	}
+	<-sc.started
+	if w := post(t, h, "/photos/1/describe", url.Values{"caption": {"the crew"}, "skip": {"1"}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("describe while the scanner is busy with another scan: %d %s", w.Code, w.Body)
+	}
+	if p, _, err := batch.FindPhoto(a.Staging, 1); err != nil || p.Described == nil || p.Caption != "the crew" {
+		t.Errorf("description not recorded: %+v, %v", p, err)
+	}
+	close(sc.release)
+	a.wait()
+	page(t, h, loc, "Done")
+}
+
+// holdBacks scans the fronts freely and holds the backs preview.
+type holdBacks struct {
+	*batchtest.Scanner
+	previews         int
+	started, release chan struct{}
+}
+
+func (s *holdBacks) Preview(ctx context.Context) (image.Image, error) {
+	s.previews++
+	if s.previews == 2 {
+		close(s.started)
+		<-s.release
+	}
+	return s.Scanner.Preview(ctx)
+}
+
+func (s *holdBacks) Detail(ctx context.Context, area find.Rect, ppi int) (io.ReadCloser, error) {
+	return s.Scanner.Detail(ctx, area, ppi)
+}
+
+// #74: a photo its scan is still scanning (its run short of the accepted
+// wait while a step runs) cannot be described until the step ends, since
+// the step writes the photo's record too.
+func TestDescribingAPhotoStillBeingScannedWaits(t *testing.T) {
+	sc := &holdBacks{Scanner: &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}, started: make(chan struct{}), release: make(chan struct{})}
+	a := live(t, sc.Scanner)
+	a.Scanner = sc
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"held backs"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	if w := post(t, h, loc+"/backs", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("backs: %d %s", w.Code, w.Body)
+	}
+	<-sc.started
+	if w := post(t, h, "/photos/0/describe", url.Values{"skip": {"1"}}); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "wait for scan") {
+		t.Errorf("describe during the backs pass: %d %s", w.Code, w.Body)
+	}
+	close(sc.release)
+	a.wait()
+	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
+}

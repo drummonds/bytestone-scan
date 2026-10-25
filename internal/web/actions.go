@@ -29,6 +29,7 @@ type worker struct {
 	step    string // the workflow step running, once one has started
 	stepAt  time.Time
 	running sync.WaitGroup
+	pending []*batch.Scan // scans to run to their next wait once the step running ends
 }
 
 var errBusy = errors.New("busy")
@@ -46,6 +47,31 @@ func (a *App) start(l *batch.Scan, prepare func() error) error {
 			return err
 		}
 	}
+	a.launch(l)
+	return nil
+}
+
+// tick runs the scan's workflow to its next wait: now when the worker is
+// idle, else once the step running ends. For what needs no scanner and
+// cannot be refused, such as a photo's description.
+func (a *App) tick(l *batch.Scan) {
+	a.work.mu.Lock()
+	defer a.work.mu.Unlock()
+	if a.work.scan == "" {
+		a.launch(l)
+		return
+	}
+	for _, p := range a.work.pending {
+		if p.Key() == l.Key() {
+			return
+		}
+	}
+	a.work.pending = append(a.work.pending, l)
+}
+
+// launch runs the scan's workflow in the background, then the first scan
+// pending, if any. The lock is held.
+func (a *App) launch(l *batch.Scan) {
 	a.work.scan, a.work.started = l.Key(), time.Now()
 	a.work.step, a.work.stepAt = "", a.work.started
 	a.work.running.Go(func() {
@@ -57,9 +83,13 @@ func (a *App) start(l *batch.Scan, prepare func() error) error {
 		})
 		a.work.mu.Lock()
 		a.work.scan = ""
+		if len(a.work.pending) > 0 {
+			next := a.work.pending[0]
+			a.work.pending = a.work.pending[1:]
+			a.launch(next)
+		}
 		a.work.mu.Unlock()
 	})
-	return nil
 }
 
 // wait blocks until no step is running.
@@ -328,7 +358,22 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			d = batch.PhotoDescription{Caption: d.Caption, Date: r.FormValue("date"), Approximate: r.FormValue("approximate") != "",
 				Photographer: r.FormValue("photographer"), Back: r.FormValue("back"), Source: r.FormValue("source")}
 		}
-		if err := a.start(l, func() error { return l.DescribePhoto(id, d) }); err != nil {
+		// A photo whose run has reached the accepted wait, or waits to be
+		// described, is no longer written by any step of its scan: its
+		// description is recorded whatever the scanner is doing, and its
+		// run ticked when the step running ends. Before that, the scan's
+		// own step may be writing the photo's record, so Save waits for it.
+		describe := func() error { return l.DescribePhoto(id, d) }
+		if _, step := a.whereRun(r.Context(), batch.PhotoWorkflow, id.String()); step == "accepted" || step == "describe" {
+			if err := describe(); err != nil {
+				fail(w, err, http.StatusUnprocessableEntity)
+				return
+			}
+			a.tick(l)
+		} else if err := a.start(l, describe); err != nil {
+			if busy, step, _ := a.busyWith(l.Key()); busy {
+				err = fmt.Errorf("%w: wait for scan %s's %s step to finish", errBusy, l.Key(), step)
+			}
 			fail(w, err, http.StatusUnprocessableEntity)
 			return
 		}
