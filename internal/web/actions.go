@@ -386,7 +386,13 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			fail(w, err, http.StatusUnprocessableEntity)
 			return
 		}
-		http.Redirect(w, r, "/photos/"+id.String(), http.StatusSeeOther)
+		// on to the scan's next photo still to be described, else back
+		// to the batch, where the next move is another scan or finishing
+		next := "/batches/" + p.Batch
+		if rest := a.notDescribed(l); len(rest) > 0 {
+			next = "/photos/" + rest[0].String()
+		}
+		http.Redirect(w, r, next, http.StatusSeeOther)
 	})
 
 	// Editing the regions needs no scanner, only that no step is running on
@@ -597,7 +603,7 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		// the forward step is what accepting leads to: the describing
 		// still to do, or, every photo described, the archive
 		notice, accept := "Check each photo's quality, front and back, then accept or send the scan back. Every photo is described: accepting sends them to the archive.", "Accept and archive ›"
-		if n := a.notDescribed(l); n > 0 {
+		if n := len(a.notDescribed(l)); n > 0 {
 			notice = fmt.Sprintf("Check each photo's quality, front and back, then accept or send the scan back. %d %s still to be described: say what is known of each on its page, now or after accepting.", n, plural(n, "photo", "photos"))
 			accept = fmt.Sprintf("Accept, then describe %d %s ›", n, plural(n, "photo", "photos"))
 		}
@@ -652,17 +658,17 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// notDescribed counts the scan's photos not yet described, whether or
+// notDescribed is the scan's photos not yet described, in print order,
 // not their runs have reached the describe step.
-func (a *App) notDescribed(l *batch.Scan) int {
+func (a *App) notDescribed(l *batch.Scan) []pid.ID {
 	_, ids, _ := l.Found()
-	n := 0
+	var rest []pid.ID
 	for _, id := range ids {
 		if p, _, err := batch.FindPhoto(a.Staging, id); err == nil && p.Described == nil {
-			n++
+			rest = append(rest, id)
 		}
 	}
-	return n
+	return rest
 }
 
 // undescribed are the scan's photos waiting to be described.

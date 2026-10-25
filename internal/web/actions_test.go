@@ -422,8 +422,9 @@ func TestDescribingAPhoto(t *testing.T) {
 	if w := post(t, h, "/photos/0/describe", url.Values{"date": {"July 1952"}}); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "1952-07") {
 		t.Errorf("a date that is not an ISO 8601 prefix: %d %s", w.Code, w.Body)
 	}
-	if loc := act(t, a, h, "/photos/0/describe", url.Values{"date": {"1952-07"}, "approximate": {"on"}, "photographer": {"Jerome Ltd"}, "back": {"Mum &amp; Dad"}, "source": {"back"}}); loc != "/photos/0" {
-		t.Errorf("describe went to %s", loc)
+	// #87: Save goes on to the scan's next photo still to be described
+	if loc := act(t, a, h, "/photos/0/describe", url.Values{"date": {"1952-07"}, "approximate": {"on"}, "photographer": {"Jerome Ltd"}, "back": {"Mum &amp; Dad"}, "source": {"back"}}); loc != "/photos/1" {
+		t.Errorf("describe went to %s, want the next photo", loc)
 	}
 	page(t, h, "/photos/0", `value="1952-07"`, "checked", `value="Jerome Ltd"`, "Mum &amp;amp; Dad")
 
@@ -433,7 +434,10 @@ func TestDescribingAPhoto(t *testing.T) {
 	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, `name="date"`) {
 		t.Error("an archived photo's description is still a form")
 	}
-	act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}})
+	// #87: the last photo described, Save goes back to the batch
+	if to := act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}}); to != strings.TrimSuffix(loc, "/scans/1") {
+		t.Errorf("describing the last photo went to %s, want the batch", to)
+	}
 	page(t, h, loc, "Done")
 	page(t, h, "/photos/1", "Nothing known")
 }
