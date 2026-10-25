@@ -543,12 +543,19 @@ func TestAdjustARegionBeforeConfirming(t *testing.T) {
 	if bed := b.Bed(); bed.X1 < 215 || bed.Y1 < 297 {
 		t.Errorf("bed %+v", bed)
 	}
+	// the print's own edges go with the region's, the 0.5 mm margin inside
+	if p, r := prints[0].Print.Bounds(), prints[0].Region.Bounds(); !same(p.X1, r.X1-0.5) || !same(p.Y0, r.Y0+0.5) || !same(p.X0, r.X0+0.5) {
+		t.Errorf("print %+v after the moves, want its right and top edges 0.5 mm inside the region's %+v", p, r)
+	}
 
 	b.Confirm()
 	run(t, b, store, scanner)
 	photo, _, _ := FindPhoto(root, 0)
 	if photo.Front.Region != prints[0].Region || photo.Front.Bounds != prints[0].Region.On(b.Bed()) {
 		t.Errorf("region %+v covering %+v, want the adjusted %+v", photo.Front.Region, photo.Front.Bounds, prints[0].Region)
+	}
+	if photo.Front.Print != prints[0].Print {
+		t.Errorf("print %+v, want the adjusted %+v", photo.Front.Print, prints[0].Print)
 	}
 	if err := b.Adjust(0, find.Right, 0.5); err == nil {
 		t.Error("adjusted a region after confirming")

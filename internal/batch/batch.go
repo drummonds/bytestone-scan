@@ -677,17 +677,19 @@ func (b *Scan) Bed() find.Rect {
 }
 
 // Adjust moves one edge of print n's region by mm, outwards when mm is
-// positive. Regions can be adjusted only until they are confirmed.
+// positive, and the print's own edge with it, so the master is measured
+// and the back checked against the print as the operator left it, not as
+// the finder had it. Regions can be adjusted only until they are confirmed.
 func (b *Scan) Adjust(n int, e find.Edge, mm float64) error {
 	f, err := b.editable(n)
 	if err != nil {
 		return err
 	}
-	r, err := f.Prints[n].Region.Move(e, mm, f.Bed)
+	p, err := f.Prints[n].Move(e, mm, f.Bed)
 	if err != nil {
 		return fmt.Errorf("print %d: %w", n+1, err)
 	}
-	f.Prints[n].Region = r
+	f.Prints[n] = p
 	return writeYAML(b.path("prints.yaml"), f)
 }
 
