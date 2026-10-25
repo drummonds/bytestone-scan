@@ -347,7 +347,7 @@ func TestTheBacksOfAScan(t *testing.T) {
 	if s.LastPPI != 300 || s.Details != 2 {
 		t.Errorf("backs: last ppi %d after %d passes, want 300 after 2", s.LastPPI, s.Details)
 	}
-	page(t, h, loc, "Accept and archive", "Rescan the backs", loc[1:]+"/backs.png", "was the print turned over in place?")
+	page(t, h, loc, "Accept, then describe 2 photos ›", "Rescan the backs", loc[1:]+"/backs.png", "was the print turned over in place?")
 	if w := get(t, h, loc+"/backs.png"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/png" {
 		t.Errorf("backs.png: %d %s", w.Code, w.Header().Get("Content-Type"))
 	}
@@ -378,7 +378,7 @@ func TestSkippingTheBacks(t *testing.T) {
 	act(t, a, h, loc+"/confirm", nil)
 	page(t, h, loc, "Scan the backs", "No backs")
 	act(t, a, h, loc+"/no-backs", nil)
-	page(t, h, loc, "Accept and archive", "Rescan the backs", "<td>none</td>")
+	page(t, h, loc, "Accept, then describe 1 photo ›", "Rescan the backs", "<td>none</td>")
 	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "renditions/1/back/") {
 		t.Error("a back shown for a photo without one")
 	}
@@ -530,5 +530,29 @@ func TestACaptionTitlesThePhoto(t *testing.T) {
 	act(t, a, h, "/photos/0/describe", url.Values{"caption": {"  "}, "date": {"1952"}})
 	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "photo-caption") {
 		t.Error("a caption cleared to blank is still shown")
+	}
+}
+
+// #76: each wait's buttons say which way they go. The one that moves the
+// scan on ends in › and names what comes next; a step back starts with ‹;
+// a rescan in place has neither. At check quality the forward step is the
+// describing still to do, and only once every photo is described is it
+// the archive.
+func TestScanButtonsSayWhichWayTheyGo(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"which way"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	page(t, h, loc, ">Confirm and scan ›<", ">Rescan the preview<")
+	act(t, a, h, loc+"/confirm", nil)
+	page(t, h, loc, ">Scan the backs ›<", ">No backs ›<", ">‹ Back to the prints<")
+	act(t, a, h, loc+"/backs", nil)
+	page(t, h, loc, ">Accept, then describe 2 photos ›<", ">Rescan the backs<", ">‹ Back to the prints<", "2 photos still to be described")
+	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
+	page(t, h, loc, ">Accept, then describe 1 photo ›<", "1 photo still to be described")
+	act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}})
+	page(t, h, loc, ">Accept and archive ›<")
+	if body := get(t, h, loc).Body.String(); strings.Contains(body, "still to be described") {
+		t.Error("every photo described, yet the notice says some are still to be")
 	}
 }

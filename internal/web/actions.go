@@ -450,17 +450,24 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		}
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
-			button("confirm", "Confirm and scan", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
+			button("confirm", "Confirm and scan ›", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
 	case waiting == "backs":
 		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then scan the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
-			button("backs", "Scan the backs", "is-primary") + button("no-backs", "No backs", "") + button("prints", "Back to the prints", "") + `</div>`)
+			button("backs", "Scan the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
-		c.HTML(`<div class="notification is-warning">Check each photo's quality, front and back, then accept or send the scan back.</div><div class="buttons">` +
-			button("accept", "Accept and archive", "is-primary") +
+		// the forward step is what accepting leads to: the describing
+		// still to do, or, every photo described, the archive
+		notice, accept := "Check each photo's quality, front and back, then accept or send the scan back. Every photo is described: accepting sends them to the archive.", "Accept and archive ›"
+		if n := a.notDescribed(l); n > 0 {
+			notice = fmt.Sprintf("Check each photo's quality, front and back, then accept or send the scan back. %d %s still to be described: say what is known of each on its page, now or after accepting.", n, plural(n, "photo", "photos"))
+			accept = fmt.Sprintf("Accept, then describe %d %s ›", n, plural(n, "photo", "photos"))
+		}
+		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
+			button("accept", accept, "is-primary") +
 			fmt.Sprintf(`<form action="%s/rescan" method="post" style="display:inline"><div class="select"><select name="ppi">%s</select></div> <button class="button" type="submit">Rescan at</button></form> `,
 				scanURL(l.Key()), ppiOptions(l.Sitting().ScanPPI)) +
 			button("rescan-backs", "Rescan the backs", "") +
-			button("prints", "Back to the prints", "") + `</div>`)
+			button("prints", "‹ Back to the prints", "") + `</div>`)
 	default:
 		c.HTML(`<div class="notification">` + html.EscapeString(string(run.Status)) + `</div>` +
 			`<div class="buttons">` + button("retry", "Carry on", "") + `</div>`)
@@ -504,6 +511,19 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// notDescribed counts the scan's photos not yet described, whether or
+// not their runs have reached the describe step.
+func (a *App) notDescribed(l *batch.Scan) int {
+	_, ids, _ := l.Found()
+	n := 0
+	for _, id := range ids {
+		if p, _, err := batch.FindPhoto(a.Staging, id); err == nil && p.Described == nil {
+			n++
+		}
+	}
+	return n
 }
 
 // undescribed are the scan's photos waiting to be described.
