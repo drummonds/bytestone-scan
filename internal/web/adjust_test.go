@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -89,6 +90,7 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 	loc := act(t, a, h, "/batches", url.Values{"title": {"one"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	page(t, h, "/photos/0", `action="`+loc[1:]+`/reshape"`, arrow(1, "right 0.5"), arrow(1, "left -0.5"))
 
 	b, _ := batch.OpenScan(a.Staging, scanKey(loc))
@@ -99,6 +101,7 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 		t.Errorf("%d detail passes, want a rescan of the fronts", s.Details)
 	}
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	prints, _, _ = b.Found()
 	if got, want := prints[0].Region.Bounds().X1, before.Bounds().X1-0.5; math.Abs(got-want) > 1e-9 {
 		t.Errorf("right edge %.2f, want %.2f", got, want)
@@ -176,5 +179,48 @@ func TestSplitAndRemoveRegions(t *testing.T) {
 	}
 	if w := post(t, h, loc+"/split", url.Values{"print": {"1"}}); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("splitting a single print: %d", w.Code)
+	}
+}
+
+// #79: rulers along the close-up's top and left, a tick every 5 mm of the
+// bed; a tick sets the nearer edge on that axis to it, and a tick the
+// edge cannot reach is a mark, not a button.
+func TestRulersSetAnEdge(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{
+		{X0: 0, Y0: 0, X1: 60, Y1: 50, Value: 20000},    // against the bed's corner
+		{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000}, // in the open: region 89.5–125.5 × 24.5–60.5
+	}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"ruled"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	body := get(t, h, loc).Body.String()
+	b, _ := batch.OpenScan(a.Staging, scanKey(loc))
+	prints, _, _ := b.Found()
+	r := prints[1].Region.Bounds() // about 89.4–125.5 × 24.5–60.5: the preview's pixels decide
+	g := func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+	for _, present := range []string{"2 left =" + g(85-r.X0), "2 left =" + g(90-r.X0), "2 right =" + g(120-r.X0), "2 right =" + g(130-r.X0), "2 top =" + g(20-r.Y0), "2 bottom =" + g(60-r.Y0), "1 left =5", "1 top =5"} {
+		if !strings.Contains(body, `value="`+present+`"`) {
+			t.Errorf("no tick %q", present)
+		}
+	}
+	for _, absent := range []string{"1 left =0", "1 top =0"} {
+		if strings.Contains(body, `value="`+absent+`"`) {
+			t.Errorf("a tick %q at the bed's edge is a button", absent)
+		}
+	}
+	for _, label := range []string{">|<br>90<", ">|<br>120<", ">|<br>30<"} {
+		if !strings.Contains(body, label) {
+			t.Errorf("no label %q", label)
+		}
+	}
+	act(t, a, h, loc+"/adjust", url.Values{"move": {"2 left =" + g(85-r.X0)}})
+	act(t, a, h, loc+"/adjust", url.Values{"move": {"2 bottom =" + g(60-r.Y0)}})
+	prints, _, _ = b.Found()
+	got := prints[1].Region.Bounds()
+	if math.Abs(got.X0-85) > 1e-9 || math.Abs(got.Y1-60) > 1e-9 || math.Abs(got.X1-r.X1) > 1e-9 {
+		t.Errorf("region %+v, want the left edge at 85 and the bottom at 60", got)
+	}
+	if w := post(t, h, loc+"/reshape", url.Values{"move": {"2 left =-4.5"}}); w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("an absolute move on the quality page: %d", w.Code)
 	}
 }

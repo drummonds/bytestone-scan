@@ -46,6 +46,7 @@ func TestDeleteABatch(t *testing.T) {
 	}
 	act(t, a, h, loc+"/confirm", nil)
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
 	if w := post(t, h, "/batches/20261020-2/delete", nil); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "finish scanning") {

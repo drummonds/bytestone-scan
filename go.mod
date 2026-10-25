@@ -3,6 +3,7 @@ module git.bytestone.uk/hum3/bytestone-scan
 go 1.27.3
 
 require (
+	git.bytestone.uk/hum3/go-dbexplorer v0.4.0
 	git.bytestone.uk/hum3/go-postgres v0.11.0
 	git.bytestone.uk/hum3/gobank-workflow v0.11.0
 	git.bytestone.uk/hum3/lofigui v0.18.0

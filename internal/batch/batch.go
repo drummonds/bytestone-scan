@@ -137,7 +137,8 @@ type Photo struct {
 	Provenance  string `yaml:"provenance,omitempty"`
 	Credit      string `yaml:"credit"`
 	Front       Side   `yaml:"front"`
-	Back        *Side  `yaml:"back,omitempty"` // once the backs are scanned
+	Back        *Side  `yaml:"back,omitempty"`       // once the backs are scanned
+	BackBlank   bool   `yaml:"back_blank,omitempty"` // the operator said the back is blank: not scanned, or discarded
 	// Claims are what the operator said of the photo at its describe
 	// step; Described is when, nothing known being an answer too.
 	Claims    []Claim    `yaml:"claims,omitempty"`
@@ -690,6 +691,29 @@ func (b *Scan) Adjust(n int, e find.Edge, mm float64) error {
 	return writeYAML(b.path("prints.yaml"), f)
 }
 
+// SetEdge puts edge e of print n's region at pos, in the region's own
+// frame: u from its left edge for the left and right edges, v from its
+// top for the top and bottom. The move is Adjust's, with its refusals.
+func (b *Scan) SetEdge(n int, e find.Edge, pos float64) error {
+	f, err := b.editable(n)
+	if err != nil {
+		return err
+	}
+	r := f.Prints[n].Region
+	var mm float64 // outwards
+	switch e {
+	case find.Left:
+		mm = -pos
+	case find.Top:
+		mm = -pos
+	case find.Right:
+		mm = pos - r.W
+	case find.Bottom:
+		mm = pos - r.H
+	}
+	return b.Adjust(n, e, mm)
+}
+
 // Confirmed reports whether the operator has confirmed the prints found.
 func (b *Scan) Confirmed() bool {
 	_, err := os.Stat(b.path("confirmed"))
@@ -777,7 +801,7 @@ func (b *Scan) Accept() error {
 	if _, err := os.Stat(b.path("masters")); err != nil {
 		return fmt.Errorf("scan %s: no masters to accept yet", b.Key())
 	}
-	if _, err := os.Stat(b.path("backs.png")); err != nil && !b.BacksSkipped() {
+	if _, err := os.Stat(b.path("backs-confirmed")); err != nil && !b.BacksSkipped() {
 		return fmt.Errorf("scan %s: the backs are not scanned yet", b.Key())
 	}
 	return os.WriteFile(b.path("accepted"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
@@ -790,6 +814,48 @@ func (b *Scan) Turned() error {
 		return fmt.Errorf("scan %s: the fronts are not scanned yet", b.Key())
 	}
 	return os.WriteFile(b.path("turned"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+// SetBackBlank records that photo id's back is blank, or withdraws that.
+// A back already scanned is discarded with its renditions: a back the
+// operator says should not exist is withdrawn before the photo is bagged,
+// which is not an alteration of a master. Withdrawing the declaration
+// once the backs are scanned needs a rescan of the backs, which scans
+// this one too.
+func (b *Scan) SetBackBlank(id pid.ID, blank bool) error {
+	if bag.Complete(b.bags(), id) {
+		return fmt.Errorf("photo %s is archived; its record is no longer the scan's to change", id)
+	}
+	var photo Photo
+	if err := readYAML(b.masterPath(id, "yaml"), &photo); err != nil {
+		return fmt.Errorf("photo %s: not scanned yet: %w", id, err)
+	}
+	if blank {
+		if err := os.Remove(b.masterPath(id, "back")); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := os.RemoveAll(filepath.Join(b.Renditions(id), "back")); err != nil {
+			return err
+		}
+		photo.Back = nil
+	} else if photo.BackBlank && b.BacksConfirmed() {
+		return fmt.Errorf("photo %s: the backs are scanned; rescan them to scan this one", id)
+	}
+	photo.BackBlank = blank
+	return writeYAML(b.masterPath(id, "yaml"), photo)
+}
+
+// backBlank reports whether photo id's back was declared blank.
+func (b *Scan) backBlank(id pid.ID) bool {
+	var photo Photo
+	return readYAML(b.masterPath(id, "yaml"), &photo) == nil && photo.BackBlank
+}
+
+// BacksConfirmed reports whether the operator confirmed the backs on
+// their preview, so that they are, or are being, scanned.
+func (b *Scan) BacksConfirmed() bool {
+	_, err := os.Stat(b.path("backs-confirmed"))
+	return err == nil
 }
 
 // NoBacks records that the prints have nothing on their backs, once the
@@ -893,7 +959,7 @@ func (b *Scan) Redo(ctx context.Context, store wf.Store, from string, ppi int) e
 			return err
 		}
 	}
-	for step, markers := range map[string][]string{"confirm": {"confirmed"}, "check quality": {"accepted"}, "fronts": {"masters"}, "backs": {"turned", "no-backs", "backs.png"}} {
+	for step, markers := range map[string][]string{"confirm": {"confirmed"}, "check quality": {"accepted"}, "fronts": {"masters"}, "backs preview": {"turned", "no-backs", "backs.png", "backs.yaml"}, "backs": {"backs-confirmed"}} {
 		if cleared[step] {
 			for _, m := range markers {
 				if err := os.RemoveAll(b.path(m)); err != nil {
@@ -1008,10 +1074,10 @@ func (b *Scan) photoStages(id pid.ID, env Env) []wf.Stage {
 		{Name: "develop front", Run: func(context.Context) error { return b.develop(id, "front") }},
 		{Name: "awaiting back", Until: func(context.Context) (bool, error) {
 			_, err := os.Stat(b.masterPath(id, "back"))
-			return err == nil || b.BacksSkipped(), nil
+			return err == nil || b.BacksSkipped() || b.backBlank(id), nil
 		}},
 		{Name: "develop back", Run: func(context.Context) error {
-			if _, err := os.Stat(b.masterPath(id, "back")); err != nil && b.BacksSkipped() {
+			if _, err := os.Stat(b.masterPath(id, "back")); err != nil && (b.BacksSkipped() || b.backBlank(id)) {
 				return nil
 			}
 			return b.develop(id, "back")
@@ -1268,9 +1334,22 @@ func (b *Scan) Stages(ctx context.Context, env Env) []wf.Stage {
 			return b.detailPass(ctx, s, now)
 		}},
 		{Name: "photos", Run: func(context.Context) error { return b.startPhotos(ctx, store) }},
-		{Name: "backs",
+		{Name: "backs preview",
 			Until: func(context.Context) (bool, error) {
 				_, err := os.Stat(b.path("turned"))
+				return err == nil || b.BacksSkipped(), nil
+			},
+			Run: func(ctx context.Context) error {
+				if b.BacksSkipped() {
+					return nil
+				}
+				turnTo(s, "back")
+				return b.backsPreview(ctx, s)
+			},
+		},
+		{Name: "backs",
+			Until: func(context.Context) (bool, error) {
+				_, err := os.Stat(b.path("backs-confirmed"))
 				return err == nil || b.BacksSkipped(), nil
 			},
 			Run: func(ctx context.Context) error {
@@ -1377,7 +1456,16 @@ func (b *Scan) detailPass(ctx context.Context, s Scanner, now func() time.Time) 
 // backsPass scans the backs of the prints, turned over in place: a preview
 // to see where each back lies, then every front's region once more at
 // BackPPI, each back's master written beside its front's at 8 bits.
-func (b *Scan) backsPass(ctx context.Context, s Scanner, now func() time.Time) error {
+// backsFound is backs.yaml: each front's back as found on the backs
+// preview, in print order, before the backs are scanned.
+type backsFound struct {
+	Backs []Side `yaml:"backs"`
+}
+
+// backsPreview previews the bed once the prints are turned, keeps the
+// preview as backs.png, and finds each front's back within its region,
+// flagged where it is doubtful, as backs.yaml for the operator to confirm.
+func (b *Scan) backsPreview(ctx context.Context, s Scanner) error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
@@ -1390,6 +1478,50 @@ func (b *Scan) backsPass(ctx context.Context, s Scanner, now func() time.Time) e
 		return err
 	}
 	backs := find.Prints(preview, PreviewPPI)
+	var bf backsFound
+	for _, front := range f.Prints {
+		bf.Backs = append(bf.Backs, backOf(front, backs, f.Bed))
+	}
+	return writeYAML(b.path("backs.yaml"), bf)
+}
+
+// BacksFound is each front's back as found on the backs preview, in print
+// order: its place, and the warning where it is doubtful.
+func (b *Scan) BacksFound() ([]Side, error) {
+	var bf backsFound
+	if err := readYAML(b.path("backs.yaml"), &bf); err != nil {
+		return nil, fmt.Errorf("scan %s: the backs are not previewed yet: %w", b.Key(), err)
+	}
+	return bf.Backs, nil
+}
+
+// ConfirmBacks records that the backs lie where the preview found them,
+// so that they are scanned.
+func (b *Scan) ConfirmBacks() error {
+	if _, err := os.Stat(b.path("backs.yaml")); err != nil {
+		return fmt.Errorf("scan %s: the backs are not previewed yet", b.Key())
+	}
+	return os.WriteFile(b.path("backs-confirmed"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+// PreviewBacksAgain sends the scan back to the backs preview with the
+// prints still turned: for a print put back after it moved.
+func (b *Scan) PreviewBacksAgain(ctx context.Context, store wf.Store) error {
+	if err := b.Redo(ctx, store, "backs preview", 0); err != nil {
+		return err
+	}
+	return b.Turned()
+}
+
+func (b *Scan) backsPass(ctx context.Context, s Scanner, now func() time.Time) error {
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return err
+	}
+	backs, err := b.BacksFound()
+	if err != nil {
+		return err
+	}
 	p, err := plan.Backs(f.Prints, f.Bed)
 	if err != nil {
 		return err
@@ -1411,7 +1543,10 @@ func (b *Scan) backsPass(ctx context.Context, s Scanner, now func() time.Time) e
 		if err := readYAML(b.masterPath(f.IDs[i], "yaml"), &photo); err != nil {
 			return err
 		}
-		side := backOf(f.Prints[i], backs, f.Bed)
+		if photo.BackBlank {
+			continue // declared blank: no back master, and the record says so
+		}
+		side := backs[i]
 		side.Captured, side.ScanPPI, side.MasterPPI, side.Averaging = captured, p.ScanPPI, p.Masters[i].PPI, p.Masters[i].Factor
 		side.Scanner, side.Settings = s.Name(), s.Settings()
 		photo.Back = &side
