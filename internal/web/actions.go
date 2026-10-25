@@ -334,9 +334,12 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	act("accept", func(r *http.Request, l *batch.Scan) error { return l.Accept() })
 	act("retry", func(r *http.Request, l *batch.Scan) error { return nil })
 	act("reshape", func(r *http.Request, l *batch.Scan) error {
-		n, edge, by, err := parseMove(r.FormValue("move"))
+		n, edge, by, absolute, err := parseMove(r.FormValue("move"))
 		if err != nil {
 			return err
+		}
+		if absolute {
+			return fmt.Errorf("bad move %q: the quality page's arrows move by a distance", r.FormValue("move"))
 		}
 		return l.Reshape(r.Context(), a.Store, n-1, edge, by)
 	})
@@ -471,9 +474,12 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 
 	edit("adjust", func(r *http.Request, l *batch.Scan) (int, error) {
-		n, edge, by, err := parseMove(r.FormValue("move"))
+		n, edge, by, absolute, err := parseMove(r.FormValue("move"))
 		if err != nil {
 			return 0, err
+		}
+		if absolute {
+			return n, l.SetEdge(n-1, edge, by)
 		}
 		return n, l.Adjust(n-1, edge, by)
 	})
@@ -494,25 +500,28 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	a.deletion(mux, render, fail)
 }
 
-// parseMove reads an arrow's "<print> <edge> <mm>", mm outwards when positive.
-func parseMove(s string) (int, find.Edge, float64, error) {
+// parseMove reads an arrow's "<print> <edge> <mm>", mm outwards when
+// positive, or a ruler's "<print> <edge> =<mm>", the edge's position in
+// the region's own frame, reported as absolute.
+func parseMove(s string) (n int, edge find.Edge, by float64, absolute bool, err error) {
 	f := strings.Fields(s)
 	if len(f) != 3 {
-		return 0, 0, 0, fmt.Errorf("bad move %q", s)
+		return 0, 0, 0, false, fmt.Errorf("bad move %q", s)
 	}
-	n, err := strconv.Atoi(f[0])
+	n, err = strconv.Atoi(f[0])
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("bad move %q", s)
+		return 0, 0, 0, false, fmt.Errorf("bad move %q", s)
 	}
-	edge, err := find.ParseEdge(f[1])
+	edge, err = find.ParseEdge(f[1])
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, false, err
 	}
-	by, err := strconv.ParseFloat(f[2], 64)
+	absolute = strings.HasPrefix(f[2], "=")
+	by, err = strconv.ParseFloat(strings.TrimPrefix(f[2], "="), 64)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("bad move %q", s)
+		return 0, 0, 0, false, fmt.Errorf("bad move %q", s)
 	}
-	return n, edge, by, nil
+	return n, edge, by, absolute, nil
 }
 
 // startScan adds a scan to the batch and starts its preview, landing on

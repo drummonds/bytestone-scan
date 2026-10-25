@@ -829,3 +829,65 @@ func TestTheBacksPreviewIsCutToTheRegions(t *testing.T) {
 		t.Errorf("confirmed backs preview %v, want %v", got, want)
 	}
 }
+
+// #79: a ruler's tick sets an edge to a position in the region's own
+// frame, through the same move as the arrows, with the same refusals.
+func TestSetEdgePutsTheEdgeAtThePosition(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000}}}
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	prints, _, _ := b.Found()
+	before := prints[0].Region.Bounds()
+	if err := b.SetEdge(0, find.Left, -4.5); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SetEdge(0, find.Right, before.X1-before.X0+4.5+2); err != nil { // the width has grown 4.5
+		t.Fatal(err)
+	}
+	if err := b.SetEdge(0, find.Bottom, before.Y1-before.Y0-3); err != nil {
+		t.Fatal(err)
+	}
+	prints, _, _ = b.Found()
+	got := prints[0].Region.Bounds()
+	for _, c := range []struct {
+		name      string
+		got, want float64
+	}{{"left", got.X0, before.X0 - 4.5}, {"right", got.X1, before.X1 + 2}, {"top", got.Y0, before.Y0}, {"bottom", got.Y1, before.Y1 - 3}} {
+		if math.Abs(c.got-c.want) > 1e-9 {
+			t.Errorf("%s edge at %.2f, want %.2f", c.name, c.got, c.want)
+		}
+	}
+	if err := b.SetEdge(0, find.Left, got.X1-got.X0-5); err == nil {
+		t.Error("the left edge set within 20 mm of the right")
+	}
+	// beyond the bed, the edge stops at the bed, as the arrows do
+	if err := b.SetEdge(0, find.Top, -before.Y0-10); err != nil {
+		t.Fatal(err)
+	}
+	prints, _, _ = b.Found()
+	if top := prints[0].Region.Bounds().Y0; math.Abs(top) > 1e-9 {
+		t.Errorf("top edge at %.2f, want the bed's 0", top)
+	}
+}
+
+// #79: the close-up's frame says where the region's own coordinates fall
+// on it, clamped where the close-up stops at the bed.
+func TestCloseUpFrame(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 0, Y0: 0, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 40000}}}
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	open, err := b.CloseUpFrame(1)
+	if err != nil || open.U0 != -6 || open.V0 != -6 || open.Scale <= 0 || open.W <= 0 {
+		t.Errorf("in the open: %+v, %v", open, err)
+	}
+	img, _ := b.CloseUp(1)
+	if img.Bounds().Dx() != open.W || img.Bounds().Dy() != open.H {
+		t.Errorf("frame %d×%d, image %v", open.W, open.H, img.Bounds())
+	}
+	corner, err := b.CloseUpFrame(0)
+	if err != nil || corner.U0 != 0 || corner.V0 != 0 {
+		t.Errorf("at the bed's corner: %+v, %v; want the close-up starting at the region's edge", corner, err)
+	}
+}

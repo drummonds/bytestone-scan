@@ -691,6 +691,29 @@ func (b *Scan) Adjust(n int, e find.Edge, mm float64) error {
 	return writeYAML(b.path("prints.yaml"), f)
 }
 
+// SetEdge puts edge e of print n's region at pos, in the region's own
+// frame: u from its left edge for the left and right edges, v from its
+// top for the top and bottom. The move is Adjust's, with its refusals.
+func (b *Scan) SetEdge(n int, e find.Edge, pos float64) error {
+	f, err := b.editable(n)
+	if err != nil {
+		return err
+	}
+	r := f.Prints[n].Region
+	var mm float64 // outwards
+	switch e {
+	case find.Left:
+		mm = -pos
+	case find.Top:
+		mm = -pos
+	case find.Right:
+		mm = pos - r.W
+	case find.Bottom:
+		mm = pos - r.H
+	}
+	return b.Adjust(n, e, mm)
+}
+
 // Confirmed reports whether the operator has confirmed the prints found.
 func (b *Scan) Confirmed() bool {
 	_, err := os.Stat(b.path("confirmed"))
