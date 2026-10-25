@@ -443,8 +443,9 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 			for _, id := range waiting {
 				links = append(links, fmt.Sprintf(`<a href="photos/%s">%s</a>`, id, id))
 			}
-			c.HTML(fmt.Sprintf(`<div class="notification is-warning">Accepted. %d %s waiting to be described: %s. Say what is known of each on its page, or that nothing is.</div>`,
-				len(waiting), plural(len(waiting), "photo", "photos"), strings.Join(links, ", ")))
+			c.HTML(fmt.Sprintf(`<div class="notification is-warning">Accepted. %d %s waiting to be described: %s. Say what is known of each on its page, or that nothing is.</div>`+
+				`<div class="buttons"><a class="button is-primary" href="photos/%s">Describe photo %s ›</a></div>`,
+				len(waiting), plural(len(waiting), "photo", "photos"), strings.Join(links, ", "), waiting[0], waiting[0]))
 		} else {
 			c.HTML(a.outcome(l))
 		}
