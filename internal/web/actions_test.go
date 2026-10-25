@@ -77,6 +77,7 @@ func TestABatchFromStartToTheArchive(t *testing.T) {
 
 	act(t, a, h, loc+"/confirm", nil)
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	page(t, h, loc, "Accept", "Rescan at", `href="photos/0"`, `href="photos/1"`)
 	page(t, h, "/photos/1", "Master, 600 ppi,") // the quality page works before packaging
 
@@ -85,6 +86,7 @@ func TestABatchFromStartToTheArchive(t *testing.T) {
 		t.Errorf("rescan: last ppi %d after %d passes, want 1200 after 3", s.LastPPI, s.Details)
 	}
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 
 	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
@@ -102,7 +104,7 @@ func TestRetryAfterAFailure(t *testing.T) {
 	act(t, a, h, loc+"/confirm", nil)
 	page(t, h, loc, "USB disconnected", "Retry")
 	act(t, a, h, loc+"/retry", nil)
-	page(t, h, loc, "Scan the backs")
+	page(t, h, loc, "Preview the backs")
 }
 
 func TestNewBatchRefusals(t *testing.T) {
@@ -313,6 +315,7 @@ func TestABatchOfScans(t *testing.T) {
 	for _, loc := range []string{one, two} {
 		act(t, a, h, loc+"/confirm", nil)
 		act(t, a, h, loc+"/backs", nil)
+		act(t, a, h, loc+"/confirm-backs", nil)
 		describeAll(t, a, h, loc)
 		act(t, a, h, loc+"/accept", nil)
 	}
@@ -339,30 +342,43 @@ func TestTheBacksOfAScan(t *testing.T) {
 	h := a.Handler()
 	loc := act(t, a, h, "/batches", url.Values{"title": {"two sided"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
-	page(t, h, loc, "Turn each print over", "Scan the backs")
+	page(t, h, loc, "Turn each print over", "Preview the backs")
 	if w := post(t, h, loc+"/accept", nil); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "backs") {
 		t.Errorf("accepted before the backs: %d %s", w.Code, w.Body)
 	}
+	// #77: previewed and found, the backs wait to be confirmed before they are scanned
 	act(t, a, h, loc+"/backs", nil)
+	if s.Details != 1 {
+		t.Errorf("%d detail passes after the backs preview, want 1: the backs are not scanned until confirmed", s.Details)
+	}
+	page(t, h, loc, "Check that each back lies where its front did", ">Scan the backs ›<", ">Preview the backs again<", ">‹ Back to the prints<", loc[1:]+"/backs.png", "was the print turned over in place?")
+	if w := post(t, h, loc+"/accept", nil); w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("accepted before the backs were confirmed: %d %s", w.Code, w.Body)
+	}
+	act(t, a, h, loc+"/preview-backs", nil)
+	if s.Previews != 3 || s.Details != 1 {
+		t.Errorf("previews %d, details %d after previewing the backs again; want 3 and 1", s.Previews, s.Details)
+	}
+	act(t, a, h, loc+"/confirm-backs", nil)
 	if s.LastPPI != 300 || s.Details != 2 {
 		t.Errorf("backs: last ppi %d after %d passes, want 300 after 2", s.LastPPI, s.Details)
 	}
-	page(t, h, loc, "Accept and archive", "Rescan the backs", loc[1:]+"/backs.png", "was the print turned over in place?")
+	page(t, h, loc, "Accept, then describe 2 photos ›", "Rescan the backs", loc[1:]+"/backs.png", "was the print turned over in place?")
 	if w := get(t, h, loc+"/backs.png"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/png" {
 		t.Errorf("backs.png: %d %s", w.Code, w.Header().Get("Content-Type"))
 	}
-	page(t, h, "/photos/1", "Back", "photos/1/renditions/1/back/display.jpg", "was the print turned over in place?", "300 ppi")
-	if w := get(t, h, "/photos/1/renditions/1/back/display.jpg"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/jpeg" {
+	page(t, h, "/photos/1", "Back", "photos/1/renditions/2/back/display.jpg", "was the print turned over in place?", "300 ppi")
+	if w := get(t, h, "/photos/1/renditions/2/back/display.jpg"); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/jpeg" {
 		t.Errorf("back rendition: %d %s", w.Code, w.Header().Get("Content-Type"))
 	}
 
-	act(t, a, h, loc+"/rescan-backs", nil)
-	page(t, h, loc, "Scan the backs")
-	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/rescan-backs", nil) // previews again, the prints still turned
+	page(t, h, loc, "Check that each back lies where its front did", "Scan the backs")
+	act(t, a, h, loc+"/confirm-backs", nil)
 	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
 	page(t, h, loc, "Done")
-	page(t, h, "/photos/1", "Back", "photos/1/renditions/1/back/display.jpg")
+	page(t, h, "/photos/1", "Back", "photos/1/renditions/2/back/display.jpg")
 	if s.Details != 3 {
 		t.Errorf("%d passes, want 3", s.Details)
 	}
@@ -376,10 +392,10 @@ func TestSkippingTheBacks(t *testing.T) {
 	h := a.Handler()
 	loc := act(t, a, h, "/batches", url.Values{"title": {"blank backs"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
-	page(t, h, loc, "Scan the backs", "No backs")
+	page(t, h, loc, "Preview the backs", "No backs")
 	act(t, a, h, loc+"/no-backs", nil)
-	page(t, h, loc, "Accept and archive", "Rescan the backs", "<td>none</td>")
-	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "renditions/1/back/") {
+	page(t, h, loc, "Accept, then describe 1 photo ›", "Rescan the backs", "<td>none</td>")
+	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "renditions/2/back/") {
 		t.Error("a back shown for a photo without one")
 	}
 	describeAll(t, a, h, loc)
@@ -401,6 +417,7 @@ func TestDescribingAPhoto(t *testing.T) {
 	loc := act(t, a, h, "/batches", url.Values{"title": {"Rothesay"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	page(t, h, "/photos/0", `name="date"`, `name="approximate"`, `name="photographer"`, `name="back"`, `name="source"`, "Nothing known")
 	if w := post(t, h, "/photos/0/describe", url.Values{"date": {"July 1952"}}); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "1952-07") {
 		t.Errorf("a date that is not an ISO 8601 prefix: %d %s", w.Code, w.Body)
@@ -436,6 +453,7 @@ func TestPhotosAreDepositedWithTheArchive(t *testing.T) {
 	page(t, h, loc, `href="photos/`+one.String()+`"`, `href="photos/`+two.String()+`"`)
 	page(t, h, "/photos/"+one.String(), "Not yet deposited")
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	fake.RejectAs[two] = 7
 	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
@@ -457,6 +475,7 @@ func TestTheBatchPageSaysClosedAndPurged(t *testing.T) {
 	loc := act(t, a, h, "/batches", url.Values{"title": {"closing"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
 	act(t, a, h, "/batches/20261020-1/finish", nil)
@@ -484,6 +503,7 @@ func TestTheClosedNoticeCountsThePhotos(t *testing.T) {
 	loc := act(t, a, h, "/batches", url.Values{"title": {"counted"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	two := pid.ID(41)
 	fake.RejectAs[two] = 7
 	describeAll(t, a, h, loc)
@@ -514,6 +534,7 @@ func TestACaptionTitlesThePhoto(t *testing.T) {
 	loc := act(t, a, h, "/batches", url.Values{"title": {"War photos"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	body := get(t, h, "/photos/0").Body.String()
 	if c, d := strings.Index(body, `name="caption"`), strings.Index(body, `name="date"`); c < 0 || c > d {
 		t.Errorf("the caption field is not first on the form: caption at %d, date at %d", c, d)
@@ -531,4 +552,125 @@ func TestACaptionTitlesThePhoto(t *testing.T) {
 	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, "photo-caption") {
 		t.Error("a caption cleared to blank is still shown")
 	}
+}
+
+// #76: each wait's buttons say which way they go. The one that moves the
+// scan on ends in › and names what comes next; a step back starts with ‹;
+// a rescan in place has neither. At check quality the forward step is the
+// describing still to do, and only once every photo is described is it
+// the archive.
+func TestScanButtonsSayWhichWayTheyGo(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"which way"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	page(t, h, loc, ">Confirm and scan ›<", ">Rescan the preview<")
+	act(t, a, h, loc+"/confirm", nil)
+	page(t, h, loc, ">Preview the backs ›<", ">No backs ›<", ">‹ Back to the prints<")
+	act(t, a, h, loc+"/backs", nil)
+	page(t, h, loc, ">Scan the backs ›<", ">Preview the backs again<", ">‹ Back to the prints<")
+	act(t, a, h, loc+"/confirm-backs", nil)
+	page(t, h, loc, ">Accept, then describe 2 photos ›<", ">Rescan the backs<", ">‹ Back to the prints<", "2 photos still to be described")
+	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
+	page(t, h, loc, ">Accept, then describe 1 photo ›<", "1 photo still to be described")
+	act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}})
+	page(t, h, loc, ">Accept and archive ›<")
+	if body := get(t, h, loc).Body.String(); strings.Contains(body, "still to be described") {
+		t.Error("every photo described, yet the notice says some are still to be")
+	}
+}
+
+// #73: once a scan is accepted with photos still to describe, the notice
+// carries a primary button to the first of them, in scan order, rather
+// than leaving the operator to spot that the ids are links.
+func TestTheAcceptedNoticeHasADescribeButton(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"describe next"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "2 photos waiting to be described", `href="photos/0"`, `href="photos/1"`, `class="button is-primary" href="photos/0">Describe photo 0 ›<`)
+	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
+	page(t, h, loc, "1 photo waiting to be described", `href="photos/1">Describe photo 1 ›<`)
+	act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}})
+	if body := get(t, h, loc).Body.String(); strings.Contains(body, "Describe photo") {
+		t.Error("every photo described, yet a Describe button remains")
+	}
+}
+
+// #74: describing a photo needs no scanner. Once the photo's run has
+// reached the accepted wait, or waits to be described, Save records the
+// description whatever the scanner is doing, and the photo's run is
+// ticked when the step running ends.
+func TestDescribingAPhotoWhileTheScannerIsBusy(t *testing.T) {
+	a := live(t, &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}})
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
+	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
+	act(t, a, h, loc+"/accept", nil)
+	page(t, h, loc, "1 photo waiting to be described")
+
+	sc := hold(&batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}})
+	a.Scanner = sc
+	if w := post(t, h, "/batches", url.Values{"title": {"second"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("second batch: %d %s", w.Code, w.Body)
+	}
+	<-sc.started
+	if w := post(t, h, "/photos/1/describe", url.Values{"caption": {"the crew"}, "skip": {"1"}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("describe while the scanner is busy with another scan: %d %s", w.Code, w.Body)
+	}
+	if p, _, err := batch.FindPhoto(a.Staging, 1); err != nil || p.Described == nil || p.Caption != "the crew" {
+		t.Errorf("description not recorded: %+v, %v", p, err)
+	}
+	close(sc.release)
+	a.wait()
+	page(t, h, loc, "Done")
+}
+
+// holdBacks scans the fronts freely and holds the backs preview.
+type holdBacks struct {
+	*batchtest.Scanner
+	previews         int
+	started, release chan struct{}
+}
+
+func (s *holdBacks) Preview(ctx context.Context) (image.Image, error) {
+	s.previews++
+	if s.previews == 2 {
+		close(s.started)
+		<-s.release
+	}
+	return s.Scanner.Preview(ctx)
+}
+
+func (s *holdBacks) Detail(ctx context.Context, area find.Rect, ppi int) (io.ReadCloser, error) {
+	return s.Scanner.Detail(ctx, area, ppi)
+}
+
+// #74: a photo its scan is still scanning (its run short of the accepted
+// wait while a step runs) cannot be described until the step ends, since
+// the step writes the photo's record too.
+func TestDescribingAPhotoStillBeingScannedWaits(t *testing.T) {
+	sc := &holdBacks{Scanner: &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}, started: make(chan struct{}), release: make(chan struct{})}
+	a := live(t, sc.Scanner)
+	a.Scanner = sc
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"held backs"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil)
+	if w := post(t, h, loc+"/backs", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("backs: %d %s", w.Code, w.Body)
+	}
+	<-sc.started
+	if w := post(t, h, "/photos/0/describe", url.Values{"skip": {"1"}}); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "wait for scan") {
+		t.Errorf("describe during the backs pass: %d %s", w.Code, w.Body)
+	}
+	close(sc.release)
+	a.wait()
+	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
 }

@@ -120,5 +120,29 @@ func (a *App) batchesPage() string {
 		s.WriteString(`</tbody></table>`)
 		c.HTML(s.String())
 	}
+	kept, err := batch.ListDiagnoses(a.Staging)
+	if err != nil {
+		c.HTML(`<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`)
+		return c.Buffer()
+	}
+	if len(kept) > 0 {
+		var s strings.Builder
+		s.WriteString(`<h2 class="title is-5">Kept for diagnosis</h2><p class="help">What a scan had when the operator kept it to be looked into: under <code>diagnosis/</code> in staging, never purged, never deposited.</p>
+<table class="table is-striped"><thead><tr><th>Kept</th><th>Scan</th><th>State</th><th>Note</th><th>Size</th><th></th></tr></thead><tbody>`)
+		for _, d := range kept {
+			fmt.Fprintf(&s, `<tr><td><code>%s</code><br>%s</td><td><a href="%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td><form action="diagnosis/discard" method="post"><input type="hidden" name="name" value="%s"><button class="button is-danger is-light is-small" type="submit">Discard</button></form></td></tr>`,
+				html.EscapeString(d.Name), d.Kept.Local().Format("2 Jan 2006 15:04"), scanURL(d.Scan), html.EscapeString(d.Scan), html.EscapeString(d.State), html.EscapeString(orNothing(d.Note)), megabytes(d.Size), html.EscapeString(d.Name))
+		}
+		s.WriteString(`</tbody></table>`)
+		c.HTML(s.String())
+	}
 	return c.Buffer()
+}
+
+// megabytes is n bytes as the page says them.
+func megabytes(n int64) string {
+	if n < 1<<20 {
+		return fmt.Sprintf("%d kB", (n+1023)/1024)
+	}
+	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
 }

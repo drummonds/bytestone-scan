@@ -2,6 +2,7 @@ package batch
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +14,7 @@ import (
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
 // Story 041: each photo's id comes from the archive service, homed with
@@ -158,7 +160,10 @@ func TestADepositCarriesTheRenditions(t *testing.T) {
 	for _, id := range ids {
 		got := svc.Renditions[id]
 		sort.Strings(got)
-		want := []string{"1/back/display.jpg", "1/back/recipe.yaml", "1/back/thumb.jpg", "1/back/tiny.jpg", "1/display.jpg", "1/recipe.yaml", "1/thumb.jpg", "1/tiny.jpg"}
+		var want []string
+		for _, f := range []string{"back/display.jpg", "back/recipe.yaml", "back/thumb.jpg", "back/tiny.jpg", "display.jpg", "recipe.yaml", "thumb.jpg", "tiny.jpg"} {
+			want = append(want, fmt.Sprintf("%d/%s", rendition.Version, f))
+		}
 		if strings.Join(got, " ") != strings.Join(want, " ") {
 			t.Errorf("renditions deposited for %s: %v, want %v", id, got, want)
 		}

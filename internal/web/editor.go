@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
@@ -72,19 +73,86 @@ func edgeGrid(action string, n int, p find.Print, bed find.Rect, middle string) 
 		edgeArrows(n, p, bed, find.Right, true), edgeArrows(n, p, bed, find.Bottom, false))
 }
 
-// regionEditor is one print's close-up with arrows on its edges, at confirm.
+// regionEditor is one print's close-up with rulers along its top and
+// left and arrows on its edges, at confirm.
 func regionEditor(b *batch.Scan, i int, p find.Print) string {
 	n := i + 1
 	id := scanURL(b.Key())
+	img := fmt.Sprintf(`<img src="%s/regions/%d.png" alt="Print %d's region, close up" style="display:block">`, id, n, n)
+	if f, err := b.CloseUpFrame(i); err == nil && !p.Straighten() {
+		img = ruled(n, p, b.Bed(), f, img)
+	}
 	return fmt.Sprintf(`<div class="box" id="print-%d">
 <h2 class="title is-5">Print %d: %.1f × %.1f mm</h2>
 %s
-<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. Single arrows move an edge %.1f mm, double arrows %.0f mm.</p>
+<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm.</p>
 <div class="buttons mt-3">%s%s</div>
 </div>`, n, n, p.Print.W, p.Print.H,
-		edgeGrid(id+"/adjust", n, p, b.Bed(),
-			fmt.Sprintf(`<img src="%s/regions/%d.png" alt="Print %d's region, close up">`, id, n, n)),
-		turnedBack(p.Region), smallStep, largeStep, splitButton(id, n, p), regionButton(id, "remove", n, "Remove this region", "is-danger is-light"))
+		edgeGrid(id+"/adjust", n, p, b.Bed(), img),
+		turnedBack(p.Region), tickMM, smallStep, largeStep, splitButton(id, n, p), regionButton(id, "remove", n, "Remove this region", "is-danger is-light"))
+}
+
+// Rulers: a tick every tickMM, labelled every labelMM, in a band rulerPx
+// wide along the close-up's top and left.
+const (
+	tickMM  = 5.0
+	labelMM = 10.0
+	rulerPx = 26
+)
+
+// ruled lays rulers along the top and left of print n's close-up img: a
+// tick every tickMM in mm of the bed (of the region's own frame for a
+// turned print), each a button that sets the nearer edge on that axis to
+// it, or a bare mark where the edge cannot go; the region's own edges
+// are marked in green.
+func ruled(n int, p find.Print, bed find.Rect, f batch.CloseUpFrame, img string) string {
+	r := p.Region
+	// the ruler's coordinate c and the region frame's u: c = u + c0
+	cu, cv := 0.0, 0.0
+	if r.Angle == 0 {
+		cu, cv = r.CX-r.W/2, r.CY-r.H/2
+	}
+	var top, left strings.Builder
+	ruler := func(b *strings.Builder, vertical bool, c0, u0, size float64, px int, near, far find.Edge) {
+		first := math.Ceil((u0+c0)/tickMM) * tickMM
+		last := math.Floor((u0+c0+float64(px)/f.Scale)/tickMM) * tickMM
+		for c := first; c <= last+1e-9; c += tickMM {
+			u := c - c0
+			at := int(math.Round((u - u0) * f.Scale))
+			e, mm := near, -u
+			if u > size/2 {
+				e, mm = far, u-size
+			}
+			label := ""
+			if math.Mod(math.Abs(c), labelMM) < 1e-9 {
+				label = strconv.FormatFloat(c, 'f', -1, 64)
+			}
+			pos := fmt.Sprintf("left:%dpx;top:0", at-5)
+			if vertical {
+				pos = fmt.Sprintf("top:%dpx;left:0", at-5)
+			}
+			if r.CanMove(e, mm, bed) {
+				fmt.Fprintf(b, `<button class="button is-small is-white" style="position:absolute;%s;height:%dpx;width:10px;padding:0;font-size:9px;line-height:1" name="move" value="%d %s =%g" title="%s edge to %g">|<br>%s</button>`,
+					pos, rulerPx, n, e, u, e, c, label)
+			} else {
+				fmt.Fprintf(b, `<span style="position:absolute;%s;height:%dpx;width:10px;font-size:9px;line-height:1;color:#999;text-align:center">|<br>%s</span>`, pos, rulerPx, label)
+			}
+		}
+		// the region's edges
+		for _, u := range []float64{0, size} {
+			at := int(math.Round((u - u0) * f.Scale))
+			pos := fmt.Sprintf("left:%dpx;top:0;width:2px;height:%dpx", at-1, rulerPx)
+			if vertical {
+				pos = fmt.Sprintf("top:%dpx;left:0;height:2px;width:%dpx", at-1, rulerPx)
+			}
+			fmt.Fprintf(b, `<span style="position:absolute;%s;background:#00a000"></span>`, pos)
+		}
+	}
+	ruler(&top, false, cu, f.U0, r.W, f.W, find.Left, find.Right)
+	ruler(&left, true, cv, f.V0, r.H, f.H, find.Top, find.Bottom)
+	return fmt.Sprintf(`<div style="display:grid;grid-template-columns:%dpx %dpx;grid-template-rows:%dpx %dpx">
+<div></div><div style="position:relative">%s</div>
+<div style="position:relative">%s</div><div>%s</div></div>`, rulerPx, f.W, rulerPx, f.H, top.String(), left.String(), img)
 }
 
 // turnedBack says how far a close-up is turned to sit the print square.

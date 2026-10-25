@@ -29,6 +29,7 @@ type worker struct {
 	step    string // the workflow step running, once one has started
 	stepAt  time.Time
 	running sync.WaitGroup
+	pending []*batch.Scan // scans to run to their next wait once the step running ends
 }
 
 var errBusy = errors.New("busy")
@@ -46,6 +47,31 @@ func (a *App) start(l *batch.Scan, prepare func() error) error {
 			return err
 		}
 	}
+	a.launch(l)
+	return nil
+}
+
+// tick runs the scan's workflow to its next wait: now when the worker is
+// idle, else once the step running ends. For what needs no scanner and
+// cannot be refused, such as a photo's description.
+func (a *App) tick(l *batch.Scan) {
+	a.work.mu.Lock()
+	defer a.work.mu.Unlock()
+	if a.work.scan == "" {
+		a.launch(l)
+		return
+	}
+	for _, p := range a.work.pending {
+		if p.Key() == l.Key() {
+			return
+		}
+	}
+	a.work.pending = append(a.work.pending, l)
+}
+
+// launch runs the scan's workflow in the background, then the first scan
+// pending, if any. The lock is held.
+func (a *App) launch(l *batch.Scan) {
 	a.work.scan, a.work.started = l.Key(), time.Now()
 	a.work.step, a.work.stepAt = "", a.work.started
 	a.work.running.Go(func() {
@@ -57,9 +83,13 @@ func (a *App) start(l *batch.Scan, prepare func() error) error {
 		})
 		a.work.mu.Lock()
 		a.work.scan = ""
+		if len(a.work.pending) > 0 {
+			next := a.work.pending[0]
+			a.work.pending = a.work.pending[1:]
+			a.launch(next)
+		}
 		a.work.mu.Unlock()
 	})
-	return nil
 }
 
 // wait blocks until no step is running.
@@ -292,15 +322,24 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 	act("backs", func(r *http.Request, l *batch.Scan) error { return l.Turned() })
 	act("no-backs", func(r *http.Request, l *batch.Scan) error { return l.NoBacks() })
+	act("confirm-backs", func(r *http.Request, l *batch.Scan) error { return l.ConfirmBacks() })
+	// previewing again, and a rescan from the quality check, go through
+	// the backs preview with the prints still turned
+	act("preview-backs", func(r *http.Request, l *batch.Scan) error {
+		return l.PreviewBacksAgain(r.Context(), a.Store)
+	})
 	act("rescan-backs", func(r *http.Request, l *batch.Scan) error {
-		return l.Redo(r.Context(), a.Store, "backs", 0)
+		return l.PreviewBacksAgain(r.Context(), a.Store)
 	})
 	act("accept", func(r *http.Request, l *batch.Scan) error { return l.Accept() })
 	act("retry", func(r *http.Request, l *batch.Scan) error { return nil })
 	act("reshape", func(r *http.Request, l *batch.Scan) error {
-		n, edge, by, err := parseMove(r.FormValue("move"))
+		n, edge, by, absolute, err := parseMove(r.FormValue("move"))
 		if err != nil {
 			return err
+		}
+		if absolute {
+			return fmt.Errorf("bad move %q: the quality page's arrows move by a distance", r.FormValue("move"))
 		}
 		return l.Reshape(r.Context(), a.Store, n-1, edge, by)
 	})
@@ -328,7 +367,22 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			d = batch.PhotoDescription{Caption: d.Caption, Date: r.FormValue("date"), Approximate: r.FormValue("approximate") != "",
 				Photographer: r.FormValue("photographer"), Back: r.FormValue("back"), Source: r.FormValue("source")}
 		}
-		if err := a.start(l, func() error { return l.DescribePhoto(id, d) }); err != nil {
+		// A photo whose run has reached the accepted wait, or waits to be
+		// described, is no longer written by any step of its scan: its
+		// description is recorded whatever the scanner is doing, and its
+		// run ticked when the step running ends. Before that, the scan's
+		// own step may be writing the photo's record, so Save waits for it.
+		describe := func() error { return l.DescribePhoto(id, d) }
+		if _, step := a.whereRun(r.Context(), batch.PhotoWorkflow, id.String()); step == "accepted" || step == "describe" {
+			if err := describe(); err != nil {
+				fail(w, err, http.StatusUnprocessableEntity)
+				return
+			}
+			a.tick(l)
+		} else if err := a.start(l, describe); err != nil {
+			if busy, step, _ := a.busyWith(l.Key()); busy {
+				err = fmt.Errorf("%w: wait for scan %s's %s step to finish", errBusy, l.Key(), step)
+			}
 			fail(w, err, http.StatusUnprocessableEntity)
 			return
 		}
@@ -356,10 +410,76 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			http.Redirect(w, r, fmt.Sprintf("/%s#print-%d", scanURL(l.Key()), n), http.StatusSeeOther)
 		})
 	}
+	// Keeping a scan for diagnosis copies its files, so it waits for a
+	// step of the scan to finish writing them; another scan's step is no
+	// bar. The scan itself is untouched.
+	mux.HandleFunc("POST /batches/{id}/scans/{n}/keep", func(w http.ResponseWriter, r *http.Request) {
+		l, err := batch.OpenScan(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if busy, _, _ := a.busyWith(l.Key()); busy {
+			fail(w, fmt.Errorf("%w: wait for scan %s's step to finish", errBusy, l.Key()), http.StatusConflict)
+			return
+		}
+		state := "not started"
+		if run, waiting := a.where(r.Context(), l); run != nil {
+			state = string(run.Status)
+			if waiting != "" {
+				state += " at " + waiting
+			}
+		}
+		now := time.Now()
+		if a.Now != nil {
+			now = a.Now()
+		}
+		o := batch.KeepOptions{Note: r.FormValue("note"), State: state, Version: version(), Masters: r.FormValue("masters") != "", Now: now}
+		if _, err := l.Keep(r.Context(), a.Store, o); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
+	})
+	// A back declared blank, or not after all: the photo's record changes
+	// and a back master may go, so it waits for a step of the scan.
+	mux.HandleFunc("POST /batches/{id}/scans/{n}/blank-back", func(w http.ResponseWriter, r *http.Request) {
+		l, err := batch.OpenScan(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		id, err := pid.Parse(r.FormValue("photo"))
+		if err != nil {
+			fail(w, fmt.Errorf("photo %q: %w", r.FormValue("photo"), err), http.StatusUnprocessableEntity)
+			return
+		}
+		if busy, _, _ := a.busyWith(l.Key()); busy {
+			fail(w, fmt.Errorf("%w: wait for scan %s's step to finish", errBusy, l.Key()), http.StatusConflict)
+			return
+		}
+		if err := l.SetBackBlank(id, r.FormValue("blank") == "1"); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		a.tick(l) // a photo waiting for its back goes on without one
+		http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
+	})
+	mux.HandleFunc("POST /diagnosis/discard", func(w http.ResponseWriter, r *http.Request) {
+		if err := batch.DiscardDiagnosis(a.Staging, r.FormValue("name")); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/batches", http.StatusSeeOther)
+	})
+
 	edit("adjust", func(r *http.Request, l *batch.Scan) (int, error) {
-		n, edge, by, err := parseMove(r.FormValue("move"))
+		n, edge, by, absolute, err := parseMove(r.FormValue("move"))
 		if err != nil {
 			return 0, err
+		}
+		if absolute {
+			return n, l.SetEdge(n-1, edge, by)
 		}
 		return n, l.Adjust(n-1, edge, by)
 	})
@@ -380,25 +500,28 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	a.deletion(mux, render, fail)
 }
 
-// parseMove reads an arrow's "<print> <edge> <mm>", mm outwards when positive.
-func parseMove(s string) (int, find.Edge, float64, error) {
+// parseMove reads an arrow's "<print> <edge> <mm>", mm outwards when
+// positive, or a ruler's "<print> <edge> =<mm>", the edge's position in
+// the region's own frame, reported as absolute.
+func parseMove(s string) (n int, edge find.Edge, by float64, absolute bool, err error) {
 	f := strings.Fields(s)
 	if len(f) != 3 {
-		return 0, 0, 0, fmt.Errorf("bad move %q", s)
+		return 0, 0, 0, false, fmt.Errorf("bad move %q", s)
 	}
-	n, err := strconv.Atoi(f[0])
+	n, err = strconv.Atoi(f[0])
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("bad move %q", s)
+		return 0, 0, 0, false, fmt.Errorf("bad move %q", s)
 	}
-	edge, err := find.ParseEdge(f[1])
+	edge, err = find.ParseEdge(f[1])
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, false, err
 	}
-	by, err := strconv.ParseFloat(f[2], 64)
+	absolute = strings.HasPrefix(f[2], "=")
+	by, err = strconv.ParseFloat(strings.TrimPrefix(f[2], "="), 64)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("bad move %q", s)
+		return 0, 0, 0, false, fmt.Errorf("bad move %q", s)
 	}
-	return n, edge, by, nil
+	return n, edge, by, absolute, nil
 }
 
 // startScan adds a scan to the batch and starts its preview, landing on
@@ -443,24 +566,47 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 			for _, id := range waiting {
 				links = append(links, fmt.Sprintf(`<a href="photos/%s">%s</a>`, id, id))
 			}
-			c.HTML(fmt.Sprintf(`<div class="notification is-warning">Accepted. %d %s waiting to be described: %s. Say what is known of each on its page, or that nothing is.</div>`,
-				len(waiting), plural(len(waiting), "photo", "photos"), strings.Join(links, ", ")))
+			c.HTML(fmt.Sprintf(`<div class="notification is-warning">Accepted. %d %s waiting to be described: %s. Say what is known of each on its page, or that nothing is.</div>`+
+				`<div class="buttons"><a class="button is-primary" href="photos/%s">Describe photo %s ›</a></div>`,
+				len(waiting), plural(len(waiting), "photo", "photos"), strings.Join(links, ", "), waiting[0], waiting[0]))
 		} else {
 			c.HTML(a.outcome(l))
 		}
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
-			button("confirm", "Confirm and scan", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
+			button("confirm", "Confirm and scan ›", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
+	case waiting == "backs preview":
+		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then preview the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
+			button("backs", "Preview the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "backs":
-		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then scan the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
-			button("backs", "Scan the backs", "is-primary") + button("no-backs", "No backs", "") + button("prints", "Back to the prints", "") + `</div>`)
+		notice := "Check that each back lies where its front did, then scan the backs. A print that moved is put back and the backs previewed again."
+		if backs, err := l.BacksFound(); err == nil {
+			var warnings []string
+			for i, s := range backs {
+				if s.Warning != "" {
+					warnings = append(warnings, fmt.Sprintf("print %d: %s", i+1, html.EscapeString(s.Warning)))
+				}
+			}
+			if len(warnings) > 0 {
+				notice += `<ul><li>` + strings.Join(warnings, `</li><li>`) + `</li></ul>`
+			}
+		}
+		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
+			button("confirm-backs", "Scan the backs ›", "is-primary") + button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
-		c.HTML(`<div class="notification is-warning">Check each photo's quality, front and back, then accept or send the scan back.</div><div class="buttons">` +
-			button("accept", "Accept and archive", "is-primary") +
+		// the forward step is what accepting leads to: the describing
+		// still to do, or, every photo described, the archive
+		notice, accept := "Check each photo's quality, front and back, then accept or send the scan back. Every photo is described: accepting sends them to the archive.", "Accept and archive ›"
+		if n := a.notDescribed(l); n > 0 {
+			notice = fmt.Sprintf("Check each photo's quality, front and back, then accept or send the scan back. %d %s still to be described: say what is known of each on its page, now or after accepting.", n, plural(n, "photo", "photos"))
+			accept = fmt.Sprintf("Accept, then describe %d %s ›", n, plural(n, "photo", "photos"))
+		}
+		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
+			button("accept", accept, "is-primary") +
 			fmt.Sprintf(`<form action="%s/rescan" method="post" style="display:inline"><div class="select"><select name="ppi">%s</select></div> <button class="button" type="submit">Rescan at</button></form> `,
 				scanURL(l.Key()), ppiOptions(l.Sitting().ScanPPI)) +
 			button("rescan-backs", "Rescan the backs", "") +
-			button("prints", "Back to the prints", "") + `</div>`)
+			button("prints", "‹ Back to the prints", "") + `</div>`)
 	default:
 		c.HTML(`<div class="notification">` + html.EscapeString(string(run.Status)) + `</div>` +
 			`<div class="buttons">` + button("retry", "Carry on", "") + `</div>`)
@@ -504,6 +650,19 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// notDescribed counts the scan's photos not yet described, whether or
+// not their runs have reached the describe step.
+func (a *App) notDescribed(l *batch.Scan) int {
+	_, ids, _ := l.Found()
+	n := 0
+	for _, id := range ids {
+		if p, _, err := batch.FindPhoto(a.Staging, id); err == nil && p.Described == nil {
+			n++
+		}
+	}
+	return n
 }
 
 // undescribed are the scan's photos waiting to be described.
