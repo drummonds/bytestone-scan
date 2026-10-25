@@ -674,3 +674,33 @@ func TestDescribingAPhotoStillBeingScannedWaits(t *testing.T) {
 	a.wait()
 	act(t, a, h, "/photos/0/describe", url.Values{"skip": {"1"}})
 }
+
+// #85: adjusting the crop ends on the last print's box, so that box
+// offers Confirm and scan beside Remove this region; the earlier boxes
+// do not, and the state bar's button stays.
+func TestLastPrintOffersConfirm(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}, {X0: 90, Y0: 25, X1: 125, Y1: 60, Value: 30000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"confirm below"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	body := get(t, h, loc).Body.String()
+	first, second := strings.Index(body, `id="print-1"`), strings.Index(body, `id="print-2"`)
+	if first < 0 || second < first {
+		t.Fatalf("no region editors in order:\n%s", body)
+	}
+	const confirm = ">Confirm and scan ›<"
+	if strings.Count(body, confirm) != 2 {
+		t.Errorf("want Confirm and scan at the top and on the last print, got %d:\n%s", strings.Count(body, confirm), body)
+	}
+	if strings.Contains(body[first:second], confirm) {
+		t.Error("the first print's box offers Confirm and scan")
+	}
+	last := body[second:]
+	c, remove := strings.Index(last, confirm), strings.Index(last, ">Remove this region<")
+	if c < 0 || remove < 0 || c > remove {
+		t.Fatalf("the last print's box does not offer Confirm and scan before Remove this region: confirm at %d, remove at %d", c, remove)
+	}
+	if !strings.Contains(last[:c], `action="`+strings.TrimPrefix(loc, "/")+`/confirm"`) {
+		t.Error("the last print's Confirm and scan does not post to confirm")
+	}
+}
