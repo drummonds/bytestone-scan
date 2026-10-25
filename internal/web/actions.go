@@ -599,7 +599,7 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then preview the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
 			button("backs", "Preview the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "backs":
-		notice := "Check that each back lies where its front did, and untick any back with nothing on it, then scan the backs. A print that moved is put back and the backs previewed again."
+		notice := "Check that each back lies where its front did, and untick any back with nothing on it, then scan the backs. A print that moved is put back and the backs previewed again. If nothing is written or printed on any back after all, skip them."
 		if backs, err := l.BacksFound(); err == nil {
 			var warnings []string
 			for i, s := range backs {
@@ -613,7 +613,7 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		}
 		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
 			fmt.Sprintf(`<form id="scan-backs" action="%s/confirm-backs" method="post" style="display:inline"><input type="hidden" name="select" value="1"><button class="button is-primary" type="submit">Scan the backs ›</button></form> `, scanURL(l.Key())) +
-			button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
+			button("no-backs", "No backs ›", "") + button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
 		// the forward step is what accepting leads to: the describing
 		// still to do, or, every photo described, the archive
