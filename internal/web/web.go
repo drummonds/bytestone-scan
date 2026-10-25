@@ -4,6 +4,7 @@
 package web
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"html"
@@ -20,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	dbexplorer "git.bytestone.uk/hum3/go-dbexplorer"
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/view"
 	"git.bytestone.uk/hum3/lofigui"
@@ -43,6 +45,7 @@ const (
 type App struct {
 	Staging string
 	Store   wf.Store
+	DB      *sql.DB // the workflow database the store reads, for the explorer; nil without one
 	Scanner batch.Scanner
 	Archive archive.Service
 	Now     func() time.Time
@@ -67,6 +70,7 @@ const layout = `<!DOCTYPE html>
 <a class="navbar-item" href="batches">Batches</a>
 <a class="navbar-item" href="batches/new">New batch</a>
 <a class="navbar-item" href="workflows/definitions">Workflows</a>
+{{if .database}}<a class="navbar-item" href="db/">Database</a>{{end}}
 <a class="navbar-item" href="about">About</a>
 {{.status}}
 </div></nav>
@@ -79,7 +83,7 @@ func (a *App) Handler() http.Handler {
 		panic(err)
 	}
 	render := func(w http.ResponseWriter, title string, content string) {
-		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator()})
+		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "database": a.DB != nil})
 	}
 	views := &view.Views{
 		Store:       a.Store,
@@ -99,6 +103,20 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /assets/bulma.min.css", lofigui.ServeBulma)
 	mux.HandleFunc("GET /favicon.ico", lofigui.ServeFavicon)
 	mux.Handle("/workflows/", http.StripPrefix("/workflows", views.Handler()))
+	// the workflow database, browsed read-only through go-dbexplorer in
+	// the app's own layout; its links are relative to db/
+	mux.HandleFunc("GET /db/", func(w http.ResponseWriter, r *http.Request) {
+		if a.DB == nil {
+			http.NotFound(w, r)
+			return
+		}
+		ex := &dbexplorer.Explorer{DB: a.DB, BasePath: "db", UUIDLen: 8, TimeFormat: "2006-01-02 15:04:05"}
+		rel := strings.TrimPrefix(r.URL.Path, "/db")
+		if r.URL.RawQuery != "" {
+			rel += "?" + r.URL.RawQuery
+		}
+		render(w, "Database", ex.Render(r.Context(), rel))
+	})
 
 	mux.HandleFunc("GET /batches/{id}", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))

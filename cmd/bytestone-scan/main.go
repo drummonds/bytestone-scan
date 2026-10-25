@@ -94,6 +94,7 @@ func serve(ctx context.Context, addr, staging, service string, s batch.Scanner) 
 	app := &web.App{
 		Staging: staging,
 		Store:   store,
+		DB:      db,
 		Scanner: s,
 		Archive: archive.Client{URL: service},
 		Now:     time.Now,
