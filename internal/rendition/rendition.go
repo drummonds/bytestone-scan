@@ -25,7 +25,7 @@ import (
 // Version is the recipe: how renditions are made. A change to what this
 // package does to a master is a new version, so renditions made before it
 // are told apart from those made after.
-const Version = 1
+const Version = 2
 
 // The renditions' sizes, in pixels.
 const (
@@ -38,9 +38,18 @@ const (
 // it the operator straightens the print on the bed instead.
 const maxDeskew = 10.0
 
-// lid is the level at and above which a sample is the scanner's lid, which
-// clips by design.
-const lid = 65000
+// The print's edge against the lid is a step down of step, 2% of full
+// scale, over about 0.13 mm, after the lid has been seen: a level at or
+// above lidLevel. The lid is not clipped on every scanner (99% white on
+// the 4990 with colour correction off), and where the print lifts it the
+// lid darkens gradually towards the print's edge, so the edge is the
+// step and not the first sample short of white; and a print that runs
+// to the master's edge, no lid seen outside it, has its edge there,
+// whatever steps its own texture holds.
+const (
+	step     = 0.02 * 65535
+	lidLevel = 0.97 * 65535
+)
 
 // Size of an image in pixels.
 type Size struct {
@@ -81,7 +90,7 @@ func Measure(m *master.Image, hint find.Box, ppi int) Measurement {
 	mm := float64(ppi) / 25.4
 	edges := [4]edgeFit{}
 	for k := range edges {
-		edges[k] = fitEdge(m, hint, k, 2*mm, 3*mm)
+		edges[k] = fitEdge(m, hint, k, 2*mm, 3*mm, max(2, int(math.Round(0.13*mm))))
 	}
 	// each edge's angle on the bed
 	var angles [4]float64
@@ -138,7 +147,10 @@ func Measure(m *master.Image, hint find.Box, ppi int) Measurement {
 		default:
 			inner[k] = min(ends[0], ends[1])
 		}
-		if e.inliers < 2 { // no edge found: take the hint's
+		// no edge found, or one fewer than half the profiles find (a
+		// print as bright as the lid, whose creases a few profiles take
+		// for its edge): the hint's stands
+		if e.inliers < 2 || e.found < samples/2 {
 			inner[k] = [4]float64{0, hint.W, hint.H, 0}[k]
 		}
 	}
@@ -200,20 +212,22 @@ func (e edgeFit) inFrame(hint, frame find.Box, k int) (along, across []float64) 
 
 // fitEdge walks profiles across edge k of the hint (0 top, 1 right, 2
 // bottom, 3 left), from out pixels outside it to in pixels inside, and
-// marks where the lid ends. A line is fitted through the marks, dropping
-// outliers: a torn corner, a curl.
-func fitEdge(m *master.Image, hint find.Box, k int, out, in float64) edgeFit {
+// marks the first step down of step over window pixels: the lid ending
+// and the print beginning. A line is fitted through the marks, dropping
+// outliers: a torn corner, a curl. Marks scattered more than six windows
+// about the line, about 0.8 mm, are no edge at all.
+func fitEdge(m *master.Image, hint find.Box, k int, out, in float64, window int) edgeFit {
 	var e edgeFit
 	length := hint.W
 	if k%2 == 1 {
 		length = hint.H
 	}
-	isLid := func(x, y float64) (lidHere, inImage bool) {
+	level := func(x, y float64) (lv float64, inImage bool) {
 		xi, yi := int(math.Floor(x)), int(math.Floor(y))
 		if xi < 0 || yi < 0 || xi >= m.W || yi >= m.H {
-			return false, false
+			return 0, false
 		}
-		return m.At(xi, yi, 0) >= lid && m.At(xi, yi, 1) >= lid && m.At(xi, yi, 2) >= lid, true
+		return (float64(m.At(xi, yi, 0)) + float64(m.At(xi, yi, 1)) + float64(m.At(xi, yi, 2))) / 3, true
 	}
 	// a profile's point in the hint's axes: along the edge at t, across it
 	// at d, measured inwards from the edge
@@ -231,21 +245,44 @@ func fitEdge(m *master.Image, hint find.Box, k int, out, in float64) edgeFit {
 	}
 	for i := range samples {
 		t := length * (0.1 + 0.8*float64(i)/float64(samples-1))
+		var levels, ds []float64 // the profile so far, in the image
+		lidSeen := false
+		mark := func(edge float64) {
+			u, v := point(t, edge)
+			across := v
+			if k%2 == 1 {
+				across = u
+			}
+			e.along, e.across = append(e.along, t), append(e.across, across)
+		}
+		marked := false
 		for d := -out; d <= in; d++ {
 			u, v := point(t, d)
 			x, y := hint.At(u, v)
-			lidHere, inImage := isLid(x, y)
+			lv, inImage := level(x, y)
 			if !inImage {
 				continue // the master is cut at the bed's edge: the print starts where it does
 			}
-			if !lidHere {
-				across := v
-				if k%2 == 1 {
-					across = u
-				}
-				e.along, e.across = append(e.along, t), append(e.across, across)
-				break
+			levels, ds = append(levels, lv), append(ds, d)
+			lidSeen = lidSeen || lv >= lidLevel
+			n := len(levels)
+			if !lidSeen || n <= window || levels[n-1-window]-levels[n-1] < step {
+				continue
 			}
+			// the edge is where the step crosses its midpoint
+			edge := ds[n-1]
+			for j := n - 1 - window; j < n; j++ {
+				if levels[j] <= (levels[n-1-window]+levels[n-1])/2 {
+					edge = ds[j]
+					break
+				}
+			}
+			mark(edge)
+			marked = true
+			break
+		}
+		if !marked && !lidSeen && len(ds) > 0 {
+			mark(ds[0]) // print to the master's edge
 		}
 	}
 	e.found = len(e.along)
@@ -272,6 +309,16 @@ func fitEdge(m *master.Image, hint find.Box, k int, out, in float64) edgeFit {
 		e.along, e.across = along, across
 	}
 	e.inliers = len(e.along)
+	// marks that do not line up are no edge: a print as bright as the lid,
+	// each profile stopping at a crease of its own
+	var ss float64
+	for i := range e.along {
+		r := e.across[i] - (e.a + e.b*e.along[i])
+		ss += r * r
+	}
+	if e.inliers > 0 && math.Sqrt(ss/float64(e.inliers)) > float64(6*window) {
+		e.inliers = 0
+	}
 	return e
 }
 

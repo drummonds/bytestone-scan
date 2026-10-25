@@ -441,7 +441,7 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	}
 	// the rendition: what people will see, made from the master by the
 	// current recipe
-	if rec, err := rendition.Load(filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(rendition.Version))); err == nil {
+	if rec, err := rendition.Load(a.renditionDir(id)); err == nil {
 		c.HTML(fmt.Sprintf(`<h2 class="title is-5 mt-5">Rendition</h2>
 <figure><img src="photos/%s/renditions/%d/display.jpg" alt="The rendition" style="max-width:100%%;height:auto">
 <figcaption class="help">Rendition, recipe %d, %d × %d px: cropped to the print, turned %.1f° (the region said %.1f°), levels %d–%d.</figcaption></figure>`,
@@ -453,7 +453,7 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	// the back, once scanned: its rendition and what the backs preview said
 	if p.Back != nil {
 		c.HTML(`<h2 class="title is-5 mt-5">Back</h2>`)
-		if rec, err := rendition.Load(filepath.Join(a.Staging, "renditions", id.String(), strconv.Itoa(rendition.Version), "back")); err == nil {
+		if rec, err := rendition.Load(filepath.Join(a.renditionDir(id), "back")); err == nil {
 			c.HTML(fmt.Sprintf(`<figure><img src="photos/%s/renditions/%d/back/display.jpg" alt="The back" style="max-width:100%%;height:auto">
 <figcaption class="help">Back, %d ppi, 8 bits, rendition recipe %d, %d × %d px.</figcaption></figure>`,
 				id, rec.Version, p.Back.MasterPPI, rec.Version, rec.Display.W, rec.Display.H))
@@ -649,4 +649,19 @@ func histogram(h quality.Histogram) string {
 	}
 	b.WriteString(`</svg>`)
 	return b.String()
+}
+
+// renditionDir is where the photo's renditions at the latest recipe made
+// for it are kept: the current recipe's, or, until the photo is
+// re-developed, an earlier recipe's.
+func (a *App) renditionDir(id pid.ID) string {
+	root := filepath.Join(a.Staging, "renditions", id.String())
+	latest := rendition.Version
+	for v := rendition.Version; v >= 1; v-- {
+		if _, err := os.Stat(filepath.Join(root, strconv.Itoa(v), "recipe.yaml")); err == nil {
+			latest = v
+			break
+		}
+	}
+	return filepath.Join(root, strconv.Itoa(latest))
 }
