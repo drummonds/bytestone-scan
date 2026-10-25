@@ -89,6 +89,7 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 	loc := act(t, a, h, "/batches", url.Values{"title": {"one"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	page(t, h, "/photos/0", `action="`+loc[1:]+`/reshape"`, arrow(1, "right 0.5"), arrow(1, "left -0.5"))
 
 	b, _ := batch.OpenScan(a.Staging, scanKey(loc))
@@ -99,6 +100,7 @@ func TestArrowsOnTheQualityPageRescan(t *testing.T) {
 		t.Errorf("%d detail passes, want a rescan of the fronts", s.Details)
 	}
 	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
 	prints, _, _ = b.Found()
 	if got, want := prints[0].Region.Bounds().X1, before.Bounds().X1-0.5; math.Abs(got-want) > 1e-9 {
 		t.Errorf("right edge %.2f, want %.2f", got, want)

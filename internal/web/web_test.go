@@ -48,6 +48,8 @@ func scanned(t *testing.T) (*App, *batch.Scan) {
 	b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil)
 	b.Turned()
 	b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil)
+	b.ConfirmBacks()
+	b.Run(context.Background(), batch.Env{Store: store, Scanner: s, Archive: svc, Now: clock}, nil)
 	for _, id := range []pid.ID{0, 1} {
 		b.DescribePhoto(id, batch.PhotoDescription{})
 	}

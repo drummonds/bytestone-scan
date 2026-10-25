@@ -363,7 +363,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 <figcaption class="help">Preview, 150 ppi%s, with the regions found: green as found, red to review.</figcaption></figure>`, scanURL(l.Key()), cut))
 	if _, err := os.Stat(filepath.Join(l.Dir(), "backs.png")); err == nil {
 		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="%s/backs.png" alt="The bed turned over, with the fronts' regions">
-<figcaption class="help">The backs, 150 ppi%s, with the fronts' regions: each back was scanned where its front lay.</figcaption></figure>`, scanURL(l.Key()), cut))
+<figcaption class="help">The backs, 150 ppi%s: the fronts' regions in green (red to review), where each back is scanned, and each back as found in blue.</figcaption></figure>`, scanURL(l.Key()), cut))
 	}
 	if waiting == "confirm" && !busy {
 		for i, p := range prints {

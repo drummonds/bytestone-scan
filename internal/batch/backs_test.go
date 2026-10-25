@@ -54,7 +54,7 @@ func TestBacksAreScannedWhereTheFrontsLay(t *testing.T) {
 	}
 	b.Confirm()
 	rec := run(t, b, store, scanner)
-	if steps := runnertest.Steps(t, store, rec.ID); rec.Status != wf.StatusWaiting || steps["backs"] != wf.StatusWaiting || steps["fronts"] != wf.StatusCompleted || steps["photos"] != wf.StatusCompleted {
+	if steps := runnertest.Steps(t, store, rec.ID); rec.Status != wf.StatusWaiting || steps["backs preview"] != wf.StatusWaiting || steps["fronts"] != wf.StatusCompleted || steps["photos"] != wf.StatusCompleted {
 		t.Fatalf("after the fronts: %s %v", rec.Status, steps)
 	}
 	// the fronts are developed at once; each photo then waits for its back
@@ -69,6 +69,10 @@ func TestBacksAreScannedWhereTheFrontsLay(t *testing.T) {
 	}
 
 	if err := b.Turned(); err != nil {
+		t.Fatal(err)
+	}
+	run(t, b, store, scanner)
+	if err := b.ConfirmBacks(); err != nil {
 		t.Fatal(err)
 	}
 	rec = run(t, b, store, scanner)
@@ -164,8 +168,7 @@ func TestABackNotFoundTakesItsFrontsPlace(t *testing.T) {
 	run(t, b, store, scanner)
 	b.Confirm()
 	run(t, b, store, scanner)
-	b.Turned()
-	run(t, b, store, scanner)
+	backs(t, b, store, scanner)
 	var photo Photo
 	if err := readYAML(filepath.Join(b.path("masters"), "0.yaml"), &photo); err != nil {
 		t.Fatal(err)
@@ -188,10 +191,9 @@ func TestRescanTheBacksOrTheFronts(t *testing.T) {
 	run(t, b, store, scanner)
 	b.Confirm()
 	run(t, b, store, scanner)
-	b.Turned()
-	run(t, b, store, scanner)
+	backs(t, b, store, scanner)
 
-	redo(t, b, store, "backs", 0)
+	redo(t, b, store, "backs preview", 0)
 	if _, err := os.Stat(b.path("masters/0.back.tif")); err == nil {
 		t.Error("back master survives a redo of the backs")
 	}
@@ -201,14 +203,13 @@ func TestRescanTheBacksOrTheFronts(t *testing.T) {
 	if _, err := rendition.Load(b.Renditions(0)); err != nil {
 		t.Error("front renditions cleared by a redo of the backs")
 	}
-	if rec := run(t, b, store, scanner); runnertest.Steps(t, store, rec.ID)["backs"] != wf.StatusWaiting {
+	if rec := run(t, b, store, scanner); runnertest.Steps(t, store, rec.ID)["backs preview"] != wf.StatusWaiting {
 		t.Fatal("not waiting for the prints to be turned again")
 	}
 	if pr := photoRun(t, store, 0); runnertest.Steps(t, store, pr.ID)["awaiting back"] != wf.StatusWaiting {
 		t.Error("photo not waiting for its back again")
 	}
-	b.Turned()
-	run(t, b, store, scanner)
+	backs(t, b, store, scanner)
 	if scanner.Details != 3 {
 		t.Errorf("%d detail passes, want 3", scanner.Details)
 	}
@@ -222,14 +223,13 @@ func TestRescanTheBacksOrTheFronts(t *testing.T) {
 	if _, err := os.Stat(b.Renditions(0)); err == nil {
 		t.Error("renditions survive a redo of the fronts")
 	}
-	if rec := run(t, b, store, scanner); runnertest.Steps(t, store, rec.ID)["backs"] != wf.StatusWaiting || scanner.LastPPI != 1200 || scanner.Details != 4 {
+	if rec := run(t, b, store, scanner); runnertest.Steps(t, store, rec.ID)["backs preview"] != wf.StatusWaiting || scanner.LastPPI != 1200 || scanner.Details != 4 {
 		t.Fatalf("after the fronts again: %v, %d passes, last at %d", runnertest.Steps(t, store, rec.ID), scanner.Details, scanner.LastPPI)
 	}
 	if pr := photoRun(t, store, 0); runnertest.Steps(t, store, pr.ID)["develop front"] != wf.StatusCompleted || pr.Status != wf.StatusWaiting {
 		t.Errorf("photo after the fronts again: %+v %v", pr, runnertest.Steps(t, store, pr.ID))
 	}
-	b.Turned()
-	run(t, b, store, scanner)
+	backs(t, b, store, scanner)
 	described(t, b)
 	b.Accept()
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusCompleted {
@@ -283,8 +283,8 @@ func TestBacksCanBeSkipped(t *testing.T) {
 		t.Errorf("photo not waiting to be accepted: %v", runnertest.Steps(t, store, pr.ID))
 	}
 	// the backs can be scanned after all
-	redo(t, b, store, "backs", 0)
-	if rec := run(t, b, store, scanner); runnertest.Steps(t, store, rec.ID)["backs"] != wf.StatusWaiting {
+	redo(t, b, store, "backs preview", 0)
+	if rec := run(t, b, store, scanner); runnertest.Steps(t, store, rec.ID)["backs preview"] != wf.StatusWaiting {
 		t.Fatal("not waiting for the prints to be turned after a redo of the backs")
 	}
 	b.NoBacks()
@@ -304,4 +304,101 @@ func TestBacksCanBeSkipped(t *testing.T) {
 	if _, err := os.Stat(b.path("masters/0.yaml")); err == nil {
 		t.Error("photo's record left in the scan after archiving")
 	}
+}
+
+// #77: the backs pass waits twice, like the fronts. Once the prints are
+// turned the bed is previewed and each back found within its front's
+// region, and the scan waits for the operator to confirm before the
+// detail pass; the backs found, and what is doubtful about them, can be
+// read meanwhile.
+func TestTheBacksAreConfirmedOnTheirPreview(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	scanner := twoSided()
+	scanner.Backs = []batchtest.Print{{X0: 22, Y0: 20, X1: 62, Y1: 50, Value: 50000}} // the second back is not found
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	b.Confirm()
+	run(t, b, store, scanner)
+	if err := b.ConfirmBacks(); err == nil {
+		t.Error("backs confirmed before they were previewed")
+	}
+	b.Turned()
+	rec := run(t, b, store, scanner)
+	if steps := runnertest.Steps(t, store, rec.ID); rec.Status != wf.StatusWaiting || steps["backs preview"] != wf.StatusCompleted || steps["backs"] != wf.StatusWaiting {
+		t.Fatalf("after the backs preview: %s %v", rec.Status, steps)
+	}
+	if scanner.Previews != 2 || scanner.Details != 1 {
+		t.Errorf("previews %d, details %d; want 2 and 1: the backs are not scanned until confirmed", scanner.Previews, scanner.Details)
+	}
+	if _, err := os.Stat(b.path("backs.png")); err != nil {
+		t.Error(err)
+	}
+	backs, err := b.BacksFound()
+	if err != nil || len(backs) != 2 || backs[0].Review || !backs[1].Review || !strings.Contains(backs[1].Warning, "no print") {
+		t.Fatalf("backs found: %+v, %v", backs, err)
+	}
+	if _, err := os.Stat(b.path("masters/0.back.tif")); err == nil {
+		t.Error("a back master before the backs were confirmed")
+	}
+	if err := b.Accept(); err == nil {
+		t.Error("accepted before the backs were confirmed")
+	}
+	if err := b.ConfirmBacks(); err != nil {
+		t.Fatal(err)
+	}
+	rec = run(t, b, store, scanner)
+	if steps := runnertest.Steps(t, store, rec.ID); rec.Status != wf.StatusWaiting || steps["backs"] != wf.StatusCompleted || steps["check quality"] != wf.StatusWaiting {
+		t.Fatalf("after the backs: %s %v", rec.Status, steps)
+	}
+	if scanner.Previews != 2 || scanner.Details != 2 {
+		t.Errorf("previews %d, details %d; want 2 and 2: confirming does not preview again", scanner.Previews, scanner.Details)
+	}
+	var photo Photo
+	readYAML(filepath.Join(b.path("masters"), "1.yaml"), &photo)
+	if photo.Back == nil || !photo.Back.Review {
+		t.Errorf("the doubtful back's record: %+v", photo.Back)
+	}
+}
+
+// #77: a print moved while being turned is put back and the backs
+// previewed again: the preview and the backs found are cleared, the
+// prints stay turned, and nothing is scanned.
+func TestPreviewTheBacksAgain(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	scanner := twoSided()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	b.Confirm()
+	run(t, b, store, scanner)
+	b.Turned()
+	run(t, b, store, scanner) // previewed, waiting to be confirmed
+	if err := b.PreviewBacksAgain(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"backs.png", "backs.yaml"} {
+		if _, err := os.Stat(b.path(f)); err == nil {
+			t.Errorf("%s survives a second preview", f)
+		}
+	}
+	rec := run(t, b, store, scanner)
+	if steps := runnertest.Steps(t, store, rec.ID); steps["backs"] != wf.StatusWaiting || scanner.Previews != 3 || scanner.Details != 1 {
+		t.Fatalf("after previewing again: %v, previews %d, details %d", steps, scanner.Previews, scanner.Details)
+	}
+	if _, err := b.BacksFound(); err != nil {
+		t.Error(err)
+	}
+}
+
+// backs turns the prints over, previews them, confirms the backs found
+// and scans them.
+func backs(t *testing.T, b *Scan, store wf.Store, scanner Scanner) {
+	t.Helper()
+	if err := b.Turned(); err != nil {
+		t.Fatal(err)
+	}
+	run(t, b, store, scanner)
+	if err := b.ConfirmBacks(); err != nil {
+		t.Fatal(err)
+	}
+	run(t, b, store, scanner)
 }

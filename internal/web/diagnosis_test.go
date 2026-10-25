@@ -21,7 +21,8 @@ func TestKeepForDiagnosis(t *testing.T) {
 	h := a.Handler()
 	loc := act(t, a, h, "/batches", url.Values{"title": {"gone wrong"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	act(t, a, h, loc+"/confirm", nil)
-	act(t, a, h, loc+"/backs", nil) // at check quality: the masters are the scan's
+	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil) // at check quality: the masters are the scan's
 	l, err := batch.OpenScan(a.Staging, scanKey(loc))
 	if err != nil {
 		t.Fatal(err)

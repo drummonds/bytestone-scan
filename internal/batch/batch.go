@@ -777,7 +777,7 @@ func (b *Scan) Accept() error {
 	if _, err := os.Stat(b.path("masters")); err != nil {
 		return fmt.Errorf("scan %s: no masters to accept yet", b.Key())
 	}
-	if _, err := os.Stat(b.path("backs.png")); err != nil && !b.BacksSkipped() {
+	if _, err := os.Stat(b.path("backs-confirmed")); err != nil && !b.BacksSkipped() {
 		return fmt.Errorf("scan %s: the backs are not scanned yet", b.Key())
 	}
 	return os.WriteFile(b.path("accepted"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
@@ -893,7 +893,7 @@ func (b *Scan) Redo(ctx context.Context, store wf.Store, from string, ppi int) e
 			return err
 		}
 	}
-	for step, markers := range map[string][]string{"confirm": {"confirmed"}, "check quality": {"accepted"}, "fronts": {"masters"}, "backs": {"turned", "no-backs", "backs.png"}} {
+	for step, markers := range map[string][]string{"confirm": {"confirmed"}, "check quality": {"accepted"}, "fronts": {"masters"}, "backs preview": {"turned", "no-backs", "backs.png", "backs.yaml"}, "backs": {"backs-confirmed"}} {
 		if cleared[step] {
 			for _, m := range markers {
 				if err := os.RemoveAll(b.path(m)); err != nil {
@@ -1268,9 +1268,22 @@ func (b *Scan) Stages(ctx context.Context, env Env) []wf.Stage {
 			return b.detailPass(ctx, s, now)
 		}},
 		{Name: "photos", Run: func(context.Context) error { return b.startPhotos(ctx, store) }},
-		{Name: "backs",
+		{Name: "backs preview",
 			Until: func(context.Context) (bool, error) {
 				_, err := os.Stat(b.path("turned"))
+				return err == nil || b.BacksSkipped(), nil
+			},
+			Run: func(ctx context.Context) error {
+				if b.BacksSkipped() {
+					return nil
+				}
+				turnTo(s, "back")
+				return b.backsPreview(ctx, s)
+			},
+		},
+		{Name: "backs",
+			Until: func(context.Context) (bool, error) {
+				_, err := os.Stat(b.path("backs-confirmed"))
 				return err == nil || b.BacksSkipped(), nil
 			},
 			Run: func(ctx context.Context) error {
@@ -1377,7 +1390,16 @@ func (b *Scan) detailPass(ctx context.Context, s Scanner, now func() time.Time) 
 // backsPass scans the backs of the prints, turned over in place: a preview
 // to see where each back lies, then every front's region once more at
 // BackPPI, each back's master written beside its front's at 8 bits.
-func (b *Scan) backsPass(ctx context.Context, s Scanner, now func() time.Time) error {
+// backsFound is backs.yaml: each front's back as found on the backs
+// preview, in print order, before the backs are scanned.
+type backsFound struct {
+	Backs []Side `yaml:"backs"`
+}
+
+// backsPreview previews the bed once the prints are turned, keeps the
+// preview as backs.png, and finds each front's back within its region,
+// flagged where it is doubtful, as backs.yaml for the operator to confirm.
+func (b *Scan) backsPreview(ctx context.Context, s Scanner) error {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
@@ -1390,6 +1412,50 @@ func (b *Scan) backsPass(ctx context.Context, s Scanner, now func() time.Time) e
 		return err
 	}
 	backs := find.Prints(preview, PreviewPPI)
+	var bf backsFound
+	for _, front := range f.Prints {
+		bf.Backs = append(bf.Backs, backOf(front, backs, f.Bed))
+	}
+	return writeYAML(b.path("backs.yaml"), bf)
+}
+
+// BacksFound is each front's back as found on the backs preview, in print
+// order: its place, and the warning where it is doubtful.
+func (b *Scan) BacksFound() ([]Side, error) {
+	var bf backsFound
+	if err := readYAML(b.path("backs.yaml"), &bf); err != nil {
+		return nil, fmt.Errorf("scan %s: the backs are not previewed yet: %w", b.Key(), err)
+	}
+	return bf.Backs, nil
+}
+
+// ConfirmBacks records that the backs lie where the preview found them,
+// so that they are scanned.
+func (b *Scan) ConfirmBacks() error {
+	if _, err := os.Stat(b.path("backs.yaml")); err != nil {
+		return fmt.Errorf("scan %s: the backs are not previewed yet", b.Key())
+	}
+	return os.WriteFile(b.path("backs-confirmed"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+// PreviewBacksAgain sends the scan back to the backs preview with the
+// prints still turned: for a print put back after it moved.
+func (b *Scan) PreviewBacksAgain(ctx context.Context, store wf.Store) error {
+	if err := b.Redo(ctx, store, "backs preview", 0); err != nil {
+		return err
+	}
+	return b.Turned()
+}
+
+func (b *Scan) backsPass(ctx context.Context, s Scanner, now func() time.Time) error {
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return err
+	}
+	backs, err := b.BacksFound()
+	if err != nil {
+		return err
+	}
 	p, err := plan.Backs(f.Prints, f.Bed)
 	if err != nil {
 		return err
@@ -1411,7 +1477,7 @@ func (b *Scan) backsPass(ctx context.Context, s Scanner, now func() time.Time) e
 		if err := readYAML(b.masterPath(f.IDs[i], "yaml"), &photo); err != nil {
 			return err
 		}
-		side := backOf(f.Prints[i], backs, f.Bed)
+		side := backs[i]
 		side.Captured, side.ScanPPI, side.MasterPPI, side.Averaging = captured, p.ScanPPI, p.Masters[i].PPI, p.Masters[i].Factor
 		side.Scanner, side.Settings = s.Name(), s.Settings()
 		photo.Back = &side

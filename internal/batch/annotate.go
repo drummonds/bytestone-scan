@@ -100,7 +100,8 @@ func (b *Scan) Annotated() (image.Image, error) {
 }
 
 // AnnotatedBacks is the backs preview with the fronts' regions drawn on
-// it: where each back was scanned; cut to the regions like the preview.
+// it, where each back is scanned, and each back as found in blue; cut to
+// the regions like the preview.
 func (b *Scan) AnnotatedBacks() (image.Image, error) {
 	img, err := readPNG(b.path("backs.png"))
 	if err != nil {
@@ -110,7 +111,18 @@ func (b *Scan) AnnotatedBacks() (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	return b.cut(annotate(img, prints, PreviewPPI), prints), nil
+	out := annotate(img, prints, PreviewPPI)
+	if backs, err := b.BacksFound(); err == nil {
+		mm := 25.4 / float64(PreviewPPI)
+		for _, s := range backs {
+			corners := s.Print.Corners()
+			for k := range corners {
+				p, q := corners[k], corners[(k+1)%len(corners)]
+				line(out, p[0]/mm, p[1]/mm, q[0]/mm, q[1]/mm, color.RGBA{0, 90, 220, 255})
+			}
+		}
+	}
+	return b.cut(out, prints), nil
 }
 
 // closeUpWidth is the width a close-up is enlarged towards, at most 4×.

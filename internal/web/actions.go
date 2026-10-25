@@ -322,8 +322,14 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 	act("backs", func(r *http.Request, l *batch.Scan) error { return l.Turned() })
 	act("no-backs", func(r *http.Request, l *batch.Scan) error { return l.NoBacks() })
+	act("confirm-backs", func(r *http.Request, l *batch.Scan) error { return l.ConfirmBacks() })
+	// previewing again, and a rescan from the quality check, go through
+	// the backs preview with the prints still turned
+	act("preview-backs", func(r *http.Request, l *batch.Scan) error {
+		return l.PreviewBacksAgain(r.Context(), a.Store)
+	})
 	act("rescan-backs", func(r *http.Request, l *batch.Scan) error {
-		return l.Redo(r.Context(), a.Store, "backs", 0)
+		return l.PreviewBacksAgain(r.Context(), a.Store)
 	})
 	act("accept", func(r *http.Request, l *batch.Scan) error { return l.Accept() })
 	act("retry", func(r *http.Request, l *batch.Scan) error { return nil })
@@ -536,9 +542,24 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
 			button("confirm", "Confirm and scan ›", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
+	case waiting == "backs preview":
+		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then preview the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
+			button("backs", "Preview the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "backs":
-		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then scan the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
-			button("backs", "Scan the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
+		notice := "Check that each back lies where its front did, then scan the backs. A print that moved is put back and the backs previewed again."
+		if backs, err := l.BacksFound(); err == nil {
+			var warnings []string
+			for i, s := range backs {
+				if s.Warning != "" {
+					warnings = append(warnings, fmt.Sprintf("print %d: %s", i+1, html.EscapeString(s.Warning)))
+				}
+			}
+			if len(warnings) > 0 {
+				notice += `<ul><li>` + strings.Join(warnings, `</li><li>`) + `</li></ul>`
+			}
+		}
+		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
+			button("confirm-backs", "Scan the backs ›", "is-primary") + button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
 		// the forward step is what accepting leads to: the describing
 		// still to do, or, every photo described, the archive

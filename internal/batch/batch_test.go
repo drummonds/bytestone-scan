@@ -411,6 +411,12 @@ func scanned(t *testing.T, b *Scan, store wf.Store, scanner Scanner) {
 		t.Fatal(err)
 	}
 	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
+		t.Fatalf("%s, want waiting for the backs to be confirmed", rec.Status)
+	}
+	if err := b.ConfirmBacks(); err != nil {
+		t.Fatal(err)
+	}
+	if rec := run(t, b, store, scanner); rec.Status != wf.StatusWaiting {
 		t.Fatalf("%s, want waiting for the quality check", rec.Status)
 	}
 }
