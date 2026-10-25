@@ -401,6 +401,45 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			http.Redirect(w, r, fmt.Sprintf("/%s#print-%d", scanURL(l.Key()), n), http.StatusSeeOther)
 		})
 	}
+	// Keeping a scan for diagnosis copies its files, so it waits for a
+	// step of the scan to finish writing them; another scan's step is no
+	// bar. The scan itself is untouched.
+	mux.HandleFunc("POST /batches/{id}/scans/{n}/keep", func(w http.ResponseWriter, r *http.Request) {
+		l, err := batch.OpenScan(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if busy, _, _ := a.busyWith(l.Key()); busy {
+			fail(w, fmt.Errorf("%w: wait for scan %s's step to finish", errBusy, l.Key()), http.StatusConflict)
+			return
+		}
+		state := "not started"
+		if run, waiting := a.where(r.Context(), l); run != nil {
+			state = string(run.Status)
+			if waiting != "" {
+				state += " at " + waiting
+			}
+		}
+		now := time.Now()
+		if a.Now != nil {
+			now = a.Now()
+		}
+		o := batch.KeepOptions{Note: r.FormValue("note"), State: state, Version: version(), Masters: r.FormValue("masters") != "", Now: now}
+		if _, err := l.Keep(r.Context(), a.Store, o); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
+	})
+	mux.HandleFunc("POST /diagnosis/discard", func(w http.ResponseWriter, r *http.Request) {
+		if err := batch.DiscardDiagnosis(a.Staging, r.FormValue("name")); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/batches", http.StatusSeeOther)
+	})
+
 	edit("adjust", func(r *http.Request, l *batch.Scan) (int, error) {
 		n, edge, by, err := parseMove(r.FormValue("move"))
 		if err != nil {

@@ -328,6 +328,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	prints, ids, err := l.Found()
 	if err != nil {
 		c.HTML(`<p>No preview yet.</p>`)
+		c.HTML(a.diagnosisSection(l))
 		return c.Buffer()
 	}
 	var t strings.Builder
@@ -369,7 +370,40 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 			c.HTML(regionEditor(l, i, p))
 		}
 	}
+	c.HTML(a.diagnosisSection(l))
 	return c.Buffer()
+}
+
+// diagnosisSection is the scan page's Keep for diagnosis form, at every
+// state, and what has been kept of this scan so far.
+func (a *App) diagnosisSection(l *batch.Scan) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `<h2 class="title is-5 mt-5">Diagnosis</h2>
+<form action="%s/keep" method="post" class="box">
+<p class="help">When something has gone wrong, keep what the scan has now, with a note, where a purge and a batch delete leave it. The scan itself is untouched.</p>
+<div class="field has-addons"><div class="control is-expanded"><input class="input is-small" type="text" name="note" placeholder="what you saw"></div>
+<div class="control"><button class="button is-small" type="submit">Keep for diagnosis</button></div></div>
+<label class="checkbox is-size-7"><input type="checkbox" name="masters"> include the masters</label>
+</form>`, scanURL(l.Key()))
+	kept, _ := batch.ListDiagnoses(a.Staging)
+	var rows []string
+	for _, d := range kept {
+		if d.Scan == l.Key() {
+			rows = append(rows, fmt.Sprintf(`<li><code>%s</code> %s: %s</li>`, html.EscapeString(d.Name), d.Kept.Local().Format("2 Jan 2006 15:04"), html.EscapeString(orNothing(d.Note))))
+		}
+	}
+	if len(rows) > 0 {
+		b.WriteString(`<p>Kept for diagnosis:</p><ul>` + strings.Join(rows, "") + `</ul>`)
+	}
+	return b.String()
+}
+
+// orNothing is s, or a dash when blank.
+func orNothing(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 // photo reads the photo the request names, writing a 404 when there is none.
