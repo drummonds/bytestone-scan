@@ -176,14 +176,14 @@ func TestCancelAScanFromTheQueue(t *testing.T) {
 		t.Fatalf("runs %+v, want one scan waiting at confirm", runs)
 	}
 	action := `action="workflows/instances/` + runs[0].ID + `/cancel"`
-	page(t, h, "/workflows/", action)
+	page(t, h, "/workflows/?workflow=scan", action) // a scan is reached through the filter: the queue itself lists batches
 	if w := post(t, h, "/workflows/instances/"+runs[0].ID+"/cancel", nil); w.Code != http.StatusSeeOther {
 		t.Fatalf("cancel: %d %s", w.Code, w.Body)
 	}
 	if run, _ := a.Store.GetRun(context.Background(), runs[0].ID); run.Status != wf.StatusCancelled {
 		t.Errorf("status %s, want cancelled", run.Status)
 	}
-	if strings.Contains(get(t, h, "/workflows/").Body.String(), action) {
+	if strings.Contains(get(t, h, "/workflows/?workflow=scan").Body.String(), action) {
 		t.Error("a cancelled scan is still offered to cancel")
 	}
 }

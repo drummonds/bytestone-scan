@@ -86,7 +86,7 @@ func (a *App) Handler() http.Handler {
 		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "database": a.DB != nil})
 	}
 	views := &view.Views{
-		Store:       a.Store,
+		Store:       queue{a.Store},
 		Definitions: batch.Definitions,
 		Diagrams:    diagrams(),
 		Base:        "workflows/",
