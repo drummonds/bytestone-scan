@@ -34,7 +34,7 @@ func service(t *testing.T, people string) *httptest.Server {
 	})
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"version":"v0.14.0","instance":{"name":"h3","purpose":"scale"}}`))
+		_, _ = w.Write([]byte(`{"version":"v0.14.0","instance":{"name":"h3","purpose":"scale","slot":1}}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -47,7 +47,7 @@ func service(t *testing.T, people string) *httptest.Server {
 func TestInstanceIsWhatVersionSays(t *testing.T) {
 	c := Client{URL: service(t, three).URL}
 	in, err := c.Instance()
-	if err != nil || in != (Instance{Name: "h3", Purpose: "scale"}) {
+	if err != nil || in != (Instance{Name: "h3", Purpose: "scale", Slot: 1}) {
 		t.Fatalf("instance %+v, %v", in, err)
 	}
 	if in.Production() {
@@ -211,5 +211,43 @@ func TestReserveDepositAndReceipt(t *testing.T) {
 	srv.Close()
 	if _, err := c.Deposit(8, strings.NewReader("x")); err == nil || !strings.Contains(err.Error(), "life-weaver serve") {
 		t.Errorf("service down: %v", err)
+	}
+}
+
+// #101: Discover asks each address who serves there and keeps the
+// answers; Choose picks the instance the scanner was started for, or
+// production when it was started for none, and says what it found when
+// that is not there.
+func TestDiscoverAndChoose(t *testing.T) {
+	h3 := service(t, three)
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"version":"v0.14.0","instance":{"name":"bytestone","purpose":"production","slot":0}}`))
+	})
+	prod := httptest.NewServer(mux)
+	t.Cleanup(prod.Close)
+	found := Discover([]string{down.URL, h3.URL, prod.URL})
+	if len(found) != 2 || found[0].Instance.Name != "h3" || found[0].URL != h3.URL || found[1].Instance.Name != "bytestone" {
+		t.Fatalf("found %+v", found)
+	}
+	if got, err := Choose("", found); err != nil || got.URL != prod.URL {
+		t.Errorf("production by default: %+v, %v", got, err)
+	}
+	if got, err := Choose("h3", found); err != nil || got.URL != h3.URL {
+		t.Errorf("h3 by name: %+v, %v", got, err)
+	}
+	_, err := Choose("geni", found)
+	if err == nil || !strings.Contains(err.Error(), "geni") || !strings.Contains(err.Error(), "h3 (scale)") || !strings.Contains(err.Error(), "life-weaver serve") {
+		t.Errorf("an instance not serving: %v, want a refusal naming it, what was found and how to start it", err)
+	}
+	_, err = Choose("", found[:1])
+	if err == nil || !strings.Contains(err.Error(), "production") || !strings.Contains(err.Error(), "h3 (scale)") {
+		t.Errorf("no production serving: %v, want a refusal naming what was found", err)
+	}
+	_, err = Choose("", nil)
+	if err == nil || !strings.Contains(err.Error(), "none") {
+		t.Errorf("nothing serving: %v", err)
 	}
 }

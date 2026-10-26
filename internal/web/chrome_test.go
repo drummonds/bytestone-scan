@@ -66,8 +66,8 @@ func TestTheNavbarNamesTheArchiveInstance(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
 	fake := a.Archive.(*archivetest.Fake)
 	h := a.Handler()
-	page(t, h, "/workflows/", `<span class="tag is-warning">archive example (scratch)</span>`)
-	page(t, h, "/about", "example (scratch)")
+	page(t, h, "/workflows/", `<span class="tag is-warning">archive example (scratch), slot 1</span>`)
+	page(t, h, "/about", "example (scratch), slot 1")
 	fake.Serving = archive.Instance{Name: "bytestone", Purpose: "production"}
 	page(t, h, "/workflows/", `<span class="tag is-light">archive bytestone</span>`)
 	fake.Down = true

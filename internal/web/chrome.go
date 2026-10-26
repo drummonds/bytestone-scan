@@ -31,7 +31,10 @@ func (a *App) archiveInstance() string {
 	if err != nil {
 		return err.Error()
 	}
-	return in.String()
+	if in.Production() {
+		return in.String()
+	}
+	return fmt.Sprintf("%s, slot %d", in, in.Slot)
 }
 
 // archiveTag is the navbar's word on the archive: which instance the
@@ -45,7 +48,7 @@ func (a *App) archiveTag() template.HTML {
 	case in.Production():
 		return template.HTML(`<span class="navbar-item"><span class="tag is-light">archive ` + html.EscapeString(in.Name) + `</span></span>`)
 	default:
-		return template.HTML(`<span class="navbar-item"><span class="tag is-warning">archive ` + html.EscapeString(in.String()) + `</span></span>`)
+		return template.HTML(fmt.Sprintf(`<span class="navbar-item"><span class="tag is-warning">archive %s, slot %d</span></span>`, html.EscapeString(in.String()), in.Slot))
 	}
 }
 

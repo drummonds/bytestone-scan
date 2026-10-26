@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
@@ -47,6 +49,76 @@ type Service interface {
 type Instance struct {
 	Name    string `json:"name"`
 	Purpose string `json:"purpose"` // production, scratch or scale
+	// Slot is the instance's place among the ten that may serve at once:
+	// production is 0, the others 1 to 9. Its service is at BasePort+Slot,
+	// and a scanner run for it takes its own port and staging from it.
+	Slot int `json:"slot"`
+}
+
+// BasePort is slot 0's port, production's: life-weaver serve's default.
+// Slots is how many instances may serve at once, on the ports following.
+const (
+	BasePort = 8321
+	Slots    = 10
+)
+
+// Serving is an instance found answering at a URL.
+type Serving struct {
+	URL      string
+	Instance Instance
+}
+
+// Addresses are where instances serve on this machine: localhost, at
+// BasePort+slot for every slot.
+func Addresses() []string {
+	urls := make([]string, Slots)
+	for i := range urls {
+		urls[i] = fmt.Sprintf("http://localhost:%d", BasePort+i)
+	}
+	return urls
+}
+
+// Discover asks each URL which instance serves there, all at once, and
+// returns those that answer, in URL order.
+func Discover(urls []string) []Serving {
+	found := make([]*Serving, len(urls))
+	var wg sync.WaitGroup
+	for i, url := range urls {
+		wg.Go(func() {
+			if in, err := (Client{URL: url, Timeout: time.Second}).Instance(); err == nil {
+				found[i] = &Serving{URL: url, Instance: in}
+			}
+		})
+	}
+	wg.Wait()
+	var out []Serving
+	for _, f := range found {
+		if f != nil {
+			out = append(out, *f)
+		}
+	}
+	return out
+}
+
+// Choose picks the instance the scanner was started for among those
+// found: the one named, or production when none was named. When it is
+// not serving, the refusal says what was found and how to start it.
+func Choose(name string, found []Serving) (Serving, error) {
+	var names []string
+	for _, f := range found {
+		if (name == "" && f.Instance.Production()) || (name != "" && f.Instance.Name == name) {
+			return f, nil
+		}
+		names = append(names, f.Instance.String()+" on "+f.URL)
+	}
+	what := "none"
+	if len(names) > 0 {
+		what = strings.Join(names, ", ")
+	}
+	if name == "" {
+		return Serving{}, fmt.Errorf("no production archive is serving on localhost:%d-%d (found: %s): start it with life-weaver serve, or task serve in life-weaver, or run the scanner for another with -instance", BasePort, BasePort+Slots-1, what)
+	}
+	return Serving{}, fmt.Errorf("archive instance %s is not serving on localhost:%d-%d (found: %s): start it with life-weaver serve -archive <its tree>", name, BasePort, BasePort+Slots-1, what)
 }
 
 // Production says whether the instance is the real archive.
@@ -111,7 +183,10 @@ func (r *Refusal) Error() string {
 }
 
 // Client is the archive service at URL.
-type Client struct{ URL string }
+type Client struct {
+	URL     string
+	Timeout time.Duration // per call; 0 is no limit
+}
 
 // entry is what the service lists a person as, the fields the scanner uses.
 type entry struct {
@@ -212,7 +287,7 @@ func (c Client) call(method, path string, body io.Reader, v any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/x-tar")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: c.Timeout}).Do(req)
 	if err != nil {
 		return fmt.Errorf("the archive service at %s is not answering (start it with life-weaver serve, or task serve in life-weaver): %w", c.URL, err)
 	}

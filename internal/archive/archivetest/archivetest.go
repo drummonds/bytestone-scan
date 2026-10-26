@@ -53,7 +53,7 @@ func New(people ...archive.Person) *Fake {
 // Example is a fake over two people, Ada (a) and Aaron (e) Example.
 func Example() *Fake {
 	f := New(archive.Person{ID: 10, Name: "Ada Example"}, archive.Person{ID: 14, Name: "Aaron Example"})
-	f.Serving = archive.Instance{Name: "example", Purpose: "scratch"}
+	f.Serving = archive.Instance{Name: "example", Purpose: "scratch", Slot: 1}
 	return f
 }
 

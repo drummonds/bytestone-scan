@@ -43,13 +43,18 @@ under `renditions/` beside the archive, by photo and recipe version.
 
 Batches, the bags awaiting the archive, recordings and the workflow
 database live under `-staging` (default `~/.local/share/bytestone-scan`).
-The archive service (`-archive`, default `http://localhost:8321`:
-`life-weaver serve`, or `task serve` in life-weaver) is where people come
-from, where photo ids are reserved and where bags are deposited. Several
-archive instances may be served at once; the default URL is production's,
-and an archive found there that is not production (a scratch or scale
-instance) is refused at startup unless `-archive` names it. The navbar
-names the instance in use, in warning colours when it is not production.
+The scanner runs for one archive instance, production unless `-instance`
+names another (`bytestone-scan serve -instance h3`). It finds the instance
+among the life-weaver services on `localhost:8321-8330`, one port per
+slot, and refuses to start when it is not serving, saying what it found.
+Its own address and staging root follow from the slot: production on
+`localhost:8080` with the default staging, any other on `8080+slot` with
+`~/.local/share/bytestone-scan-<instance>`, so a scratch batch's masters
+never land in production's staging. `-archive URL`, `-addr` and `-staging`
+each override their part. The navbar names the instance in use, in warning
+colours when it is not production. The archive service (`life-weaver
+serve`, or `task serve` in life-weaver) is where people come from, where
+photo ids are reserved and where bags are deposited.
 
 Without the scanner, run the UI on a recorded print: `bytestone-scan
 capture -print <name>` records the one print on the bed (its preview and
