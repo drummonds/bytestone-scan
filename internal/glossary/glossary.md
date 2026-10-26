@@ -33,4 +33,5 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Close | The batch step reached when scanning is finished and every photo is held by the archive or rejected by it: its work files are redundant from then |
 | Purge | Deleting a closed batch's work files, 30 days after it closes or sooner when staging is short of space, oldest closed first; never an open batch's, and never a rejected photo's bag |
 | Delete (a batch) | The operator's removal of a batch that will never close (abandoned, a test, or in a layout the build cannot read): its runs cancelled, its work files, bags and renditions gone; refused while the archive holds a photo of it |
+| Archive instance | One archive tree as life-weaver names it (`name`, `purpose`: production, scratch or scale); the scanner names the one it is on in its navbar and, left at the default `-archive`, accepts only production |
 | Stale | What staging holds that no readable batch claims and the archive has not answered for: left by older builds or by hand; listed on the Batches page, deletable |

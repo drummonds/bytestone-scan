@@ -32,9 +32,37 @@ func service(t *testing.T, people string) *httptest.Server {
 			http.Error(w, "no person "+r.PathValue("id"), http.StatusNotFound)
 		}
 	})
+	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"v0.14.0","instance":{"name":"h3","purpose":"scale"}}`))
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// #99: Instance is which archive the service serves, as /version says
+// it; a service from before instances were reported says nothing, which
+// is no error.
+func TestInstanceIsWhatVersionSays(t *testing.T) {
+	c := Client{URL: service(t, three).URL}
+	in, err := c.Instance()
+	if err != nil || in != (Instance{Name: "h3", Purpose: "scale"}) {
+		t.Fatalf("instance %+v, %v", in, err)
+	}
+	if in.Production() {
+		t.Error("a scale instance is not production")
+	}
+	if !(Instance{Name: "bytestone", Purpose: "production"}).Production() {
+		t.Error("a production instance is")
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"version":"v0.13.0"}`)) })
+	old := httptest.NewServer(mux)
+	t.Cleanup(old.Close)
+	if in, err := (Client{URL: old.URL}).Instance(); err != nil || in != (Instance{}) {
+		t.Errorf("an older service: %+v, %v, want an unnamed instance and no error", in, err)
+	}
 }
 
 const three = `[{"id":"a","name":"Ada Example","short":"Ada","born":{"date":"1894"}},{"id":"e","name":"Aaron Example"},{"id":"f","name":"Flat Example"}]`

@@ -73,6 +73,7 @@ const layout = `<!DOCTYPE html>
 {{if .database}}<a class="navbar-item" href="db/">Database</a>{{end}}
 <a class="navbar-item" href="about">About</a>
 {{.status}}
+{{.archive}}
 </div></nav>
 <section class="section"><div class="container">{{.content}}</div></section>
 </body></html>`
@@ -83,7 +84,7 @@ func (a *App) Handler() http.Handler {
 		panic(err)
 	}
 	render := func(w http.ResponseWriter, title string, content string) {
-		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "database": a.DB != nil})
+		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "archive": a.archiveTag(), "database": a.DB != nil})
 	}
 	views := &view.Views{
 		Store:       a.Store,

@@ -25,6 +25,30 @@ func (a *App) indicator() template.HTML {
 		scanURL(key), html.EscapeString(key), int(d.Minutes()), int(d.Seconds())%60))
 }
 
+// archiveInstance names the instance for About, or says why it cannot.
+func (a *App) archiveInstance() string {
+	in, err := a.Archive.Instance()
+	if err != nil {
+		return err.Error()
+	}
+	return in.String()
+}
+
+// archiveTag is the navbar's word on the archive: which instance the
+// scanner is on, in warning colours when it is not production, so a
+// scratch register is never mistaken for the real one.
+func (a *App) archiveTag() template.HTML {
+	in, err := a.Archive.Instance()
+	switch {
+	case err != nil:
+		return `<span class="navbar-item"><span class="tag is-danger">archive not answering</span></span>`
+	case in.Production():
+		return template.HTML(`<span class="navbar-item"><span class="tag is-light">archive ` + html.EscapeString(in.Name) + `</span></span>`)
+	default:
+		return template.HTML(`<span class="navbar-item"><span class="tag is-warning">archive ` + html.EscapeString(in.String()) + `</span></span>`)
+	}
+}
+
 // version is the build's module version and commit.
 func version() string {
 	bi, ok := debug.ReadBuildInfo()
@@ -56,6 +80,7 @@ func (a *App) about() string {
 		row("Scanner", html.EscapeString(a.Scanner.Name())) +
 		row("Staging", "<code>"+html.EscapeString(a.Staging)+"</code>") +
 		row("Archive service", "<code>"+html.EscapeString(a.Archive.String())+"</code>") +
+		row("Archive instance", html.EscapeString(a.archiveInstance())) +
 		row("Format statement", link("https://www.bytestone.uk/posts/2026-10-20-archiving-family-photographs/")) +
 		row("Source", link("https://git.bytestone.uk/hum3/bytestone-scan")) +
 		row("Documentation", link("https://bytestone-scan.docs.bytestone.uk")) +

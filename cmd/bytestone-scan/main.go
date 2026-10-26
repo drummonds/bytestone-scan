@@ -49,14 +49,16 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		addr := fs.String("addr", "localhost:8080", "address to listen on")
-		service := fs.String("archive", "http://localhost:8321", "the archive service (life-weaver serve): the register of people, item ids and deposits")
+		service := fs.String("archive", defaultArchive, "the archive service (life-weaver serve): the register of people, item ids and deposits; left at its default, only the production instance is accepted there")
 		name := fs.String("recorded", "", "run on the recording of this print under <staging>/fixtures instead of the scanner")
 		fs.Parse(os.Args[2:])
+		given := false
+		fs.Visit(func(f *flag.Flag) { given = given || f.Name == "archive" })
 		var s batch.Scanner = &epson.Scanner{Device: *device}
 		if *name != "" {
 			s = &recorded.Scanner{Dir: filepath.Join(*staging, "fixtures", *name)}
 		}
-		err = serve(ctx, *addr, *staging, *service, s)
+		err = serve(ctx, *addr, *staging, *service, given, s)
 	case "capture":
 		name := fs.String("print", "", "the recording's name under <staging>/fixtures (required)")
 		side := fs.String("side", "front", "the side of the print lying face down: front or back")
@@ -78,7 +80,29 @@ func main() {
 }
 
 // serve runs the web UI until interrupted.
-func serve(ctx context.Context, addr, staging, service string, s batch.Scanner) error {
+// defaultArchive is where the production archive service listens
+// (life-weaver serve's own default); a scratch or scale instance is
+// served elsewhere, and is only used when -archive names it.
+const defaultArchive = "http://localhost:8321"
+
+// acceptArchive is the rule that keeps a scratch register out of real
+// batches by accident: at the default URL only production will do, and an
+// archive that does not say which instance it is will not; an -archive
+// given explicitly accepts any instance.
+func acceptArchive(in archive.Instance, url string, given bool) error {
+	if given || in.Production() {
+		return nil
+	}
+	return fmt.Errorf("the archive at %s is %s, not production: pass -archive %s to use it anyway", url, in, url)
+}
+
+func serve(ctx context.Context, addr, staging, service string, given bool, s batch.Scanner) error {
+	client := archive.Client{URL: service}
+	if in, err := client.Instance(); err != nil {
+		fmt.Fprintln(os.Stderr, "bytestone-scan: cannot tell which archive instance is at", service+":", err)
+	} else if err := acceptArchive(in, service, given); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return err
 	}
@@ -96,7 +120,7 @@ func serve(ctx context.Context, addr, staging, service string, s batch.Scanner) 
 		Store:   store,
 		DB:      db,
 		Scanner: s,
-		Archive: archive.Client{URL: service},
+		Archive: client,
 		Now:     time.Now,
 	}
 	srv := &http.Server{Addr: addr, Handler: app.Handler()}

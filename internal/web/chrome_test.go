@@ -1,6 +1,8 @@
 package web
 
 import (
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
 	"html"
 	"net/url"
 	"regexp"
@@ -55,4 +57,19 @@ func TestTheNavbarSaysWhenTheScannerIsBusy(t *testing.T) {
 	close(sc.release)
 	a.wait()
 	page(t, h, "/workflows/", "Idle")
+}
+
+// #99: the navbar names the archive instance the scanner is on, in
+// warning colours when it is not production, so a scratch register
+// cannot be mistaken for the real one; About names it too.
+func TestTheNavbarNamesTheArchiveInstance(t *testing.T) {
+	a := live(t, &batchtest.Scanner{})
+	fake := a.Archive.(*archivetest.Fake)
+	h := a.Handler()
+	page(t, h, "/workflows/", `<span class="tag is-warning">archive example (scratch)</span>`)
+	page(t, h, "/about", "example (scratch)")
+	fake.Serving = archive.Instance{Name: "bytestone", Purpose: "production"}
+	page(t, h, "/workflows/", `<span class="tag is-light">archive bytestone</span>`)
+	fake.Down = true
+	page(t, h, "/workflows/", `<span class="tag is-danger">archive not answering</span>`)
 }

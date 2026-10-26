@@ -34,8 +34,33 @@ type Service interface {
 	Deposit(item pid.ID, deposit io.Reader) (Receipt, error)
 	// Receipt is the archive's record of the item: reserved, or held.
 	Receipt(item pid.ID) (Receipt, error)
+	// Instance is which archive the service serves: production, or a
+	// scratch or scale instance. A service from before instances were
+	// reported gives an unnamed one.
+	Instance() (Instance, error)
 	// String names the service, for About.
 	String() string
+}
+
+// Instance is an archive as life-weaver's archive.yaml names it: one tree
+// among several that may be served at once.
+type Instance struct {
+	Name    string `json:"name"`
+	Purpose string `json:"purpose"` // production, scratch or scale
+}
+
+// Production says whether the instance is the real archive.
+func (in Instance) Production() bool { return in.Purpose == "production" }
+
+// String is the instance as the operator reads it.
+func (in Instance) String() string {
+	if in.Name == "" {
+		return "an archive that does not say which instance it is"
+	}
+	if in.Production() {
+		return in.Name
+	}
+	return in.Name + " (" + in.Purpose + ")"
 }
 
 // Person is one person in the register.
@@ -114,6 +139,16 @@ func (c Client) People() ([]Person, error) {
 }
 
 // Person asks the service for the person's record.
+func (c Client) Instance() (Instance, error) {
+	var v struct {
+		Instance Instance `json:"instance"`
+	}
+	if err := c.call("GET", "/version", nil, &v); err != nil {
+		return Instance{}, err
+	}
+	return v.Instance, nil
+}
+
 func (c Client) Person(id pid.ID) (string, error) {
 	var e entry
 	err := c.call(http.MethodGet, "/people/"+id.String(), nil, &e)
