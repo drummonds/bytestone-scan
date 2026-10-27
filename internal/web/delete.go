@@ -12,9 +12,9 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 )
 
-// deletion is the Batches page and the operator's way of removing what
-// will never close: a batch, confirmed on its own page, and the stale
-// data no readable batch claims. Nothing the archive holds is touched.
+// deletion is the Batches page and the operator's way of clearing
+// staging: any batch, confirmed on its own page, and the stale data no
+// readable batch claims. Nothing the archive holds is touched.
 func (a *App) deletion(mux *http.ServeMux, render func(http.ResponseWriter, string, string), fail func(http.ResponseWriter, error, int)) {
 	mux.HandleFunc("GET /batches", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "Batches", a.batchesPage())
@@ -29,8 +29,8 @@ func (a *App) deletion(mux *http.ServeMux, render func(http.ResponseWriter, stri
 		render(w, "Delete batch "+b.ID, fmt.Sprintf(`<h1 class="title">Delete batch %s?</h1>
 <p class="subtitle">%s</p>
 <p>Its %d scans and their photos' work files, bags and renditions go from staging, and its runs are cancelled. Nothing the archive holds is touched.</p>
-<form action="batches/%s/delete" method="post" class="buttons mt-4"><button class="button is-danger" type="submit">Delete</button> <a class="button" href="batches/%s">Keep</a></form>`,
-			html.EscapeString(b.ID), html.EscapeString(b.Title), len(scans), html.EscapeString(b.ID), html.EscapeString(b.ID)))
+%s<form action="batches/%s/delete" method="post" class="buttons mt-4"><button class="button is-danger" type="submit">Delete</button> <a class="button" href="batches/%s">Keep</a></form>`,
+			html.EscapeString(b.ID), html.EscapeString(b.Title), len(scans), lost(b), html.EscapeString(b.ID), html.EscapeString(b.ID)))
 	})
 	mux.HandleFunc("POST /batches/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
@@ -87,7 +87,7 @@ func (a *App) batchesPage() string {
 		return c.Buffer()
 	}
 	var t strings.Builder
-	t.WriteString(`<table class="table is-striped"><thead><tr><th>Batch</th><th>Title</th><th>Home</th><th>Started</th><th>Scans</th><th>Where</th></tr></thead><tbody>`)
+	t.WriteString(`<table class="table is-striped"><thead><tr><th>Batch</th><th>Title</th><th>Home</th><th>Started</th><th>Scans</th><th>Where</th><th></th></tr></thead><tbody>`)
 	for _, b := range batches {
 		scans, _ := b.Scans()
 		where := "open"
@@ -98,9 +98,9 @@ func (a *App) batchesPage() string {
 		} else if b.Finished() {
 			where = "finished"
 		}
-		fmt.Fprintf(&t, `<tr><td><a href="batches/%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td></tr>`,
+		fmt.Fprintf(&t, `<tr><td><a href="batches/%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
 			html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.Title), html.EscapeString(b.PersonName),
-			b.Created.Local().Format("2 Jan 2006 15:04"), len(scans), where)
+			b.Created.Local().Format("2 Jan 2006 15:04"), len(scans), where, deleteButton(b.ID, "is-small"))
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
@@ -137,6 +137,35 @@ func (a *App) batchesPage() string {
 		c.HTML(s.String())
 	}
 	return c.Buffer()
+}
+
+// deleteButton leads to the batch's delete confirmation.
+func deleteButton(id, size string) string {
+	return fmt.Sprintf(`<a class="button is-danger is-light %s" href="batches/%s/delete">Delete</a>`, size, html.EscapeString(id))
+}
+
+// lost says, before the operator confirms, what deleting the batch costs:
+// what the archive holds stays there; a photo not yet deposited loses
+// its masters.
+func lost(b *batch.Batch) string {
+	o, err := b.Outcome()
+	if err != nil {
+		return `<p class="has-text-danger">` + html.EscapeString(err.Error()) + `</p>`
+	}
+	var parts []string
+	if o.Held > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s held by the archive %s there", o.Held, plural(o.Held, "photo", "photos"), plural(o.Held, "stays", "stay")))
+	}
+	if n := len(o.Rejected); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d rejected as %s held already", n, plural(n, "a duplicate is", "duplicates are")))
+	}
+	if o.Pending > 0 {
+		parts = append(parts, fmt.Sprintf("<strong>%d %s not yet deposited %s its masters</strong>", o.Pending, plural(o.Pending, "photo", "photos"), plural(o.Pending, "loses", "lose")))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "<p>" + strings.Join(parts, "; ") + ".</p>\n"
 }
 
 // megabytes is n bytes as the page says them.

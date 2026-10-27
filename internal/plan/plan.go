@@ -99,3 +99,13 @@ func pass(prints []find.Print, bed find.Rect, scanPPI int, masterFor func(find.P
 	}
 	return p, nil
 }
+
+// Page is the pass over a received page, its prints cut from it at the
+// page's own ppi and kept unaveraged: the record says it is a copy, so
+// no warning is given for a resolution below a scan's.
+func Page(prints []find.Print, bed find.Rect, ppi int) (Pass, error) {
+	if ppi <= 0 {
+		return Pass{}, fmt.Errorf("page ppi %d, want a resolution", ppi)
+	}
+	return pass(prints, bed, ppi, func(find.Print) (Master, error) { return Master{PPI: ppi, Factor: 1}, nil })
+}

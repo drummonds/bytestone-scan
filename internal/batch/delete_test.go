@@ -13,12 +13,11 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
-// Story 054: a batch that will never close can be deleted, so long as the
-// archive holds none of its photos: its runs are cancelled and its work
-// files, bags and renditions go. A batch with a photo held is refused:
-// finish scanning and it closes and purges in the ordinary way. A closed
-// batch is the purger's.
-func TestDeleteABatchThatWillNeverClose(t *testing.T) {
+// Story 054, widened by #98: any batch can be deleted, open, closed or
+// purged: its runs are cancelled and its work files, bags, renditions and
+// the archive's answers go from staging. Nothing the archive holds is
+// touched.
+func TestDeleteABatch(t *testing.T) {
 	ctx := context.Background()
 	root, store := t.TempDir(), wf.NewMemStore()
 	scanner := twoSided()
@@ -63,27 +62,38 @@ func TestDeleteABatchThatWillNeverClose(t *testing.T) {
 		t.Errorf("the next batch after deleting 20261020-1: %+v %v, want 20261020-2", again, err)
 	}
 
-	// a photo held by the archive: refused, and nothing touched
+	// a photo held by the archive, the batch closed: deleted all the same,
+	// the archive keeping the photo; its bags, renditions and the archive's
+	// answers go from staging
 	root, store = t.TempDir(), wf.NewMemStore()
 	held, hl := through(t, root, store, 7)
 	_, hids, _ := hl.Found()
-	err := held.Delete(ctx, store)
-	if err == nil || !strings.Contains(err.Error(), "finish scanning") {
-		t.Fatalf("deleting a batch with a photo held: %v", err)
-	}
-	for _, kept := range []string{held.Dir(), filepath.Join(root, "bags", hids[0].String()), filepath.Join(root, "bags", hids[1].String()), filepath.Join(root, "renditions", hids[1].String())} {
-		if _, err := os.Stat(kept); err != nil {
-			t.Errorf("%s touched: %v", kept, err)
-		}
-	}
-
-	// closed: not the operator's to delete
 	held.Finish(ctx, store)
 	if _, ok := held.Closed(); !ok {
 		t.Fatal("not closed")
 	}
-	if err := held.Delete(ctx, store); err == nil || !strings.Contains(err.Error(), "closed") {
-		t.Errorf("deleting a closed batch: %v", err)
+	if err := held.Delete(ctx, store); err != nil {
+		t.Fatalf("deleting a closed batch with a photo held: %v", err)
+	}
+	for _, gone := range []string{held.Dir(), filepath.Join(root, "bags", hids[0].String()), filepath.Join(root, "bags", hids[1].String()), filepath.Join(root, "bags", hids[1].String()+".deposit.yaml"), filepath.Join(root, "renditions", hids[1].String())} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s survives: %v", gone, err)
+		}
+	}
+
+	// purged: the record that is left goes too
+	root, store = t.TempDir(), wf.NewMemStore()
+	purged, _ := through(t, root, store, 7)
+	purged.Finish(ctx, store)
+	p := &Purger{Root: root, Now: func() time.Time { return time.Now().Add(31 * 24 * time.Hour) }, Grace: 30 * 24 * time.Hour}
+	if swept, err := p.Sweep(); err != nil || len(swept) != 1 {
+		t.Fatalf("sweep: %v %v", swept, err)
+	}
+	if err := purged.Delete(ctx, store); err != nil {
+		t.Fatalf("deleting a purged batch: %v", err)
+	}
+	if _, err := os.Stat(purged.Dir()); !os.IsNotExist(err) {
+		t.Errorf("purged batch's directory survives: %v", err)
 	}
 }
 

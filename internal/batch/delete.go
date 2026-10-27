@@ -11,33 +11,19 @@ import (
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
-	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
-// Delete removes a batch that will never close: an abandoned or test
-// batch, or one from a build whose layout the code no longer reads. Its
-// run and its scans' and photos' runs are cancelled, and its directory
-// and its photos' bags and renditions go from staging. Nothing the
-// archive holds is touched: a batch with a photo held is refused, since
-// finishing its scanning closes and purges it in the ordinary way; a
-// closed batch is the purger's.
+// Delete removes a batch, open, closed or purged: its run and its scans'
+// and photos' runs are cancelled, and its directory and its photos' bags,
+// renditions and the archive's answers go from staging. Nothing the
+// archive holds is touched: a held photo stays held, only staging's copy
+// goes. A photo not yet deposited loses its masters, which the operator
+// is told before confirming.
 func (b *Batch) Delete(ctx context.Context, store wf.Store) error {
-	if _, ok := b.Closed(); ok {
-		return fmt.Errorf("batch %s is closed; its work files are purged in their own time", b.ID)
-	}
 	ids, err := b.photos()
 	if err != nil {
 		return err
-	}
-	for _, id := range ids {
-		d, err := DepositOf(b.root, id)
-		if err != nil {
-			return err
-		}
-		if d != nil && d.Status == string(archive.Held) {
-			return fmt.Errorf("batch %s: the archive holds photo %s; finish scanning and the batch will close and purge", b.ID, id)
-		}
 	}
 	scans, err := b.Scans()
 	if err != nil {
@@ -73,7 +59,8 @@ func (b *Batch) Delete(ctx context.Context, store wf.Store) error {
 	return os.RemoveAll(b.Dir())
 }
 
-// photos are the ids of every print found in the batch's scans.
+// photos are the ids of every item of the batch's scans: each print
+// found, and each import's page item.
 func (b *Batch) photos() ([]pid.ID, error) {
 	scans, err := b.Scans()
 	if err != nil {
@@ -81,8 +68,8 @@ func (b *Batch) photos() ([]pid.ID, error) {
 	}
 	var ids []pid.ID
 	for _, l := range scans {
-		_, found, err := l.Found()
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
+		found, err := l.items()
+		if err != nil {
 			return nil, err
 		}
 		ids = append(ids, found...)

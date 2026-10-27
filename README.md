@@ -34,12 +34,27 @@ bagged, deposited with the archive service and receipted, or shown as
 rejected when the archive already holds the picture. The batch page
 lists its scans, takes another, and finishes the batch once every scan is
 through; it then closes, and its work files are purged 30 days later, or
-sooner when staging is short of space. A batch that will never close (a
-test, or one abandoned) is deleted from its page, so long as the archive
-holds none of its photos; the *Batches* page lists every batch and the
-stale data no batch claims, each deletable the same way.
+sooner when staging is short of space. Any batch, open, closed or purged, is
+deleted from its page or the *Batches* list, which says what the archive
+holds of it (that stays) and what has not been deposited (that loses its
+masters); the *Batches* page also lists the stale data no batch claims,
+deletable the same way.
 Renditions (story [003](docs/stories/003-display-images.md)) are kept
 under `renditions/` beside the archive, by photo and recipe version.
+
+A print that cannot reach the scanner comes as a *page*: a copy made on
+an office machine and emailed, or a phone photograph (story
+[102](docs/stories/102-import-received-pages.md)). *Import pages* on the
+batch page (or *Import pages instead* on New batch) takes the files as
+received, JPEG, PNG or TIFF, with who sent them, when and on what, and
+makes each an import among the batch's scans: the page is its bed, the
+prints on it are found, confirmed and cut from it at the page's own
+resolution and depth, and each photo then goes through the same quality
+check, description and deposit, with no backs. The file as sent is kept
+unaltered: in the photo's own bag when the page holds one print, or, when
+it holds several, as a page item of its own that the photos name as
+`cut_from`, deposited before them. The image has to be pulled out of a
+PDF or an email first.
 
 Batches, the bags awaiting the archive, recordings and the workflow
 database live under `-staging` (default `~/.local/share/bytestone-scan`).
