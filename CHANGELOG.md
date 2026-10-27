@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-27
+
+ - At the backs wait each print's back is shown close up from the backs preview with a tick; Scan the backs scans the ticked backs and declares the rest blank, so a group's backs are picked in one go; A Stop button beside the progress bar ends the step running, as when the prints were confirmed before their regions were sized: the pass is abandoned, the run says it was stopped, and the scan goes back to the prints or carries on; The Queue lists batches alone: a batch's scans and photos are reached through its instance page, or by asking the filter for their workflow; Any batch is deleted from its page or the Batches list, closed and purged ones included, for a clean sheet; the confirmation says what the archive holds of it and what loses its masters; The navbar names the archive instance in use and its slot, in warning colours when it is not production; About names it too; `-instance NAME`: the scanner runs for one archive instance, production unless named, found among the life-weaver services on localhost:8321-8330 (one port per slot); it refuses to start when the instance is not serving, saying what it found. Its own address (8080+slot) and staging root (`~/.local/share/bytestone-scan-<instance>` for any instance but production) follow from the slot, so a scratch batch's masters never land in production's staging; `-archive`, `-addr` and `-staging` each override their part. Needs life-weaver v0.14; Scan page: a large print's close-up is reduced to fit the screen so its controls stay in view, and Remove this region is offered above the close-up as well as below
+
+### Added
+
+- At the backs wait each print's back is shown close up from the backs preview with a tick; Scan the backs scans the ticked backs and declares the rest blank, so a group's backs are picked in one go (#88)
+- A Stop button beside the progress bar ends the step running, as when the prints were confirmed before their regions were sized: the pass is abandoned, the run says it was stopped, and the scan goes back to the prints or carries on (#96)
+- The navbar names the archive instance in use and its slot, in warning colours when it is not production; About names it too (#99)
+- `-instance NAME`: the scanner runs for one archive instance, production unless named, found among the life-weaver services on localhost:8321-8330 (one port per slot); it refuses to start when the instance is not serving, saying what it found. Its own address (8080+slot) and staging root (`~/.local/share/bytestone-scan-<instance>` for any instance but production) follow from the slot, so a scratch batch's masters never land in production's staging; `-archive`, `-addr` and `-staging` each override their part. Needs life-weaver v0.14 (#101)
+
+### Changed
+
+- The Queue lists batches alone: a batch's scans and photos are reached through its instance page, or by asking the filter for their workflow (#97)
+- Any batch is deleted from its page or the Batches list, closed and purged ones included, for a clean sheet; the confirmation says what the archive holds of it and what loses its masters (#98)
+
+### Fixed
+
+- Scan page: a large print's close-up is reduced to fit the screen so its controls stay in view, and Remove this region is offered above the close-up as well as below (#105)
+
 ## [0.19.0] - 2026-10-27
 
  - Import pages: a print that cannot reach the scanner comes as a received file, a copy made elsewhere, brought into a batch from *Import pages* with its sender, date received and device. Each file is an import among the batch's scans: the page is its bed, the prints on it are found, confirmed and cut from it at the page's own ppi and depth, and each photo goes through the quality check, description and deposit as a scan's do, with no backs. The file as sent is kept unaltered, in the photo's bag when the page holds one print or as a page item of its own (`page.yaml`, deposited before the photos, which name it as `cut_from`) when it holds several. Needs life-weaver v0.14
