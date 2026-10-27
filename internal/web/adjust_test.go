@@ -160,8 +160,8 @@ func TestSplitAndRemoveRegions(t *testing.T) {
 	if strings.Count(body, `action="`+loc[1:]+`/split"`) != 1 {
 		t.Error("want a split button on the merged region only")
 	}
-	if strings.Count(body, `action="`+loc[1:]+`/remove"`) != 2 {
-		t.Error("want a remove button on each region")
+	if strings.Count(body, `action="`+loc[1:]+`/remove"`) != 4 {
+		t.Error("want a remove button above and below each region")
 	}
 	b, _ := batch.OpenScan(a.Staging, scanKey(loc))
 
