@@ -920,3 +920,29 @@ func TestCloseUpFrame(t *testing.T) {
 		t.Errorf("at the bed's corner: %+v, %v; want the close-up starting at the region's edge", corner, err)
 	}
 }
+
+// #105: a close-up that would not fit on the screen pixel for pixel is
+// reduced to fit, so a large print's controls stay in view; its frame
+// says the reduced scale, so the rulers still land on the picture.
+func TestALargeCloseUpIsReducedToFit(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 200, Y1: 280, Value: 20000}}}
+	b := describe(t, root)
+	run(t, b, wf.NewMemStore(), scanner)
+	img, err := b.CloseUp(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := img.Bounds().Size()
+	if size.X > closeUpFit.X || size.Y > closeUpFit.Y || (size.X < closeUpFit.X && size.Y < closeUpFit.Y) {
+		t.Errorf("close-up %v px, want it reduced to fit %v exactly one way", size, closeUpFit)
+	}
+	f, err := b.CloseUpFrame(0)
+	if err != nil || f.W != size.X || f.H != size.Y {
+		t.Errorf("frame %+v, %v; want the image's %v", f, err, size)
+	}
+	prints, _, _ := b.Found()
+	if mm, r := float64(f.W)/f.Scale, prints[0].Region.W; mm < r-1 || mm > r+2*closeUpContext+1 {
+		t.Errorf("the image spans %.1f mm at the frame's scale, want the region's %.1f mm and up to %.0f mm of context", mm, r, 2*closeUpContext)
+	}
+}
