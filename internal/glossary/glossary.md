@@ -36,5 +36,5 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Work files | What a batch keeps under staging to do its job: previews, prints, masters, renditions, bags |
 | Close | The batch step reached when scanning is finished and every photo is held by the archive or rejected by it: its work files are redundant from then |
 | Purge | Deleting a closed batch's work files, 30 days after it closes or sooner when staging is short of space, oldest closed first; never an open batch's, and never a rejected photo's bag |
-| Delete (a batch) | The operator's removal of a batch that will never close (abandoned, a test, or in a layout the build cannot read): its runs cancelled, its work files, bags and renditions gone; refused while the archive holds a photo of it |
+| Delete (a batch) | The operator's removal of a batch, open, closed or purged: its runs cancelled, its work files, bags and renditions gone from staging; what the archive holds stays held, what was not deposited loses its masters |
 | Stale | What staging holds that no readable batch claims and the archive has not answered for: left by older builds or by hand; listed on the Batches page, deletable |

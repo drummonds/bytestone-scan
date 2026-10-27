@@ -300,17 +300,16 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
 	if at, ok := b.Purged(); ok {
-		c.HTML(fmt.Sprintf(`<div class="notification">Purged on %s: the work files of this batch are gone; its photos are held by the archive.</div>`, at.Local().Format("2 Jan 2006")))
+		c.HTML(fmt.Sprintf(`<div class="notification">Purged on %s: the work files of this batch are gone; its photos are held by the archive.</div><div class="buttons">%s</div>`, at.Local().Format("2 Jan 2006"), deleteButton(b.ID, "")))
 		return c.Buffer()
 	}
 	if at, ok := b.Closed(); ok {
 		msg, class := a.batchOutcome(b)
-		c.HTML(fmt.Sprintf(`<div class="notification %s">Closed on %s: %s. The work files are purged %d days after closing, or sooner when staging is short of space.</div>`,
-			class, at.Local().Format("2 Jan 2006"), msg, int(batch.DefaultGrace.Hours()/24)))
+		c.HTML(fmt.Sprintf(`<div class="notification %s">Closed on %s: %s. The work files are purged %d days after closing, or sooner when staging is short of space.</div><div class="buttons">%s</div>`,
+			class, at.Local().Format("2 Jan 2006"), msg, int(batch.DefaultGrace.Hours()/24), deleteButton(b.ID, "")))
 		return c.Buffer()
 	}
-	// not closed: the operator can still delete it, so long as the archive holds none of its photos
-	del := fmt.Sprintf(`<a class="button is-danger is-light" href="batches/%s/delete">Delete</a>`, html.EscapeString(b.ID))
+	del := deleteButton(b.ID, "")
 	if b.Finished() {
 		msg, class := a.batchOutcome(b)
 		c.HTML(fmt.Sprintf(`<div class="notification %s">Finished: %s.</div><div class="buttons">%s</div>`, class, msg, del))
