@@ -6,3 +6,4 @@
 .claude/
 .tp-release-inflight
 .tp-release.yml
+/temp/

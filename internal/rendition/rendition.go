@@ -534,3 +534,18 @@ func writeAtomic(path string, write func(io.Writer) error) error {
 	}
 	return os.Rename(tmp, path)
 }
+
+// Whole is the renditions of a page as sent: the whole image fit to the
+// screen, nothing measured, turned or levelled, since the page is kept
+// as the evidence of what was received. The caller sets Master.
+func Whole(img image.Image) (Recipe, Images) {
+	b := img.Bounds()
+	w, h := float64(b.Dx()), float64(b.Dy())
+	r := Recipe{Version: Version, Print: find.Box{CX: w / 2, CY: h / 2, W: w, H: h}, White: 65535}
+	scale := min(DisplayW/w, DisplayH/h, 1)
+	outW, outH := max(1, int(math.Round(w*scale))), max(1, int(math.Round(h*scale)))
+	r.Display = Size{outW, outH}
+	display := image.NewRGBA(image.Rect(0, 0, outW, outH))
+	draw.CatmullRom.Scale(display, display.Bounds(), img, b, draw.Src, nil)
+	return r, Images{Display: display, Thumb: fitLongEdge(display, ThumbEdge), Tiny: fitLongEdge(display, TinyEdge)}
+}

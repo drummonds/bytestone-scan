@@ -141,3 +141,22 @@ func TestBacksPassScansTheFrontsRegionsAt300(t *testing.T) {
 		t.Error("a backs pass over no prints")
 	}
 }
+
+// Story 102: a received page is cut at its own ppi, no averaging and no
+// warning: its record says it is a copy.
+func TestAPageIsCutAtItsOwnPPI(t *testing.T) {
+	prints := []find.Print{{Print: print(3.5, 2.5), Region: find.Box{CX: 60, CY: 50, W: 100, H: 70}}}
+	p, err := Page(prints, bed, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ScanPPI != 300 || len(p.Masters) != 1 || p.Masters[0] != (Master{PPI: 300, Factor: 1}) {
+		t.Errorf("page pass %+v, want 300 ppi masters, factor 1, no warning", p)
+	}
+	if p.Regions[0].Rect != image.Rect(0, 0, 1181, 827) {
+		t.Errorf("region %v, want the region at 300 ppi", p.Regions[0].Rect)
+	}
+	if _, err := Page(prints, bed, 0); err == nil {
+		t.Error("no ppi: want refused")
+	}
+}
