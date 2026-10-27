@@ -732,6 +732,50 @@ func TestLastPrintOffersConfirm(t *testing.T) {
 	}
 }
 
+// holdDetail scans the preview freely and holds a detail pass until its
+// context ends, as scanimage does when it is killed.
+type holdDetail struct {
+	*batchtest.Scanner
+	started chan struct{}
+	once    sync.Once
+}
+
+func (s *holdDetail) Detail(ctx context.Context, area find.Rect, ppi int) (io.ReadCloser, error) {
+	s.once.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// A step that is running can be stopped, as when the prints were
+// confirmed before their regions were sized: the scanner's pass ends, the
+// run says it was stopped, and the scan goes back to the prints or
+// carries on. Stopping an idle scan is refused.
+func TestStopARunningStepAndGoBackToThePrints(t *testing.T) {
+	sc := &holdDetail{Scanner: &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}, started: make(chan struct{})}
+	a := live(t, sc.Scanner)
+	a.Scanner = sc
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	if w := post(t, h, loc+"/stop", nil); w.Code != http.StatusConflict {
+		t.Errorf("stop with nothing running: %d, want 409", w.Code)
+	}
+	if w := post(t, h, loc+"/confirm", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("confirm: %d %s", w.Code, w.Body)
+	}
+	<-sc.started
+	page(t, h, loc, "Working", "Fronts", loc[1:]+"/stop", "Stop")
+	if w := post(t, h, loc+"/stop", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("stop: %d %s", w.Code, w.Body)
+	}
+	a.wait()
+	page(t, h, loc, "Stopped", "Back to the prints", "Carry on")
+	if body := get(t, h, loc).Body.String(); strings.Contains(body, "Failed") || strings.Contains(body, "context canceled") {
+		t.Errorf("a stop reads as a failure:\n%s", body)
+	}
+	act(t, a, h, loc+"/prints", nil)
+	page(t, h, loc, "Confirm and scan")
+}
+
 // #105: a print can be rejected from the top of its box as well as the
 // bottom, without scrolling past its close-up.
 func TestRemoveIsOfferedAboveAndBelowTheCloseUp(t *testing.T) {
