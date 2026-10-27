@@ -1,7 +1,7 @@
 # 102 — Import received pages: files captured elsewhere, each page an item, each print on it a photo cut from the page (#102)
 
-**Status:** agreed 2026-10-27; waits on the format statement's *Copies
-received* section and life-weaver#72 (page items)
+**Status:** built 2026-10-27 on life-weaver v0.14.0 (#72, page items);
+the format statement's *Copies received* section is the spec
 
 ## Why
 
@@ -17,19 +17,28 @@ no way to take them.
 | Term | Meaning |
 |---|---|
 | Import | One bringing-in of received files within a batch, as a Scan is one placing on the bed: its description, its pages, the prints found on each, masters, and the photos archived from them |
-| Page | A received file: an image of prints captured by someone else's device, kept unaltered as an item of its own, with an id from the series, homed with the batch's person; its bag holds the file as sent and page.yaml |
+| Page | A received file: an image of prints captured by someone else's device, kept unaltered. Holding one print, it is kept in that photo's bag: one id. Holding several, it is an item of its own, with an id from the series, homed with the batch's person; its bag holds the file as sent and page.yaml |
 | Received side | A side whose master is cut from a page, not scanned here: its ppi and depth are the page's, and its record names the page and where on it the print lay |
 | Not received | What a photo's record says of a back that was not sent: not the same as blank |
 
 ## Model
 
-An import is a scan whose bed is the page. The preview is the page at
-150 ppi; prints are found on it as on a bed scan; the operator confirms
-or adjusts regions in the editor already built; the fronts pass cuts each
-region from the page, with its margin, instead of driving the scanner.
-The photo workflow after that is unchanged: develop, accept, describe,
-package, deposit, receipt. The page is deposited before its photos, so
-each photo's `cut_from` names an item the archive holds.
+An import is a scan whose bed is the page: one page, one import,
+numbered among the batch's scans. The preview is the page at 150 ppi;
+prints are found on it as on a bed scan; the operator confirms or adjusts
+regions in the editor already built; the fronts pass cuts each region
+from the page, with its margin, instead of driving the scanner. The
+photo workflow after that is unchanged: develop, accept, describe,
+package, deposit, receipt.
+
+Whether the page becomes an item of its own is decided at confirm, when
+the prints are counted. One print: the photo's own bag keeps the file as
+sent beside the master cut from it, and there is one id. Several: a page
+id is reserved after the photos', and once the import is accepted the
+page is bagged with page.yaml, deposited and receipted before the photos
+are packaged, so each photo's `cut_from` names an item the archive holds.
+A page the archive holds already is the one the photos are cut from: their
+records and masters are rewritten before packaging.
 
 The file-serving scanner is the recorded scanner's shape: a
 `batch.Scanner` whose Preview is the page scaled to 150 ppi and whose
@@ -37,27 +46,40 @@ Detail is the page's pixels over the region at the page's own ppi.
 
 ## What changes
 
-- **Batch page** gains *Import pages* beside *One more scan*: a
-  description, one or more image files (JPEG, PNG, TIFF), and for the
-  pages the sender, the date received and the device if known.
-- **An import** is listed with the batch's scans, numbered in the same
-  sequence, and leads through the same steps: prints found, confirm,
-  check quality, describe, accept. No backs step: the backs were not
-  received.
+- **Batch page** gains *Import pages* beside *Do one more scan*, and
+  New batch an *Import pages instead* button: a description, one or
+  more image files (JPEG, PNG, TIFF), the sender, the date received, the
+  device if known, and the ppi when the files do not say.
+- **Each file is an import**, listed with the batch's scans, numbered in
+  the same sequence, and leads through the same steps: prints found,
+  confirm, check quality, describe, accept. No backs step: the backs were
+  not received. No rescanning: the page is what it is.
 - **Masters** are cut at the depth and resolution received. The glossary's
   scan ppi and master ppi lines say so; `plan.MasterFor` takes the page's
   ppi with no averaging.
-- **photo.yaml** carries, under the front, `cut_from` (the page's id) and
-  the region on the page; `back_received: false` in place of
-  `back_blank`. The quality page says *copy received from page <id>*,
-  with the page's format and ppi, where it names the scanner for a scan.
-- **XMP** names the page and the region on it where it names the bed and
-  the region on it.
+- **photo.yaml** carries, under the front, `received` (the page's own
+  record: file, format, ppi, depth, sender, received, device), `depth`,
+  and `cut_from` when the page is an item; `back_not_received: true`.
+  The quality page's *Copy received* row says so, and *Back: not
+  received*.
+- **XMP** carries the same: sender, received, file, format, ppi, depth,
+  device, and `cutFrom`.
 - **page.yaml and the page's bag**: the file as sent, unaltered, and the
-  record: sender, received, device, format, declared ppi, and the photos
-  cut from it. Bagged and deposited by the scanner; receipted like a photo.
+  record: id, batch, import, description, home, provenance, credit,
+  file, format, ppi, depth, sender, received, device, and the photos cut
+  from it. Its renditions are the page fit to the screen, untouched.
+
+## Tried on the three pages received
+
+The colour JPEG: one print found, 157 × 109 mm, fill 0.98. The two
+halftone pages, 300 ppi given on the form since pdfimages wrote 72 into
+the PNGs: the group photograph, which fills its page, is found whole;
+the ship's print splits at its white sky into two regions flagged for
+review, to be mended in the region editor as a print on a white lid is.
 
 ## Not in this slice
+
+A *whole page is the print* shortcut for a page the finder splits.
 
 Pulling the image out of a PDF or an email (today's files were extracted
 by hand with `pdfimages`); a back sent as a second file; `supersedes`
@@ -76,8 +98,8 @@ when the print is later scanned; perceptual dedupe.
 | sender blank | refused: a page must say who sent it |
 | received date blank | today |
 | description blank | the batch's title |
-| one file | one page, one import |
-| several files | one import, one page each, in the order given |
+| one file | one import |
+| several files | one import each, numbered in the order given; the first runs, the rest follow in turn |
 
 ### Each page
 
@@ -86,9 +108,9 @@ when the print is later scanned; perceptual dedupe.
 | 8-bit JPEG, 300 ppi | master 8-bit RGB, 300 ppi, no averaging, no warning |
 | 1-bit halftone | master 8-bit grey as RGB, at the page's ppi |
 | 16-bit TIFF | master 16-bit, at the page's ppi |
-| holds one print | one photo |
-| holds several prints | one photo each, found as on a bed |
-| no print found | the import waits at confirm with no prints; the page is still deposited |
+| holds one print | one photo, one id: the file as sent in its bag |
+| holds several prints | one photo each, found as on a bed, and a page item, reserved after the photos' ids |
+| no print found | the import waits at confirm with no prints, as a scan does |
 
 ### Prints and regions
 
@@ -102,9 +124,10 @@ when the print is later scanned; perceptual dedupe.
 
 | Where | Carries |
 |---|---|
-| photo.yaml front | `cut_from`: page id; `print`, `region`, `bounds` on the page in mm at the page's ppi; `scan_ppi` and `master_ppi` the page's; `averaging` 1; `scanner` the page's device or *unknown* |
-| photo.yaml | `back_received: false`; no `back`, no `back_blank` |
-| front.tif XMP | the page id and the region on it, in place of the bed's |
+| photo.yaml front | `received`: the page's record; `depth`; `cut_from`: the page id when the page is an item; `print`, `region`, `bounds` on the page in mm; `scan_ppi` and `master_ppi` the page's; `averaging` 1; `scanner` the page's device or *unknown device*; no `warning` |
+| photo.yaml | `back_not_received: true`; no `back`, no `back_blank` |
+| photo bag, one print | the file as sent, by its name, beside front.tif and photo.yaml |
+| front.tif XMP | sender, received, file, format, ppi, depth, device, `cutFrom`; the region as on a bed |
 | bag-info.txt | the batch and the import's number, as a scan's |
 
 ### The page's record
@@ -112,20 +135,22 @@ when the print is later scanned; perceptual dedupe.
 | Where | Carries |
 |---|---|
 | page bag `data/` | the file as sent, its name kept; `page.yaml` |
-| page.yaml | `id`, `home`, `batch`, `import`, `sender`, `received`, `device` (omitted when unknown), `format`, `ppi`, `photos`: the ids cut from it |
+| page.yaml | `id`, `batch`, `import`, `description`, `home`, `provenance`, `credit`, `file`, `format`, `ppi`, `depth`, `sender`, `received`, `device` (omitted when unknown), `photos`: the ids cut from it |
+| renditions | the page fit to the screen, recipe naming the file's checksum |
 
 ### Order of deposit
 
 | State | Result |
 |---|---|
-| page not yet receipted | its photos wait at deposit |
-| page rejected by the archive as a duplicate | its photos are cut from the item the archive names instead |
-| page receipted | its photos deposit as a scan's do |
+| page not yet deposited | its photos wait at *page held*, before packaging |
+| page rejected by the archive as a duplicate | its photos' records and masters name the item the archive holds, then package and deposit |
+| page held | its photos package and deposit as a scan's do |
+| a photo bag, or the page's, complete | nothing before packaging can be redone, as for a scan |
 
 ### Shown
 
 | Page | Rows |
 |---|---|
-| batch | each import among the scans, by number, with its page count |
-| import | the pages, each with its prints found, as a scan's preview |
-| photo | *Copy received*: page id, sender, received, device, format, ppi; *Back*: not received |
+| batch | each import among the scans as *Import n*, with its prints count |
+| import | Page (file, format, ppi, depth), Sender, Received, Device in place of *Scanned at*; the page with its regions in place of the preview; *Confirm and cut*, no rescanning, no backs; Back: not received |
+| photo | *Copy received*: sender, received, file, format, ppi, depth, device, and the page item cut from; *Back*: not received |
