@@ -112,6 +112,8 @@ type Scan struct {
 	N           int       `yaml:"scan"` // counted from 1 within the batch
 	Description string    `yaml:"description"`
 	Created     time.Time `yaml:"created"`
+	// Page makes the scan an import: a received page is its bed.
+	Page *Received `yaml:"page,omitempty"`
 
 	batch *Batch
 	root  string
@@ -139,6 +141,9 @@ type Photo struct {
 	Front       Side   `yaml:"front"`
 	Back        *Side  `yaml:"back,omitempty"`       // once the backs are scanned
 	BackBlank   bool   `yaml:"back_blank,omitempty"` // the operator said the back is blank: not scanned, or discarded
+	// BackNotReceived: the photo was cut from a received page, which has no
+	// back; not the same as blank.
+	BackNotReceived bool `yaml:"back_not_received,omitempty"`
 	// Claims are what the operator said of the photo at its describe
 	// step; Described is when, nothing known being an answer too.
 	Claims    []Claim    `yaml:"claims,omitempty"`
@@ -226,6 +231,11 @@ type Side struct {
 	Warning   string    `yaml:"warning,omitempty"`
 	Scanner   string    `yaml:"scanner"`
 	Settings  []string  `yaml:"settings"`
+	// A side cut from a received page: its depth as received, the page's
+	// own record, and the page item it was cut from when the page is one.
+	Depth    int       `yaml:"depth,omitempty"`
+	Received *Received `yaml:"received,omitempty"`
+	CutFrom  *pid.ID   `yaml:"cut_from,omitempty"`
 }
 
 // found is prints.yaml: the prints found on the preview and, once
@@ -234,6 +244,7 @@ type found struct {
 	Bed    find.Rect    `yaml:"bed"` // the whole bed, as the preview covers it
 	Prints []find.Print `yaml:"prints"`
 	IDs    []pid.ID     `yaml:"ids,omitempty"`
+	Page   *pid.ID      `yaml:"page,omitempty"` // an import's page item, when its several prints make the page one
 }
 
 // Describe records a new batch under root, its home person looked up in
@@ -350,6 +361,15 @@ func (b *Batch) path(name string) string { return filepath.Join(b.Dir(), name) }
 // NewScan adds the next scan of the bed to the batch, described as given
 // or, left blank, by the batch's title. A finished batch takes no more.
 func (b *Batch) NewScan(description string, now time.Time) (*Scan, error) {
+	l, err := b.newScan(description, now)
+	if err != nil {
+		return nil, err
+	}
+	return l, writeYAML(l.path("scan.yaml"), l)
+}
+
+// newScan takes the batch's next scan number and makes its directory.
+func (b *Batch) newScan(description string, now time.Time) (*Scan, error) {
 	if b.Finished() {
 		return nil, fmt.Errorf("batch %s: scanning is finished", b.ID)
 	}
@@ -370,7 +390,7 @@ func (b *Batch) NewScan(description string, now time.Time) (*Scan, error) {
 			return nil, err
 		}
 	}
-	return l, writeYAML(l.path("scan.yaml"), l)
+	return l, nil
 }
 
 // Scans are the batch's scans in order.
@@ -592,8 +612,8 @@ func (p *Purger) purge(b *Batch) error {
 		return err
 	}
 	for _, l := range scans {
-		_, ids, err := l.Found()
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
+		ids, err := l.items()
+		if err != nil {
 			return err
 		}
 		for _, id := range ids {
@@ -677,17 +697,19 @@ func (b *Scan) Bed() find.Rect {
 }
 
 // Adjust moves one edge of print n's region by mm, outwards when mm is
-// positive. Regions can be adjusted only until they are confirmed.
+// positive, and the print's own edge with it, so the master is measured
+// and the back checked against the print as the operator left it, not as
+// the finder had it. Regions can be adjusted only until they are confirmed.
 func (b *Scan) Adjust(n int, e find.Edge, mm float64) error {
 	f, err := b.editable(n)
 	if err != nil {
 		return err
 	}
-	r, err := f.Prints[n].Region.Move(e, mm, f.Bed)
+	p, err := f.Prints[n].Move(e, mm, f.Bed)
 	if err != nil {
 		return fmt.Errorf("print %d: %w", n+1, err)
 	}
-	f.Prints[n].Region = r
+	f.Prints[n] = p
 	return writeYAML(b.path("prints.yaml"), f)
 }
 
@@ -801,7 +823,7 @@ func (b *Scan) Accept() error {
 	if _, err := os.Stat(b.path("masters")); err != nil {
 		return fmt.Errorf("scan %s: no masters to accept yet", b.Key())
 	}
-	if _, err := os.Stat(b.path("backs-confirmed")); err != nil && !b.BacksSkipped() {
+	if _, err := os.Stat(b.path("backs-confirmed")); err != nil && !b.BacksSkipped() && !b.Import() {
 		return fmt.Errorf("scan %s: the backs are not scanned yet", b.Key())
 	}
 	return os.WriteFile(b.path("accepted"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
@@ -907,10 +929,16 @@ func (b *Scan) Redo(ctx context.Context, store wf.Store, from string, ppi int) e
 	if ppi != 0 && ppi != 600 && ppi != 1200 && ppi != 2400 {
 		return fmt.Errorf("scan ppi %d, want 600, 1200 or 2400", ppi)
 	}
-	_, ids, _ := b.Found()
+	if ppi != 0 && b.Import() {
+		return fmt.Errorf("import %s is cut at its page's %d ppi", b.Key(), b.Page.PPI)
+	}
+	ids, err := b.items()
+	if err != nil {
+		return err
+	}
 	for _, id := range ids {
 		if bag.Complete(b.bags(), id) {
-			return fmt.Errorf("scan %s: photo %s is archived and final; nothing before packaging can be redone", b.Key(), id)
+			return fmt.Errorf("scan %s: item %s is archived and final; nothing before packaging can be redone", b.Key(), id)
 		}
 	}
 	runner := wf.NewRunner(store, nil)
@@ -1074,10 +1102,10 @@ func (b *Scan) photoStages(id pid.ID, env Env) []wf.Stage {
 		{Name: "develop front", Run: func(context.Context) error { return b.develop(id, "front") }},
 		{Name: "awaiting back", Until: func(context.Context) (bool, error) {
 			_, err := os.Stat(b.masterPath(id, "back"))
-			return err == nil || b.BacksSkipped() || b.backBlank(id), nil
+			return err == nil || b.noBack(id), nil
 		}},
 		{Name: "develop back", Run: func(context.Context) error {
-			if _, err := os.Stat(b.masterPath(id, "back")); err != nil && (b.BacksSkipped() || b.backBlank(id)) {
+			if _, err := os.Stat(b.masterPath(id, "back")); err != nil && b.noBack(id) {
 				return nil
 			}
 			return b.develop(id, "back")
@@ -1093,6 +1121,7 @@ func (b *Scan) photoStages(id pid.ID, env Env) []wf.Stage {
 			}
 			return photo.Described != nil, nil
 		}},
+		{Name: "page held", Until: func(context.Context) (bool, error) { return b.pageHeld() }},
 		// An archived photo is never altered, so nothing before packaging can be redone after it.
 		{Name: "package", Run: func(context.Context) error { return b.pack(id, env.Now) }, Final: true},
 		{Name: "deposit", Run: func(context.Context) error { return b.deposit(id, env) }},
@@ -1186,10 +1215,22 @@ func (b *Scan) depositPath(id pid.ID) string {
 // the current recipe and fails the step, to deposit again; a conflict or
 // a failure fails the step, to be tried again.
 func (b *Scan) deposit(id pid.ID, env Env) error {
+	return b.depositItem(id, env, func(again bool) error {
+		if again {
+			return b.redevelop(id)
+		}
+		return b.developed(id)
+	})
+}
+
+// depositItem deposits the item id's bag with its renditions, which
+// develop sees are there (again: made afresh, after the archive refused
+// them).
+func (b *Scan) depositItem(id pid.ID, env Env, develop func(again bool) error) error {
 	if d, err := DepositOf(b.root, id); err != nil || d != nil {
 		return err
 	}
-	if err := b.developed(id); err != nil {
+	if err := develop(false); err != nil {
 		return err
 	}
 	pr, pw := io.Pipe()
@@ -1205,10 +1246,10 @@ func (b *Scan) deposit(id pid.ID, env Env) error {
 	case errors.As(err, &refusal) && refusal.Status == "duplicate":
 		return writeYAML(b.depositPath(id), Deposit{Status: "duplicate", Home: refusal.Home, DuplicateOf: refusal.DuplicateOf, File: refusal.File, At: env.Now().UTC()})
 	case errors.As(err, &refusal) && refusal.Status == "renditions":
-		if rerr := b.redevelop(id); rerr != nil {
-			return fmt.Errorf("photo %s: %w; redeveloping: %v", id, err, rerr)
+		if rerr := develop(true); rerr != nil {
+			return fmt.Errorf("item %s: %w; redeveloping: %v", id, err, rerr)
 		}
-		return fmt.Errorf("photo %s: %w; redeveloped at recipe %d, to deposit again", id, err, rendition.Version)
+		return fmt.Errorf("item %s: %w; redeveloped at recipe %d, to deposit again", id, err, rendition.Version)
 	}
 	return err
 }
@@ -1300,12 +1341,16 @@ func (b *Scan) startPhotos(ctx context.Context, store wf.Store) error {
 // Stages are the scan's workflow steps, in order.
 func (b *Scan) Stages(ctx context.Context, env Env) []wf.Stage {
 	store, s, now := env.Store, env.Scanner, env.Now
-	return []wf.Stage{
+	before := []wf.Stage{
 		{Name: "describe", Run: func(context.Context) error {
 			_, err := os.Stat(b.path("scan.yaml"))
 			return err
 		}},
 		{Name: "preview", Run: func(ctx context.Context) error {
+			s, err := b.scanner(env)
+			if err != nil {
+				return err
+			}
 			img, err := s.Preview(ctx)
 			if err != nil {
 				return err
@@ -1330,10 +1375,24 @@ func (b *Scan) Stages(ctx context.Context, env Env) []wf.Stage {
 			Run: func(context.Context) error { return b.reserveIDs(env.Archive) },
 		},
 		{Name: "fronts", Run: func(ctx context.Context) error {
+			s, err := b.scanner(env)
+			if err != nil {
+				return err
+			}
 			turnTo(s, "front")
 			return b.detailPass(ctx, s, now)
 		}},
 		{Name: "photos", Run: func(context.Context) error { return b.startPhotos(ctx, store) }},
+	}
+	quality := wf.Stage{Name: "check quality", Until: func(context.Context) (bool, error) {
+		_, err := os.Stat(b.path("accepted"))
+		return err == nil, nil
+	}}
+	// an import has no backs to turn, and its page item to archive once accepted
+	if b.Import() {
+		return append(append(before, quality), b.pageStages(env)...)
+	}
+	backs := []wf.Stage{
 		{Name: "backs preview",
 			Until: func(context.Context) (bool, error) {
 				_, err := os.Stat(b.path("turned"))
@@ -1360,11 +1419,15 @@ func (b *Scan) Stages(ctx context.Context, env Env) []wf.Stage {
 				return b.backsPass(ctx, s, now)
 			},
 		},
-		{Name: "check quality", Until: func(context.Context) (bool, error) {
-			_, err := os.Stat(b.path("accepted"))
-			return err == nil, nil
-		}},
 	}
+	return append(append(before, backs...), quality)
+}
+
+// noBack reports that the photo has no back to wait for: the operator
+// skipped the backs or said this one is blank, or the photo was cut
+// from a received page.
+func (b *Scan) noBack(id pid.ID) bool {
+	return b.BacksSkipped() || b.backBlank(id) || b.Import()
 }
 
 // bags is where the scan's photos are bagged, and kept until the archive
@@ -1393,6 +1456,16 @@ func (b *Scan) reserveIDs(svc archive.Service) error {
 			return err
 		}
 	}
+	// a page holding several prints is an item of its own; holding one,
+	// it is kept in that photo's bag
+	if b.Import() && len(f.Prints) > 1 && f.Page == nil {
+		id, err := svc.Reserve(b.batch.Person)
+		if err != nil {
+			return err
+		}
+		f.Page = &id
+		return writeYAML(b.path("prints.yaml"), f)
+	}
 	return nil
 }
 
@@ -1401,6 +1474,10 @@ func (b *Scan) pass() (plan.Pass, found, error) {
 	var f found
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return plan.Pass{}, f, err
+	}
+	if b.Import() {
+		p, err := plan.Page(f.Prints, f.Bed, b.Page.PPI)
+		return p, f, err
 	}
 	p, err := plan.New(f.Prints, f.Bed, b.batch.ScanPPI)
 	return p, f, err
@@ -1441,8 +1518,13 @@ func (b *Scan) detailPass(ctx context.Context, s Scanner, now func() time.Time) 
 				Scanner: s.Name(), Settings: s.Settings(),
 			},
 		}
+		if b.Import() {
+			received := *b.Page
+			photo.Front.Depth, photo.Front.Received, photo.Front.CutFrom = received.Depth, &received, f.Page
+			photo.BackNotReceived = true
+		}
 		if err := writeAtomic(b.masterPath(photo.ID, "front"), func(w io.Writer) error {
-			return master.Encode(w, img, master.Options{PPI: m.PPI, XMP: xmp(photo, "front")})
+			return master.Encode(w, img, master.Options{PPI: m.PPI, Depth: photo.Front.Depth, XMP: xmp(photo, "front")})
 		}); err != nil {
 			return err
 		}
@@ -1643,6 +1725,20 @@ func (b *Scan) develop(id pid.ID, side string) error {
 // already, then clears them from the scan.
 func (b *Scan) pack(id pid.ID, now func() time.Time) error {
 	if !bag.Complete(b.bags(), id) {
+		page, err := b.PageItem()
+		if err != nil {
+			return err
+		}
+		if page != nil {
+			// the page the archive holds is the one the photo is cut from
+			if d, err := DepositOf(b.root, *page); err != nil {
+				return err
+			} else if d != nil && d.Status == "duplicate" {
+				if err := b.cutFrom(id, d.DuplicateOf); err != nil {
+					return err
+				}
+			}
+		}
 		ph, err := bag.Create(b.bags(), id)
 		if err != nil {
 			return err
@@ -1652,6 +1748,12 @@ func (b *Scan) pack(id pid.ID, now func() time.Time) error {
 				continue // a blank back was not scanned: its absence is the record
 			}
 			if err := ph.Add(file[1], copyFrom(b.masterPath(id, file[0]))); err != nil {
+				return err
+			}
+		}
+		if b.Import() && page == nil {
+			// a page holding this one print: the file as sent goes with the photo
+			if err := ph.Add(b.Page.File, copyFrom(b.pagePath())); err != nil {
 				return err
 			}
 		}
@@ -1699,14 +1801,16 @@ func writeAtomic(path string, write func(io.Writer) error) error {
 }
 
 func writeYAML(path string, v any) error {
-	return writeAtomic(path, func(w io.Writer) error {
-		enc := yaml.NewEncoder(w)
-		enc.SetIndent(2)
-		if err := enc.Encode(v); err != nil {
-			return err
-		}
-		return enc.Close()
-	})
+	return writeAtomic(path, func(w io.Writer) error { return encodeYAML(w, v) })
+}
+
+func encodeYAML(w io.Writer, v any) error {
+	enc := yaml.NewEncoder(w)
+	enc.SetIndent(2)
+	if err := enc.Encode(v); err != nil {
+		return err
+	}
+	return enc.Close()
 }
 
 func readYAML(path string, v any) error {
@@ -1734,6 +1838,22 @@ func (b *Scan) Found() ([]find.Print, []pid.ID, error) {
 		return nil, nil, err
 	}
 	return f.Prints, f.IDs, nil
+}
+
+// items are the scan's photo ids and, after them, its page item if any.
+func (b *Scan) items() ([]pid.ID, error) {
+	_, ids, err := b.Found()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	page, err := b.PageItem()
+	if err != nil {
+		return nil, err
+	}
+	if page != nil {
+		ids = append(ids, *page)
+	}
+	return ids, nil
 }
 
 // FindPhoto is a photo's record and the path of its front master: in its

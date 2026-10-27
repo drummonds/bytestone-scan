@@ -175,3 +175,39 @@ func TestABoxInTheImageOfItsBounds(t *testing.T) {
 	checkBox(t, "square region", square(10, 20, 35.4, 45.4).InImage(Rect{10, 20, 35.4, 45.4}, 1200),
 		Box{CX: 600, CY: 600, W: 1200, H: 1200})
 }
+
+// A region's edge is moved because the finder put the print's edge in the
+// wrong place, so the print's own edge goes with it, the margin inside:
+// inwards when the finder took bed for print, outwards when it cut the
+// print short. A print turned past the region, over 10°, keeps the
+// finder's extent: it is flagged to be straightened on the bed.
+func TestAMovedEdgeCarriesThePrintsEdgeWithIt(t *testing.T) {
+	p := Print{Print: square(10.5, 20.5, 109.5, 89.5), Region: square(10, 20, 110, 90)}
+	got, err := p.Move(Right, -20, theBed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkBox(t, "region, right edge in 20 mm", got.Region, square(10, 20, 90, 90))
+	checkBox(t, "print, right edge in 20 mm", got.Print, square(10.5, 20.5, 89.5, 89.5))
+	got, err = got.Move(Left, 5, theBed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkBox(t, "print, left edge out 5 mm", got.Print, square(5.5, 20.5, 89.5, 89.5))
+
+	s, c := math.Sincos(5 * math.Pi / 180)
+	turned := Print{Print: Box{CX: 100, CY: 100, W: 120, H: 80, Angle: 5}, Region: Box{CX: 100, CY: 100, W: 121, H: 81, Angle: 5}}
+	got, err = turned.Move(Top, -2, theBed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the top edge comes down 2 mm along the print's own y axis, (-sin, cos) on the bed
+	checkBox(t, "turned print, top edge in 2 mm", got.Print, Box{CX: 100 - 1*s, CY: 100 + 1*c, W: 120, H: 78, Angle: 5})
+
+	over := Print{Print: Box{CX: 100, CY: 100, W: 120, H: 80, Angle: 15}, Region: square(30, 40, 170, 160)}
+	got, err = over.Move(Right, -10, theBed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkBox(t, "a print over 10°, region moved", got.Print, over.Print)
+}

@@ -51,6 +51,9 @@ var Definitions = []wf.Definition{
 			{Name: "backs preview", Description: "Waits for the operator to turn the prints over in place, or to say the backs are blank; then previews the bed to see where each back lies within its front's region; a back whose size differs from its front's, or that is not found, is flagged for review", Source: src},
 			{Name: "backs", Description: "Waits for the operator to confirm the backs on their preview, then scans the fronts' regions once more at 300 ppi, 8 bits", Source: src},
 			{Name: "check quality", Description: "Waits for the operator to accept the masters, or to send the scan back a step", Source: src},
+			{Name: "page", Description: "An import whose page holds several prints: the page is bagged as an item of its own, the file as sent with page.yaml, and its renditions made; final", Source: src},
+			{Name: "deposit page", Description: "The page's bag and renditions are handed to the archive service: held, or a duplicate of a page it holds already, which the photos are then cut from", Source: src},
+			{Name: "page receipt", Description: "The archive's record of the page is read and checked against the bag", Source: src},
 		},
 	},
 	{
@@ -69,6 +72,7 @@ var Definitions = []wf.Definition{
 			{Name: "develop back", Description: "The back's renditions are made the same way", Source: src},
 			{Name: "accepted", Description: "Waits for the operator to accept the scan's masters", Source: src},
 			{Name: "describe", Description: "Waits for the operator to say what is known of the photo: the date taken, the photographer and what the back says, each a claim in photo.yaml with its source; nothing known is an answer", Source: src},
+			{Name: "page held", Description: "Waits for the page the photo was cut from, when the page is an item of its own, to be deposited", Source: src},
 			{Name: "package", Description: "Both masters and the photo.yaml are bagged as a photo; final, since a bagged photo is never altered", Source: src},
 			{Name: "deposit", Description: "The bag and its renditions at the current recipe are handed to the archive service; held, or refused as a duplicate of an item it holds already, which ends the photo, or refused for the renditions, which are made again and the deposit tried again", Source: src},
 			{Name: "receipt", Description: "The archive's record of the item is read and checked against the bag, checksum for checksum", Source: src},

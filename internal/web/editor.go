@@ -74,23 +74,28 @@ func edgeGrid(action string, n int, p find.Print, bed find.Rect, middle string) 
 }
 
 // regionEditor is one print's close-up with rulers along its top and
-// left and arrows on its edges, at confirm. Adjusting ends on the last
-// print, so that box offers Confirm and scan beside its own buttons.
+// left and arrows on its edges, at confirm. Remove is offered above the
+// close-up as well as below, so a print is rejected without scrolling
+// past it (#105). Adjusting ends on the last print, so that box offers
+// Confirm and scan beside its own buttons.
 func regionEditor(b *batch.Scan, i int, p find.Print, last bool) string {
 	n := i + 1
 	id := scanURL(b.Key())
 	img := fmt.Sprintf(`<img src="%s/regions/%d.png" alt="Print %d's region, close up" style="display:block">`, id, n, n)
+	tick := tickMM
 	if f, err := b.CloseUpFrame(i); err == nil && !p.Straighten() {
+		tick = tickFor(f.Scale)
 		img = ruled(n, p, b.Bed(), f, img)
 	}
+	remove := regionButton(id, "remove", n, "Remove this region", "is-danger is-light")
 	return fmt.Sprintf(`<div class="box" id="print-%d">
-<h2 class="title is-5">Print %d: %.1f × %.1f mm</h2>
+<div class="level is-mobile mb-3"><div class="level-left"><h2 class="title is-5 mb-0">Print %d: %.1f × %.1f mm</h2></div><div class="level-right">%s</div></div>
 %s
 <p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm.</p>
 <div class="buttons mt-3">%s%s%s</div>
-</div>`, n, n, p.Print.W, p.Print.H,
+</div>`, n, n, p.Print.W, p.Print.H, remove,
 		edgeGrid(id+"/adjust", n, p, b.Bed(), img),
-		turnedBack(p.Region), tickMM, smallStep, largeStep, confirmButton(id, last), splitButton(id, n, p), regionButton(id, "remove", n, "Remove this region", "is-danger is-light"))
+		turnedBack(p.Region), tick, smallStep, largeStep, confirmButton(id, last), splitButton(id, n, p), remove)
 }
 
 // confirmButton is the last print's Confirm and scan, the same step as
@@ -102,16 +107,29 @@ func confirmButton(url string, last bool) string {
 	return fmt.Sprintf(`<form action="%s/confirm" method="post" style="display:inline"><button class="button is-small is-primary" type="submit">Confirm and scan ›</button></form> `, url)
 }
 
-// Rulers: a tick every tickMM, labelled every labelMM, in a band rulerPx
-// wide along the close-up's top and left.
+// Rulers: a tick every tickMM, labelled every other tick, in a band
+// rulerPx wide along the close-up's top and left. On a close-up reduced
+// to fit the screen (#105) the ticks are spaced wider, so they stay at
+// least minTickPx apart.
 const (
-	tickMM  = 5.0
-	labelMM = 10.0
-	rulerPx = 26
+	tickMM    = 5.0
+	rulerPx   = 26
+	minTickPx = 12
 )
 
+// tickFor is the tick spacing in mm for a close-up at scale px per mm:
+// the smallest of the round spacings that keeps ticks minTickPx apart.
+func tickFor(scale float64) float64 {
+	for _, mm := range []float64{tickMM, 10, 20, 50, 100} {
+		if mm*scale >= minTickPx {
+			return mm
+		}
+	}
+	return 100
+}
+
 // ruled lays rulers along the top and left of print n's close-up img: a
-// tick every tickMM in mm of the bed (of the region's own frame for a
+// tick every tickFor(f.Scale) mm of the bed (of the region's own frame for a
 // turned print), each a button that sets the nearer edge on that axis to
 // it, or a bare mark where the edge cannot go; the region's own edges
 // are marked in green.
@@ -122,11 +140,12 @@ func ruled(n int, p find.Print, bed find.Rect, f batch.CloseUpFrame, img string)
 	if r.Angle == 0 {
 		cu, cv = r.CX-r.W/2, r.CY-r.H/2
 	}
+	tick := tickFor(f.Scale)
 	var top, left strings.Builder
 	ruler := func(b *strings.Builder, vertical bool, c0, u0, size float64, px int, near, far find.Edge) {
-		first := math.Ceil((u0+c0)/tickMM) * tickMM
-		last := math.Floor((u0+c0+float64(px)/f.Scale)/tickMM) * tickMM
-		for c := first; c <= last+1e-9; c += tickMM {
+		first := math.Ceil((u0+c0)/tick) * tick
+		last := math.Floor((u0+c0+float64(px)/f.Scale)/tick) * tick
+		for c := first; c <= last+1e-9; c += tick {
 			u := c - c0
 			at := int(math.Round((u - u0) * f.Scale))
 			e, mm := near, -u
@@ -134,7 +153,7 @@ func ruled(n int, p find.Print, bed find.Rect, f batch.CloseUpFrame, img string)
 				e, mm = far, u-size
 			}
 			label := ""
-			if math.Mod(math.Abs(c), labelMM) < 1e-9 {
+			if math.Mod(math.Abs(c), 2*tick) < 1e-9 {
 				label = strconv.FormatFloat(c, 'f', -1, 64)
 			}
 			pos := fmt.Sprintf("left:%dpx;top:0", at-5)

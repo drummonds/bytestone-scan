@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -138,6 +139,7 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 <p class="help">The fronts are scanned at this ppi and averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick. The backs are scanned at 300 ppi.</p>
 <p class="help">600 ppi takes about 15 s for a 7 × 5 inch print, 1200 about 75 s, 2400 about 2½ minutes.</p></div>
 <button class="button is-primary" type="submit">Scan the preview</button>
+<button class="button" type="submit" name="then" value="import">Import pages instead</button>
 </form>
 <script>
 // Each data-insert button puts its text into the credit field at the cursor.
@@ -172,6 +174,39 @@ const newScanForm = `<h1 class="title">Batch %s: one more scan</h1>
 // as the batch's title.
 func newScan(b *batch.Batch, msg, description string) string {
 	return fmt.Sprintf(newScanForm, html.EscapeString(b.ID), html.EscapeString(b.Title), msg, html.EscapeString(b.ID), html.EscapeString(description))
+}
+
+// importEntered is what the Import pages form holds, as typed.
+type importEntered struct {
+	description, sender, received, device, ppi string
+}
+
+const newImportForm = `<h1 class="title">Batch %s: import pages</h1>
+<p class="subtitle">%s</p>
+%s
+<form action="batches/%s/imports" method="post" enctype="multipart/form-data" class="box">
+<div class="field"><label class="label">Pages: the files as received</label>
+<div class="control"><input class="input" type="file" name="pages" accept="image/jpeg,image/png,image/tiff" multiple required></div>
+<p class="help">JPEG, PNG or TIFF, one page each, as sent: a copy made elsewhere, kept unaltered. Each becomes an import among this batch’s scans; a page holding several prints is kept as an item of its own. Pull the image out of a PDF or an email first.</p></div>
+<div class="field"><label class="label">Description: what the pages show</label>
+<div class="control"><input class="input" name="description" value="%s" required></div>
+<p class="help">Copied into each photo. Home, provenance and credit are the batch’s.</p></div>
+<div class="field"><label class="label">Sender: who the pages came from</label>
+<div class="control"><input class="input" name="sender" value="%s" placeholder="Cousin Mary" required></div></div>
+<div class="field"><label class="label">Received</label>
+<div class="control"><input class="input" type="date" name="received" value="%s"></div></div>
+<div class="field"><label class="label">Device: what captured the pages, if known</label>
+<div class="control"><input class="input" name="device" value="%s" placeholder="office copier, phone"></div></div>
+<div class="field"><label class="label">Resolution, ppi</label>
+<div class="control"><input class="input" type="number" name="ppi" value="%s" min="1"></div>
+<p class="help">Leave blank to take each file’s own; a phone photograph declares none, so say what the print’s size makes it.</p></div>
+<button class="button is-primary" type="submit">Import ›</button>
+</form>`
+
+// newImport is the form for importing pages into a batch.
+func newImport(b *batch.Batch, msg string, e importEntered) string {
+	return fmt.Sprintf(newImportForm, html.EscapeString(b.ID), html.EscapeString(b.Title), msg, html.EscapeString(b.ID),
+		html.EscapeString(e.description), html.EscapeString(e.sender), html.EscapeString(e.received), html.EscapeString(e.device), html.EscapeString(e.ppi))
 }
 
 // newBatch is the New batch page: msg above the form, and the form holding
@@ -255,7 +290,78 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			render(w, "New batch", a.newBatch(`<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`, e))
 			return
 		}
+		if r.FormValue("then") == "import" {
+			http.Redirect(w, r, "/batches/"+b.ID+"/imports/new", http.StatusSeeOther)
+			return
+		}
 		a.startScan(w, r, b, "", fail)
+	})
+	mux.HandleFunc("GET /batches/{id}/imports/new", func(w http.ResponseWriter, r *http.Request) {
+		b, err := batch.Open(a.Staging, r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if b.Finished() {
+			fail(w, fmt.Errorf("batch %s: scanning is finished", b.ID), http.StatusUnprocessableEntity)
+			return
+		}
+		render(w, "Import pages", newImport(b, "", importEntered{description: b.Title, received: a.Now().Format("2006-01-02")}))
+	})
+	// Each file is one import among the batch's scans; the first runs
+	// to its prints, the rest follow in turn.
+	mux.HandleFunc("POST /batches/{id}/imports", func(w http.ResponseWriter, r *http.Request) {
+		b, err := batch.Open(a.Staging, r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if err := r.ParseMultipartForm(256 << 20); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		e := importEntered{description: r.FormValue("description"), sender: r.FormValue("sender"),
+			received: r.FormValue("received"), device: r.FormValue("device"), ppi: r.FormValue("ppi")}
+		refuse := func(err error) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			render(w, "Import pages", newImport(b, `<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`, e))
+		}
+		ppi, err := strconv.Atoi(strings.TrimSpace(e.ppi))
+		if e.ppi != "" && (err != nil || ppi <= 0) {
+			refuse(fmt.Errorf("ppi %q: want a number, or blank for the file's own", e.ppi))
+			return
+		}
+		var files []*multipart.FileHeader
+		if r.MultipartForm != nil {
+			files = r.MultipartForm.File["pages"]
+		}
+		if len(files) == 0 {
+			refuse(errors.New("nothing to import: choose a file"))
+			return
+		}
+		if strings.TrimSpace(e.sender) == "" {
+			refuse(errors.New("a page must say who sent it"))
+			return
+		}
+		var imports []*batch.Scan
+		for _, fh := range files {
+			f, err := fh.Open()
+			if err != nil {
+				refuse(err)
+				return
+			}
+			l, err := b.NewImport(batch.Import{File: fh.Filename, Data: f, Sender: e.sender, Received: e.received, Device: e.device, PPI: ppi}, e.description, a.Now())
+			f.Close()
+			if err != nil {
+				refuse(err)
+				return
+			}
+			imports = append(imports, l)
+		}
+		for _, l := range imports {
+			a.tick(l)
+		}
+		http.Redirect(w, r, "/"+scanURL(imports[0].Key()), http.StatusSeeOther)
 	})
 	mux.HandleFunc("GET /batches/{id}/scans/new", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
@@ -406,7 +512,13 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			fail(w, err, http.StatusUnprocessableEntity)
 			return
 		}
-		http.Redirect(w, r, "/photos/"+id.String(), http.StatusSeeOther)
+		// on to the scan's next photo still to be described, else back
+		// to the batch, where the next move is another scan or finishing
+		next := "/batches/" + p.Batch
+		if rest := a.notDescribed(l); len(rest) > 0 {
+			next = "/photos/" + rest[0].String()
+		}
+		http.Redirect(w, r, next, http.StatusSeeOther)
 	})
 
 	// Editing the regions needs no scanner, only that no step is running on
@@ -592,6 +704,9 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		} else {
 			c.HTML(a.outcome(l))
 		}
+	case waiting == "confirm" && l.Import():
+		c.HTML(`<div class="notification is-warning">Check the prints found on the page.</div><div class="buttons">` +
+			button("confirm", "Confirm and cut ›", "is-primary") + `</div>`)
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
 			button("confirm", "Confirm and scan ›", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
@@ -618,9 +733,15 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		// the forward step is what accepting leads to: the describing
 		// still to do, or, every photo described, the archive
 		notice, accept := "Check each photo's quality, front and back, then accept or send the scan back. Every photo is described: accepting sends them to the archive.", "Accept and archive ›"
-		if n := a.notDescribed(l); n > 0 {
+		if n := len(a.notDescribed(l)); n > 0 {
 			notice = fmt.Sprintf("Check each photo's quality, front and back, then accept or send the scan back. %d %s still to be described: say what is known of each on its page, now or after accepting.", n, plural(n, "photo", "photos"))
 			accept = fmt.Sprintf("Accept, then describe %d %s ›", n, plural(n, "photo", "photos"))
+		}
+		if l.Import() {
+			notice = strings.Replace(notice, ", front and back,", ",", 1)
+			c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
+				button("accept", accept, "is-primary") + button("prints", "‹ Back to the prints", "") + `</div>`)
+			break
 		}
 		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
 			button("accept", accept, "is-primary") +
@@ -673,17 +794,17 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// notDescribed counts the scan's photos not yet described, whether or
+// notDescribed is the scan's photos not yet described, in print order,
 // not their runs have reached the describe step.
-func (a *App) notDescribed(l *batch.Scan) int {
+func (a *App) notDescribed(l *batch.Scan) []pid.ID {
 	_, ids, _ := l.Found()
-	n := 0
+	var rest []pid.ID
 	for _, id := range ids {
 		if p, _, err := batch.FindPhoto(a.Staging, id); err == nil && p.Described == nil {
-			n++
+			rest = append(rest, id)
 		}
 	}
-	return n
+	return rest
 }
 
 // undescribed are the scan's photos waiting to be described.

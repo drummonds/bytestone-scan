@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -422,8 +424,9 @@ func TestDescribingAPhoto(t *testing.T) {
 	if w := post(t, h, "/photos/0/describe", url.Values{"date": {"July 1952"}}); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "1952-07") {
 		t.Errorf("a date that is not an ISO 8601 prefix: %d %s", w.Code, w.Body)
 	}
-	if loc := act(t, a, h, "/photos/0/describe", url.Values{"date": {"1952-07"}, "approximate": {"on"}, "photographer": {"Jerome Ltd"}, "back": {"Mum &amp; Dad"}, "source": {"back"}}); loc != "/photos/0" {
-		t.Errorf("describe went to %s", loc)
+	// #87: Save goes on to the scan's next photo still to be described
+	if loc := act(t, a, h, "/photos/0/describe", url.Values{"date": {"1952-07"}, "approximate": {"on"}, "photographer": {"Jerome Ltd"}, "back": {"Mum &amp; Dad"}, "source": {"back"}}); loc != "/photos/1" {
+		t.Errorf("describe went to %s, want the next photo", loc)
 	}
 	page(t, h, "/photos/0", `value="1952-07"`, "checked", `value="Jerome Ltd"`, "Mum &amp;amp; Dad")
 
@@ -433,7 +436,10 @@ func TestDescribingAPhoto(t *testing.T) {
 	if body := get(t, h, "/photos/0").Body.String(); strings.Contains(body, `name="date"`) {
 		t.Error("an archived photo's description is still a form")
 	}
-	act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}})
+	// #87: the last photo described, Save goes back to the batch
+	if to := act(t, a, h, "/photos/1/describe", url.Values{"skip": {"1"}}); to != strings.TrimSuffix(loc, "/scans/1") {
+		t.Errorf("describing the last photo went to %s, want the batch", to)
+	}
 	page(t, h, loc, "Done")
 	page(t, h, "/photos/1", "Nothing known")
 }
@@ -717,11 +723,54 @@ func TestLastPrintOffersConfirm(t *testing.T) {
 		t.Error("the first print's box offers Confirm and scan")
 	}
 	last := body[second:]
-	c, remove := strings.Index(last, confirm), strings.Index(last, ">Remove this region<")
+	c, remove := strings.Index(last, confirm), strings.LastIndex(last, ">Remove this region<") // the Remove below the close-up
 	if c < 0 || remove < 0 || c > remove {
 		t.Fatalf("the last print's box does not offer Confirm and scan before Remove this region: confirm at %d, remove at %d", c, remove)
 	}
 	if !strings.Contains(last[:c], `action="`+strings.TrimPrefix(loc, "/")+`/confirm"`) {
 		t.Error("the last print's Confirm and scan does not post to confirm")
+	}
+}
+
+// #105: a print can be rejected from the top of its box as well as the
+// bottom, without scrolling past its close-up.
+func TestRemoveIsOfferedAboveAndBelowTheCloseUp(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"reject"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	body := get(t, h, loc).Body.String()
+	box := body[strings.Index(body, `id="print-1"`):]
+	img := strings.Index(box, "regions/1.png")
+	const remove = ">Remove this region<"
+	if img < 0 || !strings.Contains(box[:img], remove) || !strings.Contains(box[img:], remove) {
+		t.Errorf("want Remove this region above and below the close-up:\n%s", box)
+	}
+}
+
+// #105: a close-up reduced to fit the screen spaces its ruler ticks to
+// stay apart, so they do not pile into one another; the help says the
+// spacing the rulers use.
+func TestARulerOnAReducedCloseUpKeepsItsTicksApart(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 200, Y1: 280, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"large"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	body := get(t, h, loc).Body.String()
+	box := body[strings.Index(body, `id="print-1"`):]
+	m := regexp.MustCompile(`grid-template-columns:\d+px (\d+)px`).FindStringSubmatch(box)
+	if m == nil {
+		t.Fatalf("no ruled close-up:\n%s", box)
+	}
+	width, _ := strconv.Atoi(m[1])
+	top := box[strings.Index(box, "grid-template-columns"):strings.Index(box, "regions/1.png")]
+	left := strings.Index(top, `<div style="position:relative">`)
+	top = top[left : strings.Index(top[left:], "</div>")+left]
+	ticks := strings.Count(top, "|<br>")
+	if most := width/minTickPx + 1; ticks > most {
+		t.Errorf("%d ticks across %d px, want at most %d so they stay %d px apart", ticks, width, most, minTickPx)
+	}
+	if every := regexp.MustCompile(`every (\d+) mm`).FindStringSubmatch(box); every == nil || every[1] == "5" {
+		t.Errorf("the help should say the wider tick spacing the rulers use, got %q", every)
 	}
 }
