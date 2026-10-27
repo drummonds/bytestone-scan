@@ -181,6 +181,14 @@ func (a *App) Handler() http.Handler {
 		}
 		servePNG(w, r, func(l *batch.Scan) (image.Image, error) { return l.CloseUp(p - 1) })
 	})
+	mux.HandleFunc("GET /batches/{id}/scans/{n}/backs/{print}", func(w http.ResponseWriter, r *http.Request) {
+		p, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("print"), ".png"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		servePNG(w, r, func(l *batch.Scan) (image.Image, error) { return l.BackCloseUp(p - 1) })
+	})
 
 	mux.HandleFunc("GET /photos/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, photo, img, ok := a.photo(w, r)
@@ -274,7 +282,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 		return c.Buffer()
 	}
 	var t strings.Builder
-	t.WriteString(`<h2 class="title is-5">Scans</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints</th><th>Where</th></tr></thead><tbody>`)
+	t.WriteString(`<h2 class="title is-5">Scans and imports</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints</th><th>Where</th></tr></thead><tbody>`)
 	for _, l := range scans {
 		where := "not started"
 		if busy, step, _ := a.busyWith(l.Key()); busy {
@@ -286,8 +294,8 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 			}
 		}
 		prints, _, _ := l.Found()
-		fmt.Fprintf(&t, `<tr><td><a href="%s">Scan %d</a></td><td>%s</td><td>%d</td><td>%s</td></tr>`,
-			scanURL(l.Key()), l.N, html.EscapeString(l.Description), len(prints), html.EscapeString(where))
+		fmt.Fprintf(&t, `<tr><td><a href="%s">%s %d</a></td><td>%s</td><td>%d</td><td>%s</td></tr>`,
+			scanURL(l.Key()), kind(l), l.N, html.EscapeString(l.Description), len(prints), html.EscapeString(where))
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
@@ -309,9 +317,18 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 		return c.Buffer()
 	}
 	c.HTML(fmt.Sprintf(`<div class="buttons"><a class="button is-primary" href="batches/%s/scans/new">Do one more scan</a> `+
+		`<a class="button" href="batches/%s/imports/new">Import pages</a> `+
 		`<form action="batches/%s/finish" method="post" style="display:inline"><button class="button" type="submit">Finish scanning</button></form> %s</div>`,
-		html.EscapeString(b.ID), html.EscapeString(b.ID), del))
+		html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), del))
 	return c.Buffer()
+}
+
+// kind is what the scan is called: a scan of the bed, or an import of a page.
+func kind(l *batch.Scan) string {
+	if l.Import() {
+		return "Import"
+	}
+	return "Scan"
 }
 
 // batchOutcome says how the batch's photos stand with the archive, and
@@ -330,18 +347,25 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	c := lofigui.NewContext()
 	busy, waiting := a.state(r, c, l)
 	b := l.Sitting()
-	c.HTML(fmt.Sprintf(`<h1 class="title">Scan %d of <a href="batches/%s">batch %s</a></h1>
+	capture := fmt.Sprintf(`<tr><th>Scanned at</th><td>%d ppi</td></tr>`, b.ScanPPI)
+	if p := l.Page; p != nil {
+		capture = fmt.Sprintf(`<tr><th>Page</th><td>%s: %s, %d ppi, %d bits</td></tr>
+<tr><th>Sender</th><td>%s</td></tr>
+<tr><th>Received</th><td>%s</td></tr>
+<tr><th>Device</th><td>%s</td></tr>`, html.EscapeString(p.File), p.Format, p.PPI, p.Depth, html.EscapeString(p.Sender), dateText(p.Received), orUnknown(p.Device))
+	}
+	c.HTML(fmt.Sprintf(`<h1 class="title">%s %d of <a href="batches/%s">batch %s</a></h1>
 <p class="subtitle">%s</p>
 <table class="table"><tbody>
 <tr><th>Batch</th><td>%s</td></tr>
 <tr><th>Home</th><td>%s (%s)</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
-<tr><th>Scanned at</th><td>%d ppi</td></tr>
+%s
 <tr><th>Started</th><td>%s</td></tr>
-</tbody></table>`, l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), html.EscapeString(b.Title),
+</tbody></table>`, kind(l), l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
-		b.ScanPPI, l.Created.Local().Format("2 Jan 2006 15:04")))
+		capture, l.Created.Local().Format("2 Jan 2006 15:04")))
 
 	prints, ids, err := l.Found()
 	if err != nil {
@@ -357,6 +381,9 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 		if i < len(ids) {
 			photo = fmt.Sprintf(`<a href="photos/%s">%s</a>`, ids[i], ids[i])
 			back = a.backCell(l, ids[i], i, backsFound)
+			if l.Import() {
+				back = "not received"
+			}
 		}
 		review := ""
 		if p.Review {
@@ -371,8 +398,12 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	if l.Confirmed() {
 		cut = ", cut to the regions"
 	}
+	bed := "Preview"
+	if l.Import() {
+		bed = "The page"
+	}
 	c.HTML(fmt.Sprintf(`<figure><img src="%s/prints.png" alt="The bed, with the prints found">
-<figcaption class="help">Preview, 150 ppi%s, with the regions found: green as found, red to review.</figcaption></figure>`, scanURL(l.Key()), cut))
+<figcaption class="help">%s, 150 ppi%s, with the regions found: green as found, red to review.</figcaption></figure>`, scanURL(l.Key()), bed, cut))
 	if _, err := os.Stat(filepath.Join(l.Dir(), "backs.png")); err == nil {
 		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="%s/backs.png" alt="The bed turned over, with the fronts' regions">
 <figcaption class="help">The backs, 150 ppi%s: the fronts' regions in green (red to review), where each back is scanned, and each back as found in blue.</figcaption></figure>`, scanURL(l.Key()), cut))
@@ -382,8 +413,35 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 			c.HTML(regionEditor(l, i, p, i == len(prints)-1))
 		}
 	}
+	if waiting == "backs" && !busy {
+		for i := range prints {
+			if i < len(ids) && i < len(backsFound) {
+				c.HTML(a.backPicker(l, ids[i], i, backsFound[i]))
+			}
+		}
+	}
 	c.HTML(a.diagnosisSection(l))
 	return c.Buffer()
+}
+
+// backPicker is print i's back close up from the backs preview, at the
+// backs wait, with the tick that has it scanned: on unless the back is
+// declared blank. The ticks go with the state bar's Scan the backs.
+func (a *App) backPicker(l *batch.Scan, id pid.ID, i int, found batch.Side) string {
+	n := i + 1
+	checked := " checked"
+	if rec, _, err := batch.FindPhoto(a.Staging, id); err == nil && rec.BackBlank {
+		checked = ""
+	}
+	heading := fmt.Sprintf("found %.0f × %.0f mm", found.Print.W, found.Print.H)
+	if found.Review {
+		heading = `<span class="tag is-danger">review</span> ` + html.EscapeString(found.Warning)
+	}
+	return fmt.Sprintf(`<div class="box" id="back-%d">
+<h2 class="title is-5">Print %d's back: %s</h2>
+<img src="%s/backs/%d.png" alt="Print %d's back, close up from the backs preview" style="display:block">
+<label class="checkbox mt-2"><input type="checkbox" form="scan-backs" name="scan" value="%d"%s> Scan this back</label>
+</div>`, n, n, heading, scanURL(l.Key()), n, n, n, checked)
 }
 
 // backCell is the scan page's word on print i's back: scanned, found on
@@ -541,6 +599,9 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	if p.BackBlank {
 		c.HTML(`<h2 class="title is-5 mt-5">Back</h2><p class="help">The back is blank: not kept.</p>`)
 	}
+	if p.BackNotReceived {
+		c.HTML(`<h2 class="title is-5 mt-5">Back</h2><p class="help">The back was not received: the page holds the front only.</p>`)
+	}
 	if p.Back != nil {
 		c.HTML(`<h2 class="title is-5 mt-5">Back</h2>`)
 		if rec, err := rendition.Load(filepath.Join(a.renditionDir(id), "back")); err == nil {
@@ -601,12 +662,24 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		{"Print", fmt.Sprintf("%.1f × %.1f mm", s.Print.W, s.Print.H)},
 		{"Master", fmt.Sprintf("%d × %d px at %d ppi", img.W, img.H, s.MasterPPI)},
 		{"Scanned", fmt.Sprintf("%d ppi, averaged %d × %d", s.ScanPPI, s.Averaging, s.Averaging)},
+	}
+	if rc := s.Received; rc != nil {
+		copy := fmt.Sprintf("from %s on %s: %s, %s, %d ppi, %d bits", html.EscapeString(rc.Sender), dateText(rc.Received), html.EscapeString(rc.File), rc.Format, rc.PPI, rc.Depth)
+		if rc.Device != "" {
+			copy += ", " + html.EscapeString(rc.Device)
+		}
+		if s.CutFrom != nil {
+			copy += fmt.Sprintf("; cut from page <code>%s</code>, an item of its own", s.CutFrom)
+		}
+		rows[len(rows)-1] = [2]string{"Copy received", copy}
+	}
+	rows = append(rows, [][2]string{
 		{"Skew", fmt.Sprintf("%.2f°", s.Skew)},
 		{"Fill", fmt.Sprintf("%.3f", s.Fill)},
 		{"Review", review},
 		{"Captured", s.Captured.Local().Format("2 Jan 2006 15:04")},
 		{"Scanner", html.EscapeString(s.Scanner)},
-	}
+	}...)
 	if s.Warning != "" {
 		rows = append(rows, [2]string{"Warning", `<span class="has-text-danger">` + html.EscapeString(s.Warning) + `</span>`})
 	}
@@ -710,6 +783,14 @@ func (a *App) describeSection(id pid.ID, p batch.Photo) string {
 }
 
 // orUnknown shows a provenance, or that none was known.
+// dateText is a date received, 2006-01-02, as shown.
+func dateText(s string) string {
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t.Format("2 Jan 2006")
+	}
+	return html.EscapeString(s)
+}
+
 func orUnknown(s string) string {
 	if s == "" {
 		return `<span class="has-text-grey">unknown</span>`

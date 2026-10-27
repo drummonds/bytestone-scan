@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -329,6 +330,7 @@ func TestEveryStepHasADefinition(t *testing.T) {
 	}{
 		{Workflow, b.Stages(context.Background(), nil)},
 		{ScanWorkflow, (&Scan{batch: b}).Stages(context.Background(), Env{})},
+		{ScanWorkflow, (&Scan{batch: b, Page: &Received{}}).Stages(context.Background(), Env{})},
 		{PhotoWorkflow, (&Scan{batch: b}).photoStages(0, Env{})},
 	} {
 		var def *wf.Definition
@@ -340,12 +342,32 @@ func TestEveryStepHasADefinition(t *testing.T) {
 		if def == nil {
 			t.Fatalf("no definition for %s", w.typ)
 		}
-		if len(w.stages) != len(def.Steps) {
-			t.Fatalf("%s: %d stages, %d steps defined", w.typ, len(w.stages), len(def.Steps))
+		// each stage is defined, and the stages come in the definition's order
+		last := -1
+		for _, st := range w.stages {
+			at := slices.IndexFunc(def.Steps, func(s wf.Step) bool { return s.Name == st.Name })
+			if at < 0 || !strings.HasPrefix(def.Steps[at].Source, "https://") {
+				t.Errorf("%s stage %s: not defined", w.typ, st.Name)
+			} else if at <= last {
+				t.Errorf("%s stage %s: defined out of order", w.typ, st.Name)
+			}
+			last = at
 		}
-		for i, st := range w.stages {
-			if def.Steps[i].Name != st.Name || !strings.HasPrefix(def.Steps[i].Source, "https://") {
-				t.Errorf("%s step %d: defined %+v, stage %s", w.typ, i, def.Steps[i], st.Name)
+	}
+	// and each step defined is a stage of a scan or of an import
+	for _, def := range Definitions {
+		for _, step := range def.Steps {
+			var all []wf.Stage
+			switch def.Type {
+			case Workflow:
+				all = b.Stages(context.Background(), nil)
+			case ScanWorkflow:
+				all = append((&Scan{batch: b}).Stages(context.Background(), Env{}), (&Scan{batch: b, Page: &Received{}}).Stages(context.Background(), Env{})...)
+			case PhotoWorkflow:
+				all = (&Scan{batch: b}).photoStages(0, Env{})
+			}
+			if !slices.ContainsFunc(all, func(s wf.Stage) bool { return s.Name == step.Name }) {
+				t.Errorf("%s step %s: defined but never run", def.Type, step.Name)
 			}
 		}
 	}
@@ -896,5 +918,66 @@ func TestCloseUpFrame(t *testing.T) {
 	corner, err := b.CloseUpFrame(0)
 	if err != nil || corner.U0 != 0 || corner.V0 != 0 {
 		t.Errorf("at the bed's corner: %+v, %v; want the close-up starting at the region's edge", corner, err)
+	}
+}
+
+// #88: once the backs are previewed, each print has a close-up of its
+// back from that preview, the same view as the front's close-up, so the
+// operator can pick which backs to scan.
+func TestBackCloseUps(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{
+		Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}},
+		Backs:  []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 50000}},
+	}
+	b := describe(t, root)
+	store := wf.NewMemStore()
+	run(t, b, store, scanner)
+	b.Confirm()
+	if _, err := b.BackCloseUp(0); err == nil {
+		t.Error("a back close-up before the backs are previewed")
+	}
+	run(t, b, store, scanner)
+	b.Turned()
+	run(t, b, store, scanner)
+	front, err := b.CloseUp(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := b.BackCloseUp(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Bounds() != front.Bounds() {
+		t.Errorf("back close-up %v, want the front's view %v", back.Bounds(), front.Bounds())
+	}
+	if _, err := b.BackCloseUp(1); err == nil {
+		t.Error("close-up of a back whose print is not there")
+	}
+}
+
+// #105: a close-up that would not fit on the screen pixel for pixel is
+// reduced to fit, so a large print's controls stay in view; its frame
+// says the reduced scale, so the rulers still land on the picture.
+func TestALargeCloseUpIsReducedToFit(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 200, Y1: 280, Value: 20000}}}
+	b := describe(t, root)
+	run(t, b, wf.NewMemStore(), scanner)
+	img, err := b.CloseUp(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := img.Bounds().Size()
+	if size.X > closeUpFit.X || size.Y > closeUpFit.Y || (size.X < closeUpFit.X && size.Y < closeUpFit.Y) {
+		t.Errorf("close-up %v px, want it reduced to fit %v exactly one way", size, closeUpFit)
+	}
+	f, err := b.CloseUpFrame(0)
+	if err != nil || f.W != size.X || f.H != size.Y {
+		t.Errorf("frame %+v, %v; want the image's %v", f, err, size)
+	}
+	prints, _, _ := b.Found()
+	if mm, r := float64(f.W)/f.Scale, prints[0].Region.W; mm < r-1 || mm > r+2*closeUpContext+1 {
+		t.Errorf("the image spans %.1f mm at the frame's scale, want the region's %.1f mm and up to %.0f mm of context", mm, r, 2*closeUpContext)
 	}
 }
