@@ -29,6 +29,7 @@ type worker struct {
 	started time.Time
 	step    string // the workflow step running, once one has started
 	stepAt  time.Time
+	stop    chan struct{} // closed to stop the step running; nil when idle
 	running sync.WaitGroup
 	pending []*batch.Scan // scans to run to their next wait once the step running ends
 }
@@ -75,15 +76,19 @@ func (a *App) tick(l *batch.Scan) {
 func (a *App) launch(l *batch.Scan) {
 	a.work.scan, a.work.started = l.Key(), time.Now()
 	a.work.step, a.work.stepAt = "", a.work.started
+	a.work.stop = make(chan struct{})
+	env := a.env()
+	env.Scanner = stoppable{a.Scanner, a.work.stop}
 	a.work.running.Go(func() {
-		// a failure is recorded on the run, where the scan page reads it
-		l.Run(context.Background(), a.env(), func(step string) {
+		// a failure, or a stop, is recorded on the run, where the scan
+		// page reads it
+		l.Run(context.Background(), env, func(step string) {
 			a.work.mu.Lock()
 			a.work.step, a.work.stepAt = step, time.Now()
 			a.work.mu.Unlock()
 		})
 		a.work.mu.Lock()
-		a.work.scan = ""
+		a.work.scan, a.work.stop = "", nil
 		if len(a.work.pending) > 0 {
 			next := a.work.pending[0]
 			a.work.pending = a.work.pending[1:]
@@ -91,6 +96,23 @@ func (a *App) launch(l *batch.Scan) {
 		}
 		a.work.mu.Unlock()
 	})
+}
+
+// stop ends the step running for the scan with key, if one is: the pass
+// in hand is abandoned and the run records the stop. A scan with no step
+// running is refused.
+func (a *App) stop(key string) error {
+	a.work.mu.Lock()
+	defer a.work.mu.Unlock()
+	if a.work.scan != key {
+		return fmt.Errorf("scan %s: no step is running", key)
+	}
+	select {
+	case <-a.work.stop:
+	default:
+		close(a.work.stop)
+	}
+	return nil
 }
 
 // wait blocks until no step is running.
@@ -428,7 +450,27 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 	act("backs", func(r *http.Request, l *batch.Scan) error { return l.Turned() })
 	act("no-backs", func(r *http.Request, l *batch.Scan) error { return l.NoBacks() })
-	act("confirm-backs", func(r *http.Request, l *batch.Scan) error { return l.ConfirmBacks() })
+	// the ticks say which backs are scanned: an unticked back is declared
+	// blank, a ticked one not after all; a post without them scans every
+	// back not already declared blank
+	act("confirm-backs", func(r *http.Request, l *batch.Scan) error {
+		if r.FormValue("select") != "" {
+			_, ids, err := l.Found()
+			if err != nil {
+				return err
+			}
+			ticked := map[string]bool{}
+			for _, n := range r.Form["scan"] {
+				ticked[n] = true
+			}
+			for i, id := range ids {
+				if err := l.SetBackBlank(id, !ticked[strconv.Itoa(i+1)]); err != nil {
+					return err
+				}
+			}
+		}
+		return l.ConfirmBacks()
+	})
 	// previewing again, and a rescan from the quality check, go through
 	// the backs preview with the prints still turned
 	act("preview-backs", func(r *http.Request, l *batch.Scan) error {
@@ -439,6 +481,15 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 	act("accept", func(r *http.Request, l *batch.Scan) error { return l.Accept() })
 	act("retry", func(r *http.Request, l *batch.Scan) error { return nil })
+	// stopping takes no scanner: it ends the step running, if any
+	mux.HandleFunc("POST /batches/{id}/scans/{n}/stop", func(w http.ResponseWriter, r *http.Request) {
+		key := r.PathValue("id") + "/" + r.PathValue("n")
+		if err := a.stop(key); err != nil {
+			fail(w, err, http.StatusConflict)
+			return
+		}
+		http.Redirect(w, r, "/"+scanURL(key), http.StatusSeeOther)
+	})
 	act("reshape", func(r *http.Request, l *batch.Scan) error {
 		n, edge, by, absolute, err := parseMove(r.FormValue("move"))
 		if err != nil {
@@ -656,7 +707,9 @@ func (a *App) startScan(w http.ResponseWriter, r *http.Request, b *batch.Batch, 
 // scan is waiting at, if any.
 func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, string) {
 	if busy, step, since := a.busyWith(l.Key()); busy {
-		c.HTML(`<div id="progress">` + a.progress(r.Context(), l, step, since) + `</div>` + fmt.Sprintf(pollProgress, scanURL(l.Key())))
+		c.HTML(`<div id="progress">` + a.progress(r.Context(), l, step, since) + `</div>` +
+			fmt.Sprintf(`<div class="buttons"><form action="%s/stop" method="post" style="display:inline"><button class="button is-light" type="submit">Stop</button></form></div>`, scanURL(l.Key())) +
+			fmt.Sprintf(pollProgress, scanURL(l.Key())))
 		return true, ""
 	}
 	run, waiting := a.where(r.Context(), l)
@@ -669,6 +722,14 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 			scanURL(l.Key()), action, class, label)
 	}
 	switch {
+	case run.Status == wf.StatusFailed && strings.Contains(run.Error, errStopped.Error()):
+		// stopped mid-step, most often to size the regions after all
+		back := ""
+		if l.Confirmed() {
+			back = button("prints", "‹ Back to the prints", "is-primary")
+		}
+		c.HTML(`<div class="notification is-warning">Stopped. Go back to the prints to change them, or carry on where it stopped.</div>` +
+			`<div class="buttons">` + back + button("retry", "Carry on", "") + `</div>`)
 	case run.Status == wf.StatusFailed:
 		c.HTML(`<div class="notification is-danger">Failed: ` + html.EscapeString(run.Error) + `</div>` +
 			`<div class="buttons">` + button("retry", "Retry", "is-primary") + `</div>`)
@@ -694,7 +755,7 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then preview the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
 			button("backs", "Preview the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "backs":
-		notice := "Check that each back lies where its front did, then scan the backs. A print that moved is put back and the backs previewed again. If nothing is written or printed on any back after all, skip them."
+		notice := "Check that each back lies where its front did, and untick any back with nothing on it, then scan the backs. A print that moved is put back and the backs previewed again. If nothing is written or printed on any back after all, skip them."
 		if backs, err := l.BacksFound(); err == nil {
 			var warnings []string
 			for i, s := range backs {
@@ -707,7 +768,8 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 			}
 		}
 		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
-			button("confirm-backs", "Scan the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
+			fmt.Sprintf(`<form id="scan-backs" action="%s/confirm-backs" method="post" style="display:inline"><input type="hidden" name="select" value="1"><button class="button is-primary" type="submit">Scan the backs ›</button></form> `, scanURL(l.Key())) +
+			button("no-backs", "No backs ›", "") + button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
 	case waiting == "check quality":
 		// the forward step is what accepting leads to: the describing
 		// still to do, or, every photo described, the archive

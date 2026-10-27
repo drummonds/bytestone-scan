@@ -30,6 +30,8 @@ type Fake struct {
 	RejectAs map[pid.ID]pid.ID
 	// Down makes every call fail, as a service not running does.
 	Down bool
+	// Serving is the instance the fake says it serves; Example's is a scratch one.
+	Serving archive.Instance
 	// Renditions are the rendition files each held item's deposit carried,
 	// relative to renditions/: <recipe>/display.jpg and so on.
 	Renditions map[pid.ID][]string
@@ -50,7 +52,16 @@ func New(people ...archive.Person) *Fake {
 
 // Example is a fake over two people, Ada (a) and Aaron (e) Example.
 func Example() *Fake {
-	return New(archive.Person{ID: 10, Name: "Ada Example"}, archive.Person{ID: 14, Name: "Aaron Example"})
+	f := New(archive.Person{ID: 10, Name: "Ada Example"}, archive.Person{ID: 14, Name: "Aaron Example"})
+	f.Serving = archive.Instance{Name: "example", Purpose: "scratch", Slot: 1}
+	return f
+}
+
+func (f *Fake) Instance() (archive.Instance, error) {
+	if f.Down {
+		return archive.Instance{}, errDown
+	}
+	return f.Serving, nil
 }
 
 func (f *Fake) String() string {

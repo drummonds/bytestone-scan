@@ -73,6 +73,7 @@ const layout = `<!DOCTYPE html>
 {{if .database}}<a class="navbar-item" href="db/">Database</a>{{end}}
 <a class="navbar-item" href="about">About</a>
 {{.status}}
+{{.archive}}
 </div></nav>
 <section class="section"><div class="container">{{.content}}</div></section>
 </body></html>`
@@ -83,10 +84,10 @@ func (a *App) Handler() http.Handler {
 		panic(err)
 	}
 	render := func(w http.ResponseWriter, title string, content string) {
-		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "database": a.DB != nil})
+		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "archive": a.archiveTag(), "database": a.DB != nil})
 	}
 	views := &view.Views{
-		Store:       a.Store,
+		Store:       queue{a.Store},
 		Definitions: batch.Definitions,
 		Diagrams:    diagrams(),
 		Base:        "workflows/",
@@ -180,6 +181,14 @@ func (a *App) Handler() http.Handler {
 			return
 		}
 		servePNG(w, r, func(l *batch.Scan) (image.Image, error) { return l.CloseUp(p - 1) })
+	})
+	mux.HandleFunc("GET /batches/{id}/scans/{n}/backs/{print}", func(w http.ResponseWriter, r *http.Request) {
+		p, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("print"), ".png"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		servePNG(w, r, func(l *batch.Scan) (image.Image, error) { return l.BackCloseUp(p - 1) })
 	})
 
 	mux.HandleFunc("GET /photos/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -292,17 +301,16 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
 	if at, ok := b.Purged(); ok {
-		c.HTML(fmt.Sprintf(`<div class="notification">Purged on %s: the work files of this batch are gone; its photos are held by the archive.</div>`, at.Local().Format("2 Jan 2006")))
+		c.HTML(fmt.Sprintf(`<div class="notification">Purged on %s: the work files of this batch are gone; its photos are held by the archive.</div><div class="buttons">%s</div>`, at.Local().Format("2 Jan 2006"), deleteButton(b.ID, "")))
 		return c.Buffer()
 	}
 	if at, ok := b.Closed(); ok {
 		msg, class := a.batchOutcome(b)
-		c.HTML(fmt.Sprintf(`<div class="notification %s">Closed on %s: %s. The work files are purged %d days after closing, or sooner when staging is short of space.</div>`,
-			class, at.Local().Format("2 Jan 2006"), msg, int(batch.DefaultGrace.Hours()/24)))
+		c.HTML(fmt.Sprintf(`<div class="notification %s">Closed on %s: %s. The work files are purged %d days after closing, or sooner when staging is short of space.</div><div class="buttons">%s</div>`,
+			class, at.Local().Format("2 Jan 2006"), msg, int(batch.DefaultGrace.Hours()/24), deleteButton(b.ID, "")))
 		return c.Buffer()
 	}
-	// not closed: the operator can still delete it, so long as the archive holds none of its photos
-	del := fmt.Sprintf(`<a class="button is-danger is-light" href="batches/%s/delete">Delete</a>`, html.EscapeString(b.ID))
+	del := deleteButton(b.ID, "")
 	if b.Finished() {
 		msg, class := a.batchOutcome(b)
 		c.HTML(fmt.Sprintf(`<div class="notification %s">Finished: %s.</div><div class="buttons">%s</div>`, class, msg, del))
@@ -405,8 +413,35 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 			c.HTML(regionEditor(l, i, p, i == len(prints)-1))
 		}
 	}
+	if waiting == "backs" && !busy {
+		for i := range prints {
+			if i < len(ids) && i < len(backsFound) {
+				c.HTML(a.backPicker(l, ids[i], i, backsFound[i]))
+			}
+		}
+	}
 	c.HTML(a.diagnosisSection(l))
 	return c.Buffer()
+}
+
+// backPicker is print i's back close up from the backs preview, at the
+// backs wait, with the tick that has it scanned: on unless the back is
+// declared blank. The ticks go with the state bar's Scan the backs.
+func (a *App) backPicker(l *batch.Scan, id pid.ID, i int, found batch.Side) string {
+	n := i + 1
+	checked := " checked"
+	if rec, _, err := batch.FindPhoto(a.Staging, id); err == nil && rec.BackBlank {
+		checked = ""
+	}
+	heading := fmt.Sprintf("found %.0f × %.0f mm", found.Print.W, found.Print.H)
+	if found.Review {
+		heading = `<span class="tag is-danger">review</span> ` + html.EscapeString(found.Warning)
+	}
+	return fmt.Sprintf(`<div class="box" id="back-%d">
+<h2 class="title is-5">Print %d's back: %s</h2>
+<img src="%s/backs/%d.png" alt="Print %d's back, close up from the backs preview" style="display:block">
+<label class="checkbox mt-2"><input type="checkbox" form="scan-backs" name="scan" value="%d"%s> Scan this back</label>
+</div>`, n, n, heading, scanURL(l.Key()), n, n, n, checked)
 }
 
 // backCell is the scan page's word on print i's back: scanned, found on

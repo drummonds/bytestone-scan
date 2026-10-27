@@ -15,18 +15,19 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 )
 
-// Story 054: the batch page offers Delete, confirmed on its own page, for
-// a batch that is not closed; it refuses while the archive holds a photo
-// of the batch. The Batches page lists every batch and the stale data no
-// readable batch claims, each deletable the same way.
+// Story 054, widened by #98: the batch page and the Batches list offer
+// Delete for any batch, confirmed on its own page, which says what the
+// archive holds of it and what loses its masters. The Batches page also
+// lists the stale data no readable batch claims, deletable the same way.
 func TestDeleteABatch(t *testing.T) {
 	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
 	a := live(t, s)
 	h := a.Handler()
 	loc := act(t, a, h, "/batches", url.Values{"title": {"a test"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	act(t, a, h, loc+"/confirm", nil) // its photo's front scanned, not deposited
 	page(t, h, "/batches/20261020-1", `href="batches/20261020-1/delete"`)
-	page(t, h, "/batches", "20261020-1", "a test", "open")
-	page(t, h, "/batches/20261020-1/delete", "Delete batch 20261020-1", `action="batches/20261020-1/delete"`, "Keep")
+	page(t, h, "/batches", "20261020-1", "a test", "open", `href="batches/20261020-1/delete"`)
+	page(t, h, "/batches/20261020-1/delete", "Delete batch 20261020-1", `action="batches/20261020-1/delete"`, "Keep", "1 photo not yet deposited loses its master")
 	if w := post(t, h, "/batches/20261020-1/delete", nil); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/batches" {
 		t.Fatalf("delete: %d %s to %q", w.Code, w.Body, w.Header().Get("Location"))
 	}
@@ -39,7 +40,9 @@ func TestDeleteABatch(t *testing.T) {
 		t.Errorf("the scan's run: %+v, want cancelled", r)
 	}
 
-	// a batch with a photo held is refused, and told what to do instead
+	// a batch with a photo held, closed: deleted all the same, offered from
+	// its page and the Batches list; the confirm page counts what the
+	// archive holds
 	loc = act(t, a, h, "/batches", url.Values{"title": {"kept"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	if !strings.HasPrefix(loc, "/batches/20261020-2/") {
 		t.Fatalf("the next batch is %s, want 20261020-2: a deleted batch's id is not given out again", loc)
@@ -49,18 +52,19 @@ func TestDeleteABatch(t *testing.T) {
 	act(t, a, h, loc+"/confirm-backs", nil)
 	describeAll(t, a, h, loc)
 	act(t, a, h, loc+"/accept", nil)
-	if w := post(t, h, "/batches/20261020-2/delete", nil); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "finish scanning") {
-		t.Errorf("deleting a batch with a photo held: %d %s", w.Code, w.Body)
-	}
-	page(t, h, "/batches/20261020-2", "kept")
 	act(t, a, h, "/batches/20261020-2/finish", nil)
-	w := get(t, h, "/batches/20261020-2")
-	if !strings.Contains(w.Body.String(), "Closed") || strings.Contains(w.Body.String(), "/delete") {
-		t.Errorf("a closed batch's page offers Delete, or is not closed: %s", w.Body)
+	page(t, h, "/batches/20261020-2", "Closed", `href="batches/20261020-2/delete"`)
+	page(t, h, "/batches", "20261020-2", "closed", `href="batches/20261020-2/delete"`)
+	page(t, h, "/batches/20261020-2/delete", "1 photo held by the archive")
+	if w := post(t, h, "/batches/20261020-2/delete", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("deleting a closed batch: %d %s", w.Code, w.Body)
 	}
-	page(t, h, "/batches", "20261020-2", "closed")
+	if w := get(t, h, "/batches/20261020-2"); w.Code != http.StatusNotFound {
+		t.Errorf("GET a deleted closed batch: %d", w.Code)
+	}
 
-	// stale data: listed on the Batches page, deleted the same way
+	// stale data: listed on the Batches page, deleted the same way; a live batch is not stale
+	act(t, a, h, "/batches", url.Values{"title": {"live"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	old := filepath.Join(a.Staging, "batches", "20250101-1")
 	os.MkdirAll(old, 0o755)
 	os.WriteFile(filepath.Join(old, "prints.yaml"), []byte("prints: []\n"), 0o644)
@@ -73,11 +77,11 @@ func TestDeleteABatch(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(a.Staging, "bags", "42")); !os.IsNotExist(err) {
 		t.Errorf("bags/42 survives: %v", err)
 	}
-	if w := post(t, h, "/stale/delete", url.Values{"path": {"batches/20261020-2"}}); w.Code != http.StatusUnprocessableEntity {
+	if w := post(t, h, "/stale/delete", url.Values{"path": {"batches/20261020-3"}}); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("deleting a live batch as stale: %d", w.Code)
 	}
-	if w := get(t, h, "/stale?path=batches%2F20261020-2"); w.Code != http.StatusNotFound {
+	if w := get(t, h, "/stale?path=batches%2F20261020-3"); w.Code != http.StatusNotFound {
 		t.Errorf("confirming a live batch as stale: %d", w.Code)
 	}
-	page(t, h, "/batches/20261020-2", "kept")
+	page(t, h, "/batches/20261020-3", "live")
 }

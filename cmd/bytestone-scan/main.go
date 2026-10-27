@@ -1,11 +1,14 @@
 // Command bytestone-scan scans batches of prints on the Epson 4990 into
 // archival masters, one archived photo per print, run from a web UI.
 //
-//	bytestone-scan serve [-addr localhost:8080] [-staging DIR] [-archive URL] [-device DEV] [-recorded NAME]
+//	bytestone-scan serve [-instance NAME] [-addr HOST:PORT] [-staging DIR] [-archive URL] [-device DEV] [-recorded NAME]
 //	bytestone-scan capture -print NAME [-side front|back] [-staging DIR] [-device DEV] [-ppi 2400]
 //
-// capture records the one print on the bed into <staging>/fixtures/NAME,
-// and serve -recorded NAME runs the UI on that recording instead of the
+// serve runs for one archive instance, production unless -instance names
+// another, found among the life-weaver services on localhost:8321-8330;
+// its own port and staging root follow from the instance's slot. capture
+// records the one print on the bed into <staging>/fixtures/NAME, and
+// serve -recorded NAME runs the UI on that recording instead of the
 // scanner.
 package main
 
@@ -41,22 +44,29 @@ func main() {
 	}
 	home, _ := os.UserHomeDir()
 	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
-	staging := fs.String("staging", filepath.Join(home, ".local/share/bytestone-scan"), "staging root: batches, the archive, recordings and the workflow database")
+	root := filepath.Join(home, ".local/share/bytestone-scan")
+	staging := fs.String("staging", "", "staging root: batches, bags, recordings and the workflow database (default "+root+", or "+root+"-<instance> for an instance other than production)")
 	device := fs.String("device", "", "SANE device; found from scanimage -L if empty")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	var err error
 	switch os.Args[1] {
 	case "serve":
-		addr := fs.String("addr", "localhost:8080", "address to listen on")
-		service := fs.String("archive", "http://localhost:8321", "the archive service (life-weaver serve): the register of people, item ids and deposits")
+		instance := fs.String("instance", "", "the archive instance to scan for, as life-weaver names it (default production), found among those serving on localhost:8321-8330")
+		addr := fs.String("addr", "", "address to listen on (default localhost:8080, or 8080+slot for an instance other than production)")
+		service := fs.String("archive", "", "the archive service's URL, instead of finding the instance (life-weaver serve): the register of people, item ids and deposits")
 		name := fs.String("recorded", "", "run on the recording of this print under <staging>/fixtures instead of the scanner")
 		fs.Parse(os.Args[2:])
+		var cfg settings
+		cfg, err = settings{Instance: *instance, Archive: *service, Addr: *addr, Staging: *staging}.resolve(root, func() []archive.Serving { return archive.Discover(archive.Addresses()) })
+		if err != nil {
+			break
+		}
 		var s batch.Scanner = &epson.Scanner{Device: *device}
 		if *name != "" {
-			s = &recorded.Scanner{Dir: filepath.Join(*staging, "fixtures", *name)}
+			s = &recorded.Scanner{Dir: filepath.Join(cfg.Staging, "fixtures", *name)}
 		}
-		err = serve(ctx, *addr, *staging, *service, s)
+		err = serve(ctx, cfg, s)
 	case "capture":
 		name := fs.String("print", "", "the recording's name under <staging>/fixtures (required)")
 		side := fs.String("side", "front", "the side of the print lying face down: front or back")
@@ -65,6 +75,9 @@ func main() {
 		if *name == "" {
 			fmt.Fprintln(os.Stderr, usage)
 			os.Exit(2)
+		}
+		if *staging == "" {
+			*staging = root
 		}
 		err = capture(ctx, filepath.Join(*staging, "fixtures", *name), *side, *device, *ppi)
 	default:
@@ -78,7 +91,42 @@ func main() {
 }
 
 // serve runs the web UI until interrupted.
-func serve(ctx context.Context, addr, staging, service string, s batch.Scanner) error {
+// settings is what serve runs with: the archive instance it is for and,
+// each following from the instance's slot unless given, the archive's
+// URL, its own address and its staging root.
+type settings struct {
+	Instance, Archive, Addr, Staging string
+}
+
+// resolve fills the settings in from the instance the scanner is run for,
+// found among those serving: production unless -instance names another.
+// An -archive given explicitly is taken as it is, no instance sought. The
+// staging root is root for production and root-<instance> for any other,
+// so a scratch batch's masters never land in production's staging.
+func (s settings) resolve(root string, discover func() []archive.Serving) (settings, error) {
+	slot := 0
+	if s.Archive == "" {
+		found, err := archive.Choose(s.Instance, discover())
+		if err != nil {
+			return settings{}, err
+		}
+		s.Archive, slot = found.URL, found.Instance.Slot
+		if !found.Instance.Production() && s.Staging == "" {
+			s.Staging = root + "-" + found.Instance.Name
+		}
+	}
+	if s.Addr == "" {
+		s.Addr = fmt.Sprintf("localhost:%d", 8080+slot)
+	}
+	if s.Staging == "" {
+		s.Staging = root
+	}
+	return s, nil
+}
+
+func serve(ctx context.Context, cfg settings, s batch.Scanner) error {
+	addr, staging, service := cfg.Addr, cfg.Staging, cfg.Archive
+	client := archive.Client{URL: service}
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return err
 	}
@@ -96,7 +144,7 @@ func serve(ctx context.Context, addr, staging, service string, s batch.Scanner) 
 		Store:   store,
 		DB:      db,
 		Scanner: s,
-		Archive: archive.Client{URL: service},
+		Archive: client,
 		Now:     time.Now,
 	}
 	srv := &http.Server{Addr: addr, Handler: app.Handler()}

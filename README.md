@@ -34,10 +34,11 @@ bagged, deposited with the archive service and receipted, or shown as
 rejected when the archive already holds the picture. The batch page
 lists its scans, takes another, and finishes the batch once every scan is
 through; it then closes, and its work files are purged 30 days later, or
-sooner when staging is short of space. A batch that will never close (a
-test, or one abandoned) is deleted from its page, so long as the archive
-holds none of its photos; the *Batches* page lists every batch and the
-stale data no batch claims, each deletable the same way.
+sooner when staging is short of space. Any batch, open, closed or purged, is
+deleted from its page or the *Batches* list, which says what the archive
+holds of it (that stays) and what has not been deposited (that loses its
+masters); the *Batches* page also lists the stale data no batch claims,
+deletable the same way.
 Renditions (story [003](docs/stories/003-display-images.md)) are kept
 under `renditions/` beside the archive, by photo and recipe version.
 
@@ -57,9 +58,18 @@ PDF or an email first.
 
 Batches, the bags awaiting the archive, recordings and the workflow
 database live under `-staging` (default `~/.local/share/bytestone-scan`).
-The archive service (`-archive`, default `http://localhost:8321`:
-`life-weaver serve`, or `task serve` in life-weaver) is where people come
-from, where photo ids are reserved and where bags are deposited.
+The scanner runs for one archive instance, production unless `-instance`
+names another (`bytestone-scan serve -instance h3`). It finds the instance
+among the life-weaver services on `localhost:8321-8330`, one port per
+slot, and refuses to start when it is not serving, saying what it found.
+Its own address and staging root follow from the slot: production on
+`localhost:8080` with the default staging, any other on `8080+slot` with
+`~/.local/share/bytestone-scan-<instance>`, so a scratch batch's masters
+never land in production's staging. `-archive URL`, `-addr` and `-staging`
+each override their part. The navbar names the instance in use, in warning
+colours when it is not production. The archive service (`life-weaver
+serve`, or `task serve` in life-weaver) is where people come from, where
+photo ids are reserved and where bags are deposited.
 
 Without the scanner, run the UI on a recorded print: `bytestone-scan
 capture -print <name>` records the one print on the bed (its preview and
