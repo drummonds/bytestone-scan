@@ -10,6 +10,10 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Album | A titled, ordered arrangement of items, kept with a person's record on i.bytestone.uk; an item may be in many albums |
 | Batch | One sitting of scanning: its title, home person, provenance, credit and scan resolution, over as many scans of the bed as the shoebox needs; finished when the operator says so and every scan is through |
 | Scan | One placing of prints on the bed within a batch, previewed, confirmed, scanned front and back: its description (the batch's title unless the operator says otherwise), preview, prints, fronts pass, backs pass, masters and the photos archived from them |
+| Import | One received page brought into a batch, numbered among its scans: the page is its bed, previewed at 150 ppi, its prints found and confirmed as on a bed scan, each cut from the page at the page's own ppi; no backs. Its description, sender, date received and device are recorded |
+| Page | A file received from elsewhere: an image of prints captured by someone else's device, kept unaltered as sent. Holding one print, it is kept in that photo's bag; holding several, it is an item of its own with page.yaml (sender, received, device, format, ppi, the photos cut from it), deposited before them |
+| Received side | A side whose master was cut from a page, not scanned here: its ppi and depth the page's, no averaging; its record carries the page's own and, when the page is an item, names it as `cut_from` |
+| Not received | What a photo cut from a page says of its back: the page holds the front only. Not the same as blank |
 | Print | A physical photograph on the bed |
 | Side | Front or back of a print |
 | Region | Where a print lies on the bed, with a margin, found from the preview; square to the print, turned with it up to 10° |
@@ -17,9 +21,9 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Preview | The 150 ppi bed scan regions are found from |
 | Background | The lid or black card behind the prints on the preview, as a field: its level estimated per row and per column of the bed, so the lid's shading is background wherever it falls. A pixel over 14 levels from it on any channel is print; a speck under 1 mm is noise |
 | Detail pass | One pass of the scanner over every region in the scan: the fronts pass at the scan ppi, then, the prints turned over in place, the backs pass at 300 ppi over the same regions |
-| Scan ppi | The resolution of the fronts pass: 600, 1200 or 2400. Backs are scanned at 300 |
-| Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches |
-| Master | The archival image of one side, never altered after capture: a front at 16 bits per channel, a back at 8 |
+| Scan ppi | The resolution of the fronts pass: 600, 1200 or 2400; for an import, the page's own. Backs are scanned at 300 |
+| Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches; for a received side, the page's own |
+| Master | The archival image of one side, never altered after capture: a front at 16 bits per channel, a back at 8, a received side at the depth received |
 | Rendition | A display image derived from a master: cropped to the print, turned square, its levels set, scaled to fit a screen |
 | Recipe | How renditions are made from a master, by version; a new recipe makes new renditions and leaves the old on record |
 | Develop | The photo step that makes one side's renditions |

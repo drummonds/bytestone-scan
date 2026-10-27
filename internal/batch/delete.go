@@ -59,7 +59,8 @@ func (b *Batch) Delete(ctx context.Context, store wf.Store) error {
 	return os.RemoveAll(b.Dir())
 }
 
-// photos are the ids of every print found in the batch's scans.
+// photos are the ids of every item of the batch's scans: each print
+// found, and each import's page item.
 func (b *Batch) photos() ([]pid.ID, error) {
 	scans, err := b.Scans()
 	if err != nil {
@@ -67,8 +68,8 @@ func (b *Batch) photos() ([]pid.ID, error) {
 	}
 	var ids []pid.ID
 	for _, l := range scans {
-		_, found, err := l.Found()
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
+		found, err := l.items()
+		if err != nil {
 			return nil, err
 		}
 		ids = append(ids, found...)
