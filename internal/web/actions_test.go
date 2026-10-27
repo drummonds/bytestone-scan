@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -721,11 +723,98 @@ func TestLastPrintOffersConfirm(t *testing.T) {
 		t.Error("the first print's box offers Confirm and scan")
 	}
 	last := body[second:]
-	c, remove := strings.Index(last, confirm), strings.Index(last, ">Remove this region<")
+	c, remove := strings.Index(last, confirm), strings.LastIndex(last, ">Remove this region<") // the Remove below the close-up
 	if c < 0 || remove < 0 || c > remove {
 		t.Fatalf("the last print's box does not offer Confirm and scan before Remove this region: confirm at %d, remove at %d", c, remove)
 	}
 	if !strings.Contains(last[:c], `action="`+strings.TrimPrefix(loc, "/")+`/confirm"`) {
 		t.Error("the last print's Confirm and scan does not post to confirm")
+	}
+}
+
+// holdDetail scans the preview freely and holds a detail pass until its
+// context ends, as scanimage does when it is killed.
+type holdDetail struct {
+	*batchtest.Scanner
+	started chan struct{}
+	once    sync.Once
+}
+
+func (s *holdDetail) Detail(ctx context.Context, area find.Rect, ppi int) (io.ReadCloser, error) {
+	s.once.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// A step that is running can be stopped, as when the prints were
+// confirmed before their regions were sized: the scanner's pass ends, the
+// run says it was stopped, and the scan goes back to the prints or
+// carries on. Stopping an idle scan is refused.
+func TestStopARunningStepAndGoBackToThePrints(t *testing.T) {
+	sc := &holdDetail{Scanner: &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}, started: make(chan struct{})}
+	a := live(t, sc.Scanner)
+	a.Scanner = sc
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	if w := post(t, h, loc+"/stop", nil); w.Code != http.StatusConflict {
+		t.Errorf("stop with nothing running: %d, want 409", w.Code)
+	}
+	if w := post(t, h, loc+"/confirm", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("confirm: %d %s", w.Code, w.Body)
+	}
+	<-sc.started
+	page(t, h, loc, "Working", "Fronts", loc[1:]+"/stop", "Stop")
+	if w := post(t, h, loc+"/stop", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("stop: %d %s", w.Code, w.Body)
+	}
+	a.wait()
+	page(t, h, loc, "Stopped", "Back to the prints", "Carry on")
+	if body := get(t, h, loc).Body.String(); strings.Contains(body, "Failed") || strings.Contains(body, "context canceled") {
+		t.Errorf("a stop reads as a failure:\n%s", body)
+	}
+	act(t, a, h, loc+"/prints", nil)
+	page(t, h, loc, "Confirm and scan")
+}
+
+// #105: a print can be rejected from the top of its box as well as the
+// bottom, without scrolling past its close-up.
+func TestRemoveIsOfferedAboveAndBelowTheCloseUp(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"reject"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	body := get(t, h, loc).Body.String()
+	box := body[strings.Index(body, `id="print-1"`):]
+	img := strings.Index(box, "regions/1.png")
+	const remove = ">Remove this region<"
+	if img < 0 || !strings.Contains(box[:img], remove) || !strings.Contains(box[img:], remove) {
+		t.Errorf("want Remove this region above and below the close-up:\n%s", box)
+	}
+}
+
+// #105: a close-up reduced to fit the screen spaces its ruler ticks to
+// stay apart, so they do not pile into one another; the help says the
+// spacing the rulers use.
+func TestARulerOnAReducedCloseUpKeepsItsTicksApart(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 200, Y1: 280, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"large"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	body := get(t, h, loc).Body.String()
+	box := body[strings.Index(body, `id="print-1"`):]
+	m := regexp.MustCompile(`grid-template-columns:\d+px (\d+)px`).FindStringSubmatch(box)
+	if m == nil {
+		t.Fatalf("no ruled close-up:\n%s", box)
+	}
+	width, _ := strconv.Atoi(m[1])
+	top := box[strings.Index(box, "grid-template-columns"):strings.Index(box, "regions/1.png")]
+	left := strings.Index(top, `<div style="position:relative">`)
+	top = top[left : strings.Index(top[left:], "</div>")+left]
+	ticks := strings.Count(top, "|<br>")
+	if most := width/minTickPx + 1; ticks > most {
+		t.Errorf("%d ticks across %d px, want at most %d so they stay %d px apart", ticks, width, most, minTickPx)
+	}
+	if every := regexp.MustCompile(`every (\d+) mm`).FindStringSubmatch(box); every == nil || every[1] == "5" {
+		t.Errorf("the help should say the wider tick spacing the rulers use, got %q", every)
 	}
 }

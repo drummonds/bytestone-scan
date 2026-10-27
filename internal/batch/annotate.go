@@ -128,12 +128,18 @@ func (b *Scan) AnnotatedBacks() (image.Image, error) {
 // closeUpWidth is the width a close-up is enlarged towards, at most 4×.
 const closeUpWidth = 480
 
+// closeUpFit is the size a close-up is reduced to fit within, so a large
+// print's controls stay on the screen (#105).
+var closeUpFit = image.Pt(720, 540)
+
 // closeUpContext is how far round the region a close-up shows, mm.
 const closeUpContext = 6.0
 
-// closeUpView is the box of the bed a close-up of p shows, the
-// enlargement k, and the view's size in preview pixels.
-func closeUpView(p find.Print, bed find.Rect) (view find.Box, k, w, h int) {
+// closeUpView is the box of the bed a close-up of p shows, its scale in
+// close-up pixels per preview pixel, and the close-up's size: a small
+// region is enlarged pixel for pixel towards closeUpWidth, a large one
+// reduced to fit closeUpFit.
+func closeUpView(p find.Print, bed find.Rect) (view find.Box, scale float64, w, h int) {
 	const mm = 25.4 / PreviewPPI
 	view = p.Region
 	view.W += 2 * closeUpContext
@@ -141,9 +147,13 @@ func closeUpView(p find.Print, bed find.Rect) (view find.Box, k, w, h int) {
 	if view.Angle == 0 {
 		view = find.BoxOf(view.On(bed)) // square to the bed, it stops at the bed as before
 	}
-	w, h = int(view.W/mm), int(view.H/mm)
-	k = max(1, min(4, closeUpWidth/max(1, w)))
-	return view, k, w, h
+	pw, ph := max(1, int(view.W/mm)), max(1, int(view.H/mm))
+	scale = float64(max(1, min(4, closeUpWidth/pw)))
+	if pw > closeUpFit.X || ph > closeUpFit.Y {
+		scale = min(float64(closeUpFit.X)/float64(pw), float64(closeUpFit.Y)/float64(ph))
+	}
+	w, h = int(math.Round(float64(pw)*scale)), int(math.Round(float64(ph)*scale))
+	return view, scale, w, h
 }
 
 // CloseUpFrame is where print n's close-up lies in the region's own
@@ -167,8 +177,8 @@ func (b *Scan) CloseUpFrame(n int) (CloseUpFrame, error) {
 	}
 	const mm = 25.4 / PreviewPPI
 	p := prints[n]
-	view, k, w, h := closeUpView(p, b.Bed())
-	f := CloseUpFrame{W: w * k, H: h * k, Scale: float64(k) / mm, U0: -closeUpContext, V0: -closeUpContext}
+	view, scale, w, h := closeUpView(p, b.Bed())
+	f := CloseUpFrame{W: w, H: h, Scale: scale / mm, U0: -closeUpContext, V0: -closeUpContext}
 	if p.Region.Angle == 0 {
 		// clamped to the bed: the image may start short of the context
 		f.U0 = view.CX - view.W/2 - (p.Region.CX - p.Region.W/2)
@@ -178,13 +188,29 @@ func (b *Scan) CloseUpFrame(n int) (CloseUpFrame, error) {
 }
 
 // CloseUp is print n's region on the preview with 6 mm round it, turned
-// so the print sits square and enlarged pixel for pixel: the region
-// outlined in green, the print as found in blue.
+// so the print sits square and enlarged pixel for pixel, or reduced to
+// fit the screen: the region outlined in green, the print as found in blue.
 func (b *Scan) CloseUp(n int) (image.Image, error) {
 	img, err := b.Preview()
 	if err != nil {
 		return nil, err
 	}
+	return b.closeUp(img, n)
+}
+
+// BackCloseUp is print n's back on the backs preview, in the same view as
+// the front's close-up, once the backs are previewed.
+func (b *Scan) BackCloseUp(n int) (image.Image, error) {
+	img, err := readPNG(b.path("backs.png"))
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: the backs are not previewed yet: %w", b.Key(), err)
+	}
+	return b.closeUp(img, n)
+}
+
+// closeUp is print n's view of the 150 ppi bed image img, enlarged, with
+// the print and its region outlined.
+func (b *Scan) closeUp(img image.Image, n int) (image.Image, error) {
 	prints, _, err := b.Found()
 	if err != nil {
 		return nil, err
@@ -194,26 +220,22 @@ func (b *Scan) CloseUp(n int) (image.Image, error) {
 	}
 	const mm = 25.4 / PreviewPPI
 	p := prints[n]
-	view, k, w, h := closeUpView(p, b.Bed())
-	out := image.NewRGBA(image.Rect(0, 0, w*k, h*k))
+	view, scale, w, h := closeUpView(p, b.Bed())
+	out := image.NewRGBA(image.Rect(0, 0, w, h))
 	off := color.RGBA{200, 200, 200, 255} // beyond the bed
 	for y := range h {
 		for x := range w {
-			bx, by := view.At((float64(x)+0.5)*mm, (float64(y)+0.5)*mm)
+			bx, by := view.At((float64(x)+0.5)/scale*mm, (float64(y)+0.5)/scale*mm)
 			at := image.Pt(int(math.Floor(bx/mm)), int(math.Floor(by/mm)))
 			var c color.Color = off
 			if at.In(img.Bounds()) {
 				c = img.At(at.X, at.Y)
 			}
-			for dy := range k {
-				for dx := range k {
-					out.Set(x*k+dx, y*k+dy, c)
-				}
-			}
+			out.Set(x, y, c)
 		}
 	}
 	outline := func(r find.Rect, col color.RGBA) {
-		px := func(v float64) int { return int(v / mm * float64(k)) }
+		px := func(v float64) int { return int(v / mm * scale) }
 		box := image.Rect(px(r.X0), px(r.Y0), px(r.X1), px(r.Y1)).Intersect(out.Bounds())
 		for x := box.Min.X; x < box.Max.X; x++ {
 			out.Set(x, box.Min.Y, col)

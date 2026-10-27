@@ -53,8 +53,27 @@ func xmp(p Photo, side string) []byte {
    <bs:masterPPI>` + fmt.Sprint(sd.MasterPPI) + `</bs:masterPPI>
    <bs:averaging>` + fmt.Sprint(sd.Averaging) + `</bs:averaging>
    <bs:settings><rdf:Bag>` + settings.String() + `</rdf:Bag></bs:settings>
-` + box("print", sd.Print) + box("region", sd.Region) + `  </rdf:Description>
+` + receivedXMP(sd, esc) + box("print", sd.Print) + box("region", sd.Region) + `  </rdf:Description>
  </rdf:RDF>
 </x:xmpmeta>
 <?xpacket end="r"?>`)
+}
+
+// receivedXMP is what a side cut from a received page says of the page:
+// nothing for a side scanned here.
+func receivedXMP(sd Side, esc func(string) string) string {
+	if sd.Received == nil {
+		return ""
+	}
+	r := sd.Received
+	var b strings.Builder
+	fmt.Fprintf(&b, "   <bs:sender>%s</bs:sender>\n   <bs:received>%s</bs:received>\n   <bs:file>%s</bs:file>\n   <bs:format>%s</bs:format>\n   <bs:ppi>%d</bs:ppi>\n   <bs:depth>%d</bs:depth>\n",
+		esc(r.Sender), esc(r.Received), esc(r.File), esc(r.Format), r.PPI, r.Depth)
+	if r.Device != "" {
+		fmt.Fprintf(&b, "   <bs:device>%s</bs:device>\n", esc(r.Device))
+	}
+	if sd.CutFrom != nil {
+		fmt.Fprintf(&b, "   <bs:cutFrom>%s</bs:cutFrom>\n", sd.CutFrom)
+	}
+	return b.String()
 }
