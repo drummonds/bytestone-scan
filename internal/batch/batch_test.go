@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -329,6 +330,7 @@ func TestEveryStepHasADefinition(t *testing.T) {
 	}{
 		{Workflow, b.Stages(context.Background(), nil)},
 		{ScanWorkflow, (&Scan{batch: b}).Stages(context.Background(), Env{})},
+		{ScanWorkflow, (&Scan{batch: b, Page: &Received{}}).Stages(context.Background(), Env{})},
 		{PhotoWorkflow, (&Scan{batch: b}).photoStages(0, Env{})},
 	} {
 		var def *wf.Definition
@@ -340,12 +342,32 @@ func TestEveryStepHasADefinition(t *testing.T) {
 		if def == nil {
 			t.Fatalf("no definition for %s", w.typ)
 		}
-		if len(w.stages) != len(def.Steps) {
-			t.Fatalf("%s: %d stages, %d steps defined", w.typ, len(w.stages), len(def.Steps))
+		// each stage is defined, and the stages come in the definition's order
+		last := -1
+		for _, st := range w.stages {
+			at := slices.IndexFunc(def.Steps, func(s wf.Step) bool { return s.Name == st.Name })
+			if at < 0 || !strings.HasPrefix(def.Steps[at].Source, "https://") {
+				t.Errorf("%s stage %s: not defined", w.typ, st.Name)
+			} else if at <= last {
+				t.Errorf("%s stage %s: defined out of order", w.typ, st.Name)
+			}
+			last = at
 		}
-		for i, st := range w.stages {
-			if def.Steps[i].Name != st.Name || !strings.HasPrefix(def.Steps[i].Source, "https://") {
-				t.Errorf("%s step %d: defined %+v, stage %s", w.typ, i, def.Steps[i], st.Name)
+	}
+	// and each step defined is a stage of a scan or of an import
+	for _, def := range Definitions {
+		for _, step := range def.Steps {
+			var all []wf.Stage
+			switch def.Type {
+			case Workflow:
+				all = b.Stages(context.Background(), nil)
+			case ScanWorkflow:
+				all = append((&Scan{batch: b}).Stages(context.Background(), Env{}), (&Scan{batch: b, Page: &Received{}}).Stages(context.Background(), Env{})...)
+			case PhotoWorkflow:
+				all = (&Scan{batch: b}).photoStages(0, Env{})
+			}
+			if !slices.ContainsFunc(all, func(s wf.Stage) bool { return s.Name == step.Name }) {
+				t.Errorf("%s step %s: defined but never run", def.Type, step.Name)
 			}
 		}
 	}

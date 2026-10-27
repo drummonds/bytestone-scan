@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-27
+
+ - Import pages: a print that cannot reach the scanner comes as a received file, a copy made elsewhere, brought into a batch from *Import pages* with its sender, date received and device. Each file is an import among the batch's scans: the page is its bed, the prints on it are found, confirmed and cut from it at the page's own ppi and depth, and each photo goes through the quality check, description and deposit as a scan's do, with no backs. The file as sent is kept unaltered, in the photo's bag when the page holds one print or as a page item of its own (`page.yaml`, deposited before the photos, which name it as `cut_from`) when it holds several. Needs life-weaver v0.14
+
+### Added
+
+- Import pages: a print that cannot reach the scanner comes as a received file, a copy made elsewhere, brought into a batch from *Import pages* with its sender, date received and device. Each file is an import among the batch's scans: the page is its bed, the prints on it are found, confirmed and cut from it at the page's own ppi and depth, and each photo goes through the quality check, description and deposit as a scan's do, with no backs. The file as sent is kept unaltered, in the photo's bag when the page holds one print or as a page item of its own (`page.yaml`, deposited before the photos, which name it as `cut_from`) when it holds several. Needs life-weaver v0.14 (#102)
+
 ## [0.18.0] - 2026-10-25
 
  - Saving a photo's description goes on to the scan's next photo still to be described, and after the last back to the batch, where the next move is another scan or finishing; A moved region edge carries the print's own edge with it, 0.5 mm inside, so the front's renditions are cropped to the print as the operator left it and the back is checked against that size, not against what the finder first took for the print

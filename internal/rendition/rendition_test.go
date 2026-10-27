@@ -1,6 +1,7 @@
 package rendition
 
 import (
+	"image"
 	"image/jpeg"
 	"math"
 	"os"
@@ -305,5 +306,30 @@ func TestScatteredMarksAreNotAnEdge(t *testing.T) {
 	got := Measure(m, truth, ppi)
 	if gotTop := got.Print.CY - got.Print.H/2; math.Abs(gotTop-float64(top)) > 3 {
 		t.Errorf("top edge at %.1f px, want the hint's %d: %+v", gotTop, top, got.Print)
+	}
+}
+
+// Story 102: a page's renditions show the whole file as sent, fit to
+// the screen, levels untouched.
+func TestWholeShowsThePageAsSent(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 3000, 2000))
+	for i := range img.Pix {
+		img.Pix[i] = 200
+	}
+	r, imgs := Whole(img)
+	if r.Version != Version || r.Black != 0 || r.White != 65535 || r.Skew != 0 || len(r.Flags) != 0 {
+		t.Errorf("recipe %+v, want this version, levels untouched, square, no flags", r)
+	}
+	if r.Print != (find.Box{CX: 1500, CY: 1000, W: 3000, H: 2000}) {
+		t.Errorf("print %+v, want the whole page", r.Print)
+	}
+	if r.Display != (Size{1620, 1080}) || imgs.Display.Bounds().Size() != image.Pt(1620, 1080) {
+		t.Errorf("display %+v, want 1620 × 1080: the page fit to the screen", r.Display)
+	}
+	if imgs.Thumb.Bounds().Dx() != ThumbEdge || imgs.Tiny.Bounds().Dx() != TinyEdge {
+		t.Errorf("thumb %v tiny %v", imgs.Thumb.Bounds(), imgs.Tiny.Bounds())
+	}
+	if c, _, _, _ := imgs.Display.At(800, 500).RGBA(); c>>8 != 200 {
+		t.Errorf("display pixel = %d, want 200: not levelled", c>>8)
 	}
 }
