@@ -181,6 +181,14 @@ func (a *App) Handler() http.Handler {
 		}
 		servePNG(w, r, func(l *batch.Scan) (image.Image, error) { return l.CloseUp(p - 1) })
 	})
+	mux.HandleFunc("GET /batches/{id}/scans/{n}/backs/{print}", func(w http.ResponseWriter, r *http.Request) {
+		p, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("print"), ".png"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		servePNG(w, r, func(l *batch.Scan) (image.Image, error) { return l.BackCloseUp(p - 1) })
+	})
 
 	mux.HandleFunc("GET /photos/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, photo, img, ok := a.photo(w, r)
@@ -405,8 +413,35 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 			c.HTML(regionEditor(l, i, p, i == len(prints)-1))
 		}
 	}
+	if waiting == "backs" && !busy {
+		for i := range prints {
+			if i < len(ids) && i < len(backsFound) {
+				c.HTML(a.backPicker(l, ids[i], i, backsFound[i]))
+			}
+		}
+	}
 	c.HTML(a.diagnosisSection(l))
 	return c.Buffer()
+}
+
+// backPicker is print i's back close up from the backs preview, at the
+// backs wait, with the tick that has it scanned: on unless the back is
+// declared blank. The ticks go with the state bar's Scan the backs.
+func (a *App) backPicker(l *batch.Scan, id pid.ID, i int, found batch.Side) string {
+	n := i + 1
+	checked := " checked"
+	if rec, _, err := batch.FindPhoto(a.Staging, id); err == nil && rec.BackBlank {
+		checked = ""
+	}
+	heading := fmt.Sprintf("found %.0f × %.0f mm", found.Print.W, found.Print.H)
+	if found.Review {
+		heading = `<span class="tag is-danger">review</span> ` + html.EscapeString(found.Warning)
+	}
+	return fmt.Sprintf(`<div class="box" id="back-%d">
+<h2 class="title is-5">Print %d's back: %s</h2>
+<img src="%s/backs/%d.png" alt="Print %d's back, close up from the backs preview" style="display:block">
+<label class="checkbox mt-2"><input type="checkbox" form="scan-backs" name="scan" value="%d"%s> Scan this back</label>
+</div>`, n, n, heading, scanURL(l.Key()), n, n, n, checked)
 }
 
 // backCell is the scan page's word on print i's back: scanned, found on

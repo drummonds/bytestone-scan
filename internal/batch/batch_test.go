@@ -921,6 +921,41 @@ func TestCloseUpFrame(t *testing.T) {
 	}
 }
 
+// #88: once the backs are previewed, each print has a close-up of its
+// back from that preview, the same view as the front's close-up, so the
+// operator can pick which backs to scan.
+func TestBackCloseUps(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{
+		Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}},
+		Backs:  []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 50000}},
+	}
+	b := describe(t, root)
+	store := wf.NewMemStore()
+	run(t, b, store, scanner)
+	b.Confirm()
+	if _, err := b.BackCloseUp(0); err == nil {
+		t.Error("a back close-up before the backs are previewed")
+	}
+	run(t, b, store, scanner)
+	b.Turned()
+	run(t, b, store, scanner)
+	front, err := b.CloseUp(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := b.BackCloseUp(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Bounds() != front.Bounds() {
+		t.Errorf("back close-up %v, want the front's view %v", back.Bounds(), front.Bounds())
+	}
+	if _, err := b.BackCloseUp(1); err == nil {
+		t.Error("close-up of a back whose print is not there")
+	}
+}
+
 // #105: a close-up that would not fit on the screen pixel for pixel is
 // reduced to fit, so a large print's controls stay in view; its frame
 // says the reduced scale, so the rulers still land on the picture.
