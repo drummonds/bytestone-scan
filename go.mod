@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	git.bytestone.uk/hum3/go-dbexplorer v0.4.0
 	git.bytestone.uk/hum3/go-postgres v0.11.0
-	git.bytestone.uk/hum3/gobank-workflow v0.11.0
+	git.bytestone.uk/hum3/gobank-workflow v0.13.0
 	git.bytestone.uk/hum3/lofigui v0.18.0
 	golang.org/x/image v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
