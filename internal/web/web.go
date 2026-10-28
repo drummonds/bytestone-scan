@@ -4,6 +4,7 @@
 package web
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -92,6 +93,7 @@ func (a *App) Handler() http.Handler {
 		Diagrams:    diagrams(),
 		Base:        "workflows/",
 		Detail:      a.batchLink,
+		Specific:    specificHref,
 		Cancel:      a.Store.CancelRun,
 		Frame: func(w http.ResponseWriter, r *http.Request, p view.Page) {
 			render(w, "Batches", string(p.HTML))
@@ -256,6 +258,30 @@ func (a *App) batchLink(_ *http.Request, run wf.RunRecord, _ []wf.StepResult, _ 
 	return ""
 }
 
+// specificHref is the scanner's own page for a run: the batch, scan or
+// photo it is about; "" for any other workflow.
+func specificHref(run wf.RunRecord) string {
+	switch run.WorkflowType {
+	case batch.Workflow:
+		return "batches/" + html.EscapeString(run.Key)
+	case batch.ScanWorkflow:
+		return scanURL(run.Key)
+	case batch.PhotoWorkflow:
+		return "photos/" + html.EscapeString(run.Key)
+	}
+	return ""
+}
+
+// instanceLink is the way from a batch, scan or photo page to its generic
+// workflow instance; nothing before its run exists.
+func (a *App) instanceLink(ctx context.Context, typ wf.WorkflowType, key string) string {
+	run, err := a.Store.FindRunByKey(ctx, typ, key)
+	if err != nil || run == nil {
+		return ""
+	}
+	return fmt.Sprintf(`<a class="tag is-link is-light" href="workflows/instances/%s">Instance</a>`, html.EscapeString(run.ID))
+}
+
 // scanURL is the page of the scan with key, <batch id>/<n>.
 func scanURL(key string) string {
 	id, n, _ := strings.Cut(key, "/")
@@ -267,14 +293,14 @@ func scanURL(key string) string {
 func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	c := lofigui.NewContext()
 	c.HTML(fmt.Sprintf(`<h1 class="title">Batch %s</h1>
-<p class="subtitle">%s</p>
+<p class="subtitle">%s %s</p>
 <table class="table"><tbody>
 <tr><th>Home</th><td>%s (%s)</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
 <tr><th>Scanned at</th><td>%d ppi</td></tr>
 <tr><th>Started</th><td>%s</td></tr>
-</tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Title),
+</tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Title), a.instanceLink(r.Context(), batch.Workflow, b.ID),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		b.ScanPPI, b.Created.Local().Format("2 Jan 2006 15:04")))
 	scans, err := b.Scans()
@@ -355,7 +381,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 <tr><th>Device</th><td>%s</td></tr>`, html.EscapeString(p.File), p.Format, p.PPI, p.Depth, html.EscapeString(p.Sender), dateText(p.Received), orUnknown(p.Device))
 	}
 	c.HTML(fmt.Sprintf(`<h1 class="title">%s %d of <a href="batches/%s">batch %s</a></h1>
-<p class="subtitle">%s</p>
+<p class="subtitle">%s %s</p>
 <table class="table"><tbody>
 <tr><th>Batch</th><td>%s</td></tr>
 <tr><th>Home</th><td>%s (%s)</td></tr>
@@ -363,7 +389,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 <tr><th>Credit</th><td>%s</td></tr>
 %s
 <tr><th>Started</th><td>%s</td></tr>
-</tbody></table>`, kind(l), l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), html.EscapeString(b.Title),
+</tbody></table>`, kind(l), l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), a.instanceLink(r.Context(), batch.ScanWorkflow, l.Key()), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		capture, l.Created.Local().Format("2 Jan 2006 15:04")))
 
@@ -565,8 +591,8 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	s := p.Front
 	key := fmt.Sprintf("%s/%d", p.Batch, p.Scan)
 	c.HTML(fmt.Sprintf(`<h1 class="title">Photo %s</h1>
-<p class="subtitle">%s — <a href="batches/%s">batch %s</a>, <a href="%s">scan %d</a></p>`,
-		id, html.EscapeString(p.Description), html.EscapeString(p.Batch), html.EscapeString(p.Batch), scanURL(key), p.Scan))
+<p class="subtitle">%s — <a href="batches/%s">batch %s</a>, <a href="%s">scan %d</a> %s</p>`,
+		id, html.EscapeString(p.Description), html.EscapeString(p.Batch), html.EscapeString(p.Batch), scanURL(key), p.Scan, a.instanceLink(r.Context(), batch.PhotoWorkflow, id.String())))
 
 	fitW := min(img.W, FitWidth)
 	fitH := img.H * fitW / img.W
