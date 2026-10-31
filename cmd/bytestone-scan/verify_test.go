@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/archive/archivetest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 )
 
@@ -33,5 +35,18 @@ func TestVerifyReportsEachItem(t *testing.T) {
 	out.Reset()
 	if failed := report(&out, "20261027-4/2", nil); failed != 0 || !strings.Contains(out.String(), "nothing to verify") {
 		t.Errorf("an empty scan: %q, %d", out.String(), failed)
+	}
+
+	root, svc := t.TempDir(), archivetest.Example()
+	b, err := batch.Describe(root, svc, nil, batch.Description{Text: "a shoebox", Person: 10, ScanPPI: 600, Credit: "CC BY 4.0"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := verify(root, b.ID, svc, &out); err != nil || !strings.Contains(out.String(), b.ID+": no scans") {
+		t.Errorf("a batch with no scans: %q, %v", out.String(), err)
+	}
+	if err := verify(root, "20000101-1", svc, &out); err == nil {
+		t.Error("a batch that does not exist verified")
 	}
 }

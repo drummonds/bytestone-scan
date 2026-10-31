@@ -248,6 +248,9 @@ func verify(root, what string, svc archive.Service, out io.Writer) error {
 			return err
 		}
 	}
+	if len(scans) == 0 {
+		fmt.Fprintf(out, "%s: no scans\n", what)
+	}
 	failed, items := 0, 0
 	for _, l := range scans {
 		checks, err := l.Verify(svc)
