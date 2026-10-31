@@ -71,6 +71,7 @@ const layout = `<!DOCTYPE html>
 <a class="navbar-item" href="batches/new">New batch</a>
 <a class="navbar-item" href="workflows/definitions">Workflows</a>
 {{if .database}}<a class="navbar-item" href="db/">Database</a>{{end}}
+<div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link">Tools</a><div class="navbar-dropdown"><a class="navbar-item" href="tools/cleanup">Clean up</a></div></div>
 <a class="navbar-item" href="about">About</a>
 {{.status}}
 {{.archive}}

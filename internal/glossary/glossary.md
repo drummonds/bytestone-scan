@@ -36,6 +36,9 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Work files | What a batch keeps under staging to do its job: previews, prints, masters, renditions, bags |
 | Close | The batch step reached when scanning is finished and every photo is held by the archive or rejected by it: its work files are redundant from then |
 | Purge | Deleting a closed batch's work files, 30 days after it closes or sooner when staging is short of space, oldest closed first; never an open batch's, and never a rejected photo's bag |
-| Delete (a batch) | The operator's removal of a batch, open, closed or purged: its runs cancelled, its work files, bags and renditions gone from staging; what the archive holds stays held, what was not deposited loses its masters |
+| Delete (a batch) | The operator's removal of a batch, open, closed or purged: its runs gone from the Queue, its work files, bags and renditions gone from staging, its id never given out again; what the archive holds stays held, what was not deposited loses its masters |
+| Completed (a batch) | Closed or purged: its scanning done and every photo answered for by the archive |
+| Clean up | The tool that deletes every completed batch below one row of the batches, newest first, each as Delete does, leaving the open ones; the orphans go with them |
+| Orphan | What no readable batch claims, whatever the archive answered: a bag, the archive's answer or a renditions directory in staging, or a run in the Queue whose batch has no directory; left by a deletion that failed part way or a batch moved by hand; listed on Clean up, removable |
 | Archive instance | One archive tree as life-weaver names it (`name`, `purpose`: production, scratch or scale, `slot` 0–9); the scanner runs for one, production unless `-instance` names another, finds it on `localhost:8321+slot`, takes its own port and staging from the slot, and names it in the navbar |
 | Stale | What staging holds that no readable batch claims and the archive has not answered for: left by older builds or by hand; listed on the Batches page, deletable |
