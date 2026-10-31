@@ -36,6 +36,10 @@ type Service interface {
 	Deposit(item pid.ID, deposit io.Reader) (Receipt, error)
 	// Receipt is the archive's record of the item: reserved, or held.
 	Receipt(item pid.ID) (Receipt, error)
+	// Fixity is the item's checksums recomputed by the archive from its
+	// disk (life-weaver#87): sound, or every fault by file. An archive
+	// without the call, or that does not know the item, is ErrUnknown.
+	Fixity(item pid.ID) (Fixity, error)
 	// Instance is which archive the service serves: production, or a
 	// scratch or scale instance. A service from before instances were
 	// reported gives an unnamed one.
@@ -160,6 +164,29 @@ type Receipt struct {
 	Payload map[string]string `json:"payload,omitempty"`
 }
 
+// Fixity is the archive's answer when asked to recompute an item's
+// checksums from its disk, every byte read.
+type Fixity struct {
+	Item   pid.ID `json:"item"`
+	Home   pid.ID `json:"home"`
+	Status Status `json:"status"`
+	// Payload is the bag's manifest as the archive has it on disk.
+	Payload map[string]string `json:"payload,omitempty"`
+	// Checked is the files hashed; Failures is everything wrong, by file.
+	Checked  int       `json:"checked"`
+	Failures []Failure `json:"failures,omitempty"`
+	// Sound: held, and nothing wrong.
+	Sound bool `json:"sound"`
+}
+
+// Failure is one thing wrong with a bag the archive holds.
+type Failure struct {
+	File   string `json:"file"`
+	Reason string `json:"reason"`
+}
+
+func (f Failure) String() string { return f.File + ": " + f.Reason }
+
 // Refusal is why the archive will not hold a bag: "duplicate", a picture
 // in it being held already as part of DuplicateOf (homed with Home);
 // "conflict", the id holding a bag with other checksums; or "renditions",
@@ -275,10 +302,24 @@ func (c Client) Receipt(item pid.ID) (Receipt, error) {
 	return r, nil
 }
 
+// Fixity asks the service to recompute the item's checksums.
+func (c Client) Fixity(item pid.ID) (Fixity, error) {
+	var f Fixity
+	err := c.call(http.MethodGet, "/items/"+item.String()+"/fixity", nil, &f)
+	if errors.Is(err, errNotFound) {
+		return f, fmt.Errorf("fixity of item %s at %s: %w", item, c.URL, ErrUnknown)
+	}
+	if err != nil {
+		return f, fmt.Errorf("fixity of item %s: %w", item, err)
+	}
+	return f, nil
+}
+
 var errNotFound = errors.New("not found")
 
 // ErrUnknown is the archive's answer for an item id it has never given
-// out, or has lost: Receipt wraps it.
+// out, or has lost: Receipt wraps it, and Fixity, which an archive from
+// before the call answers the same way.
 var ErrUnknown = errors.New("not known to the archive")
 
 // call sends body (if any) to path with method and decodes the JSON the

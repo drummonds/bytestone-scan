@@ -172,6 +172,16 @@ func TestReserveDepositAndReceipt(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`{"item":"8","home":"a","status":"held","payload":{"data/front.tif":"ab12"}}`))
 	})
+	mux.HandleFunc("GET /items/{item}/fixity", func(w http.ResponseWriter, r *http.Request) {
+		switch r.PathValue("item") {
+		case "8":
+			_, _ = w.Write([]byte(`{"item":"8","home":"a","status":"held","payload":{"data/front.tif":"ab12"},"checked":4,"sound":true}`))
+		case "9":
+			_, _ = w.Write([]byte(`{"item":"9","home":"a","status":"held","checked":1,"failures":[{"file":"data/front.tif","reason":"sha256 does not match the manifest"}],"sound":false}`))
+		default:
+			http.Error(w, "no item", http.StatusNotFound)
+		}
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	c := Client{URL: srv.URL}
@@ -207,6 +217,16 @@ func TestReserveDepositAndReceipt(t *testing.T) {
 	}
 	if _, err := c.Receipt(9); !errors.Is(err, ErrUnknown) {
 		t.Errorf("Receipt(9) of an item never reserved: %v, want ErrUnknown", err)
+	}
+	// life-weaver#87: the checksums recomputed from the archive's disk
+	if f, err := c.Fixity(8); err != nil || !f.Sound || f.Checked != 4 || f.Payload["data/front.tif"] != "ab12" {
+		t.Errorf("Fixity(8) = %+v, %v, want sound", f, err)
+	}
+	if f, err := c.Fixity(9); err != nil || f.Sound || len(f.Failures) != 1 || f.Failures[0].String() != "data/front.tif: sha256 does not match the manifest" {
+		t.Errorf("Fixity(9) = %+v, %v, want one failure", f, err)
+	}
+	if _, err := c.Fixity(12); !errors.Is(err, ErrUnknown) {
+		t.Errorf("Fixity(c) of an item never reserved: %v, want ErrUnknown", err)
 	}
 	srv.Close()
 	if _, err := c.Deposit(8, strings.NewReader("x")); err == nil || !strings.Contains(err.Error(), "life-weaver serve") {

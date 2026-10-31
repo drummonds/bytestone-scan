@@ -16,13 +16,13 @@ import (
 func TestVerifyReportsEachItem(t *testing.T) {
 	var out bytes.Buffer
 	checks := []batch.Check{
-		{Photo: 17, Verdict: batch.Verified, Files: 3},
+		{Photo: 17, Verdict: batch.Verified, Files: 3, Detail: "checksums recomputed by the archive"},
 		{Photo: 18, Verdict: batch.Rejected, Detail: "a duplicate of item 7"},
 		{Photo: 19, Page: true, Verdict: batch.Differs, Detail: "data/page.jpg: the archive's checksum is not the one receipted"},
 		{Photo: 20, Verdict: batch.Pending},
 	}
 	failed := report(&out, "20261027-4/1", checks)
-	want := "20261027-4/1 photo h: verified, 3 files\n" +
+	want := "20261027-4/1 photo h: verified, 3 files, checksums recomputed by the archive\n" +
 		"20261027-4/1 photo j: rejected, a duplicate of item 7\n" +
 		"20261027-4/1 page k: differs, data/page.jpg: the archive's checksum is not the one receipted\n" +
 		"20261027-4/1 photo m: pending\n"

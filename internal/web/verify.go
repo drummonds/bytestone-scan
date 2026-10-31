@@ -43,7 +43,7 @@ func (a *App) verifyPage(l *batch.Scan) string {
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
-	c.HTML(fmt.Sprintf(`<p class="help">Each item's receipt is asked of the archive afresh and compared, checksum for checksum, with the receipt taken at deposit and with the bag while it is still in staging; nothing is downloaded.</p>
+	c.HTML(fmt.Sprintf(`<p class="help">The archive is asked to recompute each item's checksums from its disk (or for its receipt, when it is too old to), and the answer is compared, checksum for checksum, with the receipt taken at deposit and with the bag while it is still in staging; nothing is downloaded.</p>
 <div class="buttons"><a class="button" href="%s">‹ Back to the scan</a></div>`, scanURL(l.Key())))
 	return c.Buffer()
 }
