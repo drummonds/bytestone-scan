@@ -144,6 +144,11 @@ func (a *App) Handler() http.Handler {
 			render(w, fmt.Sprintf("Scan %d of batch %s", l.N, l.Batch), a.scanPage(r, l))
 		}
 	})
+	mux.HandleFunc("GET /batches/{id}/scans/{n}/verify", func(w http.ResponseWriter, r *http.Request) {
+		if l, ok := scan(w, r); ok {
+			render(w, fmt.Sprintf("Verification of scan %d of batch %s", l.N, l.Batch), a.verifyPage(l))
+		}
+	})
 	mux.HandleFunc("GET /batches/{id}/scans/{n}/progress", func(w http.ResponseWriter, r *http.Request) {
 		l, ok := scan(w, r)
 		if !ok {

@@ -205,8 +205,8 @@ func TestReserveDepositAndReceipt(t *testing.T) {
 	if rec, err := c.Receipt(8); err != nil || rec.Status != Held || rec.Home != 10 {
 		t.Errorf("Receipt(8) = %+v, %v", rec, err)
 	}
-	if _, err := c.Receipt(9); err == nil {
-		t.Error("Receipt(9) of an item never reserved")
+	if _, err := c.Receipt(9); !errors.Is(err, ErrUnknown) {
+		t.Errorf("Receipt(9) of an item never reserved: %v, want ErrUnknown", err)
 	}
 	srv.Close()
 	if _, err := c.Deposit(8, strings.NewReader("x")); err == nil || !strings.Contains(err.Error(), "life-weaver serve") {

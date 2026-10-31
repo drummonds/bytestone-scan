@@ -805,7 +805,8 @@ func (a *App) outcome(l *batch.Scan) string {
 		return `<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
 	}
 	msg, class := outcomeText(o)
-	return `<div class="notification ` + class + `">Done: ` + msg + `.</div>`
+	return `<div class="notification ` + class + `">Done: ` + msg + `.</div>` +
+		`<div class="buttons"><a class="button" href="` + scanURL(l.Key()) + `/verify">Verify against the archive</a></div>`
 }
 
 // outcomeText says how photos stand with the archive, the rejected ones
