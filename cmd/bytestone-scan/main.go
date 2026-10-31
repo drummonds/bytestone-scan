@@ -3,13 +3,15 @@
 //
 //	bytestone-scan serve [-instance NAME] [-addr HOST:PORT] [-staging DIR] [-archive URL] [-device DEV] [-recorded NAME]
 //	bytestone-scan capture -print NAME [-side front|back] [-staging DIR] [-device DEV] [-ppi 2400]
+//	bytestone-scan verify [-instance NAME] [-staging DIR] [-archive URL] BATCH[/SCAN]
 //
 // serve runs for one archive instance, production unless -instance names
 // another, found among the life-weaver services on localhost:8321-8330;
 // its own port and staging root follow from the instance's slot. capture
 // records the one print on the bed into <staging>/fixtures/NAME, and
 // serve -recorded NAME runs the UI on that recording instead of the
-// scanner.
+// scanner. verify asks the archive afresh whether it holds each photo of
+// the scan, or of every scan of the batch, as it was receipted.
 package main
 
 import (
@@ -18,6 +20,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -38,7 +41,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/web"
 )
 
-const usage = "usage: bytestone-scan serve [flags] | capture -print NAME [flags]   (-h for the flags)"
+const usage = "usage: bytestone-scan serve [flags] | capture -print NAME [flags] | verify [flags] BATCH[/SCAN]   (-h for the flags)"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -70,6 +73,20 @@ func main() {
 			s = &recorded.Scanner{Dir: filepath.Join(cfg.Staging, "fixtures", *name)}
 		}
 		err = serve(ctx, cfg, s)
+	case "verify":
+		instance := fs.String("instance", "", "the archive instance to verify against, as life-weaver names it (default production), found among those serving on localhost:8321-8330")
+		service := fs.String("archive", "", "the archive service's URL, instead of finding the instance")
+		fs.Parse(os.Args[2:])
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, usage)
+			os.Exit(2)
+		}
+		var cfg settings
+		cfg, err = settings{Instance: *instance, Archive: *service, Staging: *staging}.resolve(root, func() []archive.Serving { return archive.Discover(archive.Addresses()) })
+		if err != nil {
+			break
+		}
+		err = verify(cfg.Staging, fs.Arg(0), archive.Client{URL: cfg.Archive}, os.Stdout)
 	case "capture":
 		name := fs.String("print", "", "the recording's name under <staging>/fixtures (required)")
 		side := fs.String("side", "front", "the side of the print lying face down: front or back")
@@ -209,6 +226,75 @@ func listen(addr string, tries int) (net.Listener, error) {
 			return nil, fmt.Errorf("listen: ports %d-%d of %s all in use", port, port+i, host)
 		}
 	}
+}
+
+// verify checks the scan named BATCH/SCAN, or every scan of BATCH, against
+// the archive, reporting each item on out, and fails when any item is
+// not held as it was receipted.
+func verify(root, what string, svc archive.Service, out io.Writer) error {
+	var scans []*batch.Scan
+	if strings.Contains(what, "/") {
+		l, err := batch.OpenScan(root, what)
+		if err != nil {
+			return err
+		}
+		scans = []*batch.Scan{l}
+	} else {
+		b, err := batch.Open(root, what)
+		if err != nil {
+			return err
+		}
+		if scans, err = b.Scans(); err != nil {
+			return err
+		}
+	}
+	if len(scans) == 0 {
+		fmt.Fprintf(out, "%s: no scans\n", what)
+	}
+	failed, items := 0, 0
+	for _, l := range scans {
+		checks, err := l.Verify(svc)
+		if err != nil {
+			return err
+		}
+		failed += report(out, l.Key(), checks)
+		items += len(checks)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d items not held by the archive as receipted", failed, items)
+	}
+	return nil
+}
+
+// report prints one line per check, the scan's key, the item and its
+// verdict, and counts the items not held as receipted: those unknown to
+// the archive, not held, or holding another checksum. Pending and
+// rejected items are said but are not failures.
+func report(out io.Writer, key string, checks []batch.Check) int {
+	if len(checks) == 0 {
+		fmt.Fprintf(out, "%s: nothing to verify\n", key)
+		return 0
+	}
+	failed := 0
+	for _, c := range checks {
+		what := "photo"
+		if c.Page {
+			what = "page"
+		}
+		line := fmt.Sprintf("%s %s %s: %s", key, what, c.Photo, c.Verdict)
+		switch {
+		case c.Verdict == batch.Verified:
+			line += fmt.Sprintf(", %d files", c.Files)
+		case c.Detail != "":
+			line += ", " + c.Detail
+		}
+		switch c.Verdict {
+		case batch.Unknown, batch.NotHeld, batch.Differs:
+			failed++
+		}
+		fmt.Fprintln(out, line)
+	}
+	return failed
 }
 
 // capture records one side of the print on the bed into dir, keeping the

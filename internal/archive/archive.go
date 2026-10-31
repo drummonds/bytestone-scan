@@ -267,7 +267,7 @@ func (c Client) Receipt(item pid.ID) (Receipt, error) {
 	var r Receipt
 	err := c.call(http.MethodGet, "/items/"+item.String(), nil, &r)
 	if errors.Is(err, errNotFound) {
-		return r, fmt.Errorf("item %s is not known at %s", item, c.URL)
+		return r, fmt.Errorf("item %s at %s: %w", item, c.URL, ErrUnknown)
 	}
 	if err != nil {
 		return r, fmt.Errorf("item %s: %w", item, err)
@@ -276,6 +276,10 @@ func (c Client) Receipt(item pid.ID) (Receipt, error) {
 }
 
 var errNotFound = errors.New("not found")
+
+// ErrUnknown is the archive's answer for an item id it has never given
+// out, or has lost: Receipt wraps it.
+var ErrUnknown = errors.New("not known to the archive")
 
 // call sends body (if any) to path with method and decodes the JSON the
 // service answers into v. A 409 is returned as the *Refusal in its body.

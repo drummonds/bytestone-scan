@@ -75,6 +75,13 @@ colours when it is not production. The archive service (`life-weaver
 serve`, or `task serve` in life-weaver) is where people come from, where
 photo ids are reserved and where bags are deposited.
 
+`bytestone-scan verify BATCH[/SCAN]` asks the archive afresh whether it
+still holds each photo of the scan, or of every scan of the batch, as it
+was receipted: each item's receipt is compared, checksum for checksum,
+with the one taken at deposit and with the bag while it is still in
+staging, nothing being downloaded. A completed scan's page offers the
+same as *Verify against the archive*.
+
 Without the scanner, run the UI on a recorded print: `bytestone-scan
 capture -print <name>` records the one print on the bed (its preview and
 its region at 2400 ppi) under `fixtures/<name>/`, once per side, and
