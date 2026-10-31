@@ -37,8 +37,12 @@ through; it then closes, and its work files are purged 30 days later, or
 sooner when staging is short of space. Any batch, open, closed or purged, is
 deleted from its page or the *Batches* list, which says what the archive
 holds of it (that stays) and what has not been deposited (that loses its
-masters); the *Batches* page also lists the stale data no batch claims,
-deletable the same way.
+masters); its runs go from the Queue with it, and its id is not given
+out again. The *Batches* page also lists the stale data no batch claims,
+deletable the same way. *Tools → Clean up* lists the batches newest
+first, each row with *Delete below*: every closed or purged batch below
+that row goes, open ones stay, and with them the orphans, what no batch
+claims in staging or the Queue after a deletion failed part way.
 Renditions (story [003](docs/stories/003-display-images.md)) are kept
 under `renditions/` beside the archive, by photo and recipe version.
 
@@ -67,7 +71,9 @@ its region at 2400 ppi) under `fixtures/<name>/`, once per side, and
 
 The words in the code, the pages and these docs are defined in
 [the glossary](internal/glossary/glossary.md), also shown on the app's
-About page.
+About page. About also links to *Statistics*: batches by state, scans,
+photos by how they stand with the archive, what staging holds and the
+runs in the workflow database.
 
 ## Links
 

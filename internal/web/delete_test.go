@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	wf "git.bytestone.uk/hum3/gobank-workflow"
-
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 )
@@ -27,7 +25,7 @@ func TestDeleteABatch(t *testing.T) {
 	act(t, a, h, loc+"/confirm", nil) // its photo's front scanned, not deposited
 	page(t, h, "/batches/20261020-1", `href="batches/20261020-1/delete"`)
 	page(t, h, "/batches", "20261020-1", "a test", "open", `href="batches/20261020-1/delete"`)
-	page(t, h, "/batches/20261020-1/delete", "Delete batch 20261020-1", `action="batches/20261020-1/delete"`, "Keep", "1 photo not yet deposited loses its master")
+	page(t, h, "/batches/20261020-1/delete", "Delete batch 20261020-1", `action="batches/20261020-1/delete"`, "Keep", "1 photo not yet deposited loses its master", "go from the Queue")
 	if w := post(t, h, "/batches/20261020-1/delete", nil); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/batches" {
 		t.Fatalf("delete: %d %s to %q", w.Code, w.Body, w.Header().Get("Location"))
 	}
@@ -36,8 +34,8 @@ func TestDeleteABatch(t *testing.T) {
 			t.Errorf("GET %s after deleting: %d", gone, w.Code)
 		}
 	}
-	if r, _ := a.Store.FindRunByKey(context.Background(), batch.ScanWorkflow, scanKey(loc)); r == nil || r.Status != wf.StatusCancelled {
-		t.Errorf("the scan's run: %+v, want cancelled", r)
+	if r, _ := a.Store.FindRunByKey(context.Background(), batch.ScanWorkflow, scanKey(loc)); r != nil {
+		t.Errorf("the scan's run survives: %+v", r)
 	}
 
 	// a batch with a photo held, closed: deleted all the same, offered from

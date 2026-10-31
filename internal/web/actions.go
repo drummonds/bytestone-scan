@@ -661,6 +661,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		return 1, l.Remove(n - 1)
 	})
 	a.deletion(mux, render, fail)
+	a.cleanup(mux, render, fail)
 }
 
 // parseMove reads an arrow's "<print> <edge> <mm>", mm outwards when

@@ -249,9 +249,9 @@ type found struct {
 
 // Describe records a new batch under root, its home person looked up in
 // the archive service's register, refusing a description the story's
-// rules reject. Its id is the day's next: one no batch directory and, when
-// store is given, no batch run has taken, so a deleted batch's id is not
-// given out again.
+// rules reject. Its id is the day's next: one no batch directory, no
+// deleted batch's record and, when store is given, no batch run has
+// taken, so a deleted batch's id is not given out again.
 func Describe(root string, svc archive.Service, store wf.Store, d Description, now time.Time) (*Batch, error) {
 	text, provenance, credit := oneLine(d.Text), oneLine(d.Provenance), oneLine(d.Credit)
 	if text == "" {
@@ -275,6 +275,9 @@ func Describe(root string, svc archive.Service, store wf.Store, d Description, n
 		Provenance: provenance, Credit: credit, Created: now, root: root}
 	for n := 1; ; n++ {
 		b.ID = now.Format("20060102") + "-" + strconv.Itoa(n)
+		if _, err := os.Stat(deletedMarker(root, b.ID)); err == nil {
+			continue
+		}
 		if store != nil {
 			if r, err := store.FindRunByKey(context.Background(), Workflow, b.ID); err != nil {
 				return nil, err

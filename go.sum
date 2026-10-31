@@ -4,8 +4,8 @@ git.bytestone.uk/hum3/go-postgres v0.11.0 h1:o/4ouzREUHiWFEoKnRyuyosIPQnQ7yX4T4Q
 git.bytestone.uk/hum3/go-postgres v0.11.0/go.mod h1:truiim+EVI6y2zj5ziyEkvu/CCX2ruBlGJ5H4hTrOHE=
 git.bytestone.uk/hum3/gobank-db v0.3.0 h1:4nZvoxHQBzkNmPSK2ORAt25ygirqjTgoTK6O/tzsoGM=
 git.bytestone.uk/hum3/gobank-db v0.3.0/go.mod h1:wCD+SdqmWlwoKc55VUnC/X3bNtkp3KedWD1cja0D9QA=
-git.bytestone.uk/hum3/gobank-workflow v0.11.0 h1:uxe5dA/Ik73Ut68iuVvO7wZCgZkcx3JW+/AuXoBNHco=
-git.bytestone.uk/hum3/gobank-workflow v0.11.0/go.mod h1:vC2UYx4IlimjEwajIiWST0sYXLy8+uxV9s0rXAymJRU=
+git.bytestone.uk/hum3/gobank-workflow v0.13.0 h1:3pk4fdM3qEonRbBws4kUOBYwC6Tw/Yt1arv8sLyv/ac=
+git.bytestone.uk/hum3/gobank-workflow v0.13.0/go.mod h1:vC2UYx4IlimjEwajIiWST0sYXLy8+uxV9s0rXAymJRU=
 git.bytestone.uk/hum3/lofigui v0.18.0 h1:1kMfr9L6FfyzPgnGIJKPa7NYBk/Feumv263kbJX10TY=
 git.bytestone.uk/hum3/lofigui v0.18.0/go.mod h1:R8bGnSaKoR9fca7SC8MDFm5BhAtXOADaoIBxpi+Lt54=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
