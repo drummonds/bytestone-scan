@@ -81,7 +81,9 @@ its region at 2400 ppi) under `fixtures/<name>/`, once per side, and
 
 The words in the code, the pages and these docs are defined in
 [the glossary](internal/glossary/glossary.md), also shown on the app's
-About page.
+About page. About also links to *Statistics*: batches by state, scans,
+photos by how they stand with the archive, what staging holds and the
+runs in the workflow database.
 
 ## Links
 
