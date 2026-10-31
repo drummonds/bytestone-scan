@@ -239,6 +239,7 @@ func (a *App) Handler() http.Handler {
 		renditionFile(w, r, "back")
 	})
 	mux.HandleFunc("GET /about", func(w http.ResponseWriter, r *http.Request) { render(w, "About", a.about()) })
+	mux.HandleFunc("GET /statistics", func(w http.ResponseWriter, r *http.Request) { render(w, "Statistics", a.statistics(r.Context())) })
 	a.actions(mux, render)
 	return mux
 }
