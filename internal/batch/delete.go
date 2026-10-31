@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 
@@ -15,11 +16,12 @@ import (
 )
 
 // Delete removes a batch, open, closed or purged: its run and its scans'
-// and photos' runs are cancelled, and its directory and its photos' bags,
-// renditions and the archive's answers go from staging. Nothing the
-// archive holds is touched: a held photo stays held, only staging's copy
-// goes. A photo not yet deposited loses its masters, which the operator
-// is told before confirming.
+// and photos' runs go from the workflow database with their steps, and
+// its directory and its photos' bags, renditions and the archive's
+// answers go from staging. Nothing the archive holds is touched: a held
+// photo stays held, only staging's copy goes. A photo not yet deposited
+// loses its masters, which the operator is told before confirming. The
+// batch's id is left on record so it is not given out again.
 func (b *Batch) Delete(ctx context.Context, store wf.Store) error {
 	ids, err := b.photos()
 	if err != nil {
@@ -29,24 +31,24 @@ func (b *Batch) Delete(ctx context.Context, store wf.Store) error {
 	if err != nil {
 		return err
 	}
-	cancel := func(t wf.WorkflowType, key string) error {
+	remove := func(t wf.WorkflowType, key string) error {
 		r, err := store.FindRunByKey(ctx, t, key)
-		if err != nil || r == nil || r.Status == wf.StatusCancelled {
+		if err != nil || r == nil {
 			return err
 		}
-		return store.CancelRun(ctx, r.ID)
+		return store.DeleteRun(ctx, r.ID)
 	}
 	for _, id := range ids {
-		if err := cancel(PhotoWorkflow, id.String()); err != nil {
+		if err := remove(PhotoWorkflow, id.String()); err != nil {
 			return err
 		}
 	}
 	for _, l := range scans {
-		if err := cancel(ScanWorkflow, l.Key()); err != nil {
+		if err := remove(ScanWorkflow, l.Key()); err != nil {
 			return err
 		}
 	}
-	if err := cancel(Workflow, b.ID); err != nil {
+	if err := remove(Workflow, b.ID); err != nil {
 		return err
 	}
 	for _, id := range ids {
@@ -56,8 +58,15 @@ func (b *Batch) Delete(ctx context.Context, store wf.Store) error {
 			}
 		}
 	}
-	return os.RemoveAll(b.Dir())
+	if err := os.RemoveAll(b.Dir()); err != nil {
+		return err
+	}
+	return os.WriteFile(deletedMarker(b.root, b.ID), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
+
+// deletedMarker is the record a deleted batch leaves beside where it was,
+// so its id is not given out again.
+func deletedMarker(root, id string) string { return filepath.Join(root, "batches", id+".deleted") }
 
 // photos are the ids of every item of the batch's scans: each print
 // found, and each import's page item.

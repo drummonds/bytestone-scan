@@ -13,10 +13,11 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
-// Story 054, widened by #98: any batch can be deleted, open, closed or
-// purged: its runs are cancelled and its work files, bags, renditions and
-// the archive's answers go from staging. Nothing the archive holds is
-// touched.
+// Story 054, widened by #98 and #100: any batch can be deleted, open,
+// closed or purged: its runs go from the workflow database with their
+// steps, and its work files, bags, renditions and the archive's answers
+// go from staging. Nothing the archive holds is touched, and the batch's
+// id is not given out again.
 func TestDeleteABatch(t *testing.T) {
 	ctx := context.Background()
 	root, store := t.TempDir(), wf.NewMemStore()
@@ -44,20 +45,20 @@ func TestDeleteABatch(t *testing.T) {
 				t.Errorf("%s survives: %v", gone, err)
 			}
 		}
-		if r, _ := store.FindRunByKey(ctx, PhotoWorkflow, id.String()); r == nil || r.Status != wf.StatusCancelled {
-			t.Errorf("photo %s run: %+v, want cancelled", id, r)
+		if r, _ := store.FindRunByKey(ctx, PhotoWorkflow, id.String()); r != nil {
+			t.Errorf("photo %s run survives: %+v", id, r)
 		}
 	}
 	for _, run := range []struct {
 		t   wf.WorkflowType
 		key string
 	}{{Workflow, b.ID}, {ScanWorkflow, l.Key()}} {
-		if r, _ := store.FindRunByKey(ctx, run.t, run.key); r == nil || r.Status != wf.StatusCancelled {
-			t.Errorf("%s %s run: %+v, want cancelled", run.t, run.key, r)
+		if r, _ := store.FindRunByKey(ctx, run.t, run.key); r != nil {
+			t.Errorf("%s %s run survives: %+v", run.t, run.key, r)
 		}
 	}
 
-	// the deleted batch's id is not given out again: its runs remember it
+	// the deleted batch's id is not given out again, though its runs are gone
 	if again, err := Describe(root, service(root), store, Description{Text: "again", Person: 10, ScanPPI: 600, Credit: "c"}, now); err != nil || again.ID != "20261020-2" {
 		t.Errorf("the next batch after deleting 20261020-1: %+v %v, want 20261020-2", again, err)
 	}
@@ -108,7 +109,7 @@ func TestStaleDataIsListedAndDeleted(t *testing.T) {
 	b, l := through(t, root, store, 7) // its ids claimed; one rejected, one held
 	_, ids, _ := l.Found()
 	b.Finish(ctx, store)
-	p := &Purger{Root: root, Now: func() time.Time { return now.Add(40 * 24 * time.Hour) }, Grace: DefaultGrace, Threshold: 0}
+	p := &Purger{Root: root, Now: func() time.Time { return time.Now().Add(40 * 24 * time.Hour) }, Grace: DefaultGrace, Threshold: 0} // closed at the real clock
 	if purged, err := p.Sweep(); err != nil || len(purged) != 1 {
 		t.Fatalf("purge: %v %v", purged, err)
 	}
