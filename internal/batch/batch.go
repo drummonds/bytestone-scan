@@ -251,7 +251,9 @@ type found struct {
 // the archive service's register, refusing a description the story's
 // rules reject. Its id is the day's next: one no batch directory, no
 // deleted batch's record and, when store is given, no batch run has
-// taken, so a deleted batch's id is not given out again.
+// taken, so a deleted batch's id is not given out again. When store is
+// given the batch's run is started too, waiting at scans, so the queue
+// lists the batch from the moment it is described (#128).
 func Describe(root string, svc archive.Service, store wf.Store, d Description, now time.Time) (*Batch, error) {
 	text, provenance, credit := oneLine(d.Text), oneLine(d.Provenance), oneLine(d.Credit)
 	if text == "" {
@@ -293,7 +295,16 @@ func Describe(root string, svc archive.Service, store wf.Store, d Description, n
 			return nil, err
 		}
 	}
-	return b, writeYAML(filepath.Join(b.Dir(), "batch.yaml"), b)
+	if err := writeYAML(filepath.Join(b.Dir(), "batch.yaml"), b); err != nil {
+		return nil, err
+	}
+	// the batch is in the queue from the start: its run waits at scans
+	if store != nil {
+		if _, err := b.Run(context.Background(), store); err != nil {
+			return nil, err
+		}
+	}
+	return b, nil
 }
 
 // oneLine collapses what the operator typed to single spaces.

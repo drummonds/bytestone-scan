@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-10-31
+
+- A described batch is in the queue from the start: its run is started, waiting at scans, when it is described rather than when its first scan runs, so the Batches page and the Queue list the same batches (#128).
+
+### Fixed
+
+- A described batch is in the queue from the start: its run is started, waiting at scans, when it is described rather than when its first scan runs, so the Batches page and the Queue list the same batches (#128). (#128)
+
 ## [0.23.0] - 2026-10-31
 
 - Verify asks the archive to recompute each photo's checksums from its disk (life-weaver v0.18's `GET /items/{item}/fixity`) and compares that with the receipt taken at deposit and the bag; a fault at the archive is reported in its own words, and the verdict says whether the files were recomputed or, for an archive too old to, its receipt alone was checked
