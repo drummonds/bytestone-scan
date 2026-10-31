@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 
@@ -40,5 +42,50 @@ func TestSettingsFollowTheInstance(t *testing.T) {
 		if err != nil || got != c.want {
 			t.Errorf("%s: %+v, %v, want %+v", c.name, got, err, c.want)
 		}
+	}
+}
+
+// #115: when serve's own port is in use, it listens on the next free port
+// up instead of failing, so two scanners, or a scanner and a stray
+// process, can share a machine. The search is bounded.
+func TestListenStepsPastAPortInUse(t *testing.T) {
+	taken, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	port := taken.Addr().(*net.TCPAddr).Port
+
+	l, err := listen(fmt.Sprintf("localhost:%d", port), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if got := l.Addr().(*net.TCPAddr).Port; got != port+1 {
+		t.Errorf("listened on port %d, want %d", got, port+1)
+	}
+
+	// the next port is now taken too: a search of two finds nothing
+	if _, err := listen(fmt.Sprintf("localhost:%d", port), 2); err == nil || !strings.Contains(err.Error(), "in use") {
+		t.Errorf("bounded search: got %v, want an in-use error", err)
+	}
+}
+
+// a port that is free is listened on as given, with no stepping
+func TestListenTakesAFreePort(t *testing.T) {
+	probe, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := probe.Addr().String()
+	probe.Close()
+
+	l, err := listen(addr, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if got := l.Addr().String(); got != addr {
+		t.Errorf("listened on %s, want %s", got, addr)
 	}
 }

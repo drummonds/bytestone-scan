@@ -18,11 +18,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "git.bytestone.uk/hum3/go-postgres"
@@ -53,7 +56,7 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		instance := fs.String("instance", "", "the archive instance to scan for, as life-weaver names it (default production), found among those serving on localhost:8321-8330")
-		addr := fs.String("addr", "", "address to listen on (default localhost:8080, or 8080+slot for an instance other than production)")
+		addr := fs.String("addr", "", "address to listen on (default localhost:8080, or 8080+slot for an instance other than production; a port in use is stepped past to the next free one)")
 		service := fs.String("archive", "", "the archive service's URL, instead of finding the instance (life-weaver serve): the register of people, item ids and deposits")
 		name := fs.String("recorded", "", "run on the recording of this print under <staging>/fixtures instead of the scanner")
 		fs.Parse(os.Args[2:])
@@ -147,7 +150,12 @@ func serve(ctx context.Context, cfg settings, s batch.Scanner) error {
 		Archive: client,
 		Now:     time.Now,
 	}
-	srv := &http.Server{Addr: addr, Handler: app.Handler()}
+	l, err := listen(addr, portsTried)
+	if err != nil {
+		return err
+	}
+	addr = l.Addr().String()
+	srv := &http.Server{Handler: app.Handler()}
 	go func() {
 		<-ctx.Done()
 		srv.Close()
@@ -168,10 +176,39 @@ func serve(ctx context.Context, cfg settings, s batch.Scanner) error {
 		}
 	}()
 	fmt.Printf("bytestone-scan: http://%s/ (staging %s, %s)\n", addr, staging, s.Name())
-	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+	if err := srv.Serve(l); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// portsTried bounds listen's search: the instance slots span ten ports.
+const portsTried = 10
+
+// listen listens on addr or, when its port is in use, on the next free
+// port up, trying at most tries ports; any other failure to listen is
+// returned as it is.
+func listen(addr string, tries int) (net.Listener, error) {
+	host, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.Atoi(p)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", addr, err)
+	}
+	for i := 0; ; i++ {
+		l, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port+i)))
+		if err == nil {
+			return l, nil
+		}
+		if !errors.Is(err, syscall.EADDRINUSE) {
+			return nil, err
+		}
+		if i+1 >= tries {
+			return nil, fmt.Errorf("listen: ports %d-%d of %s all in use", port, port+i, host)
+		}
+	}
 }
 
 // capture records one side of the print on the bed into dir, keeping the
