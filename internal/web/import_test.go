@@ -8,10 +8,12 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -61,12 +63,14 @@ func upload(t *testing.T, h http.Handler, path string, fields url.Values, files 
 			mw.WriteField(k, v)
 		}
 	}
-	for name, raw := range files {
+	// in name order, as the operator's file chooser lists them: the
+	// imports are numbered in the order the files arrive
+	for _, name := range slices.Sorted(maps.Keys(files)) {
 		fw, err := mw.CreateFormFile("pages", name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		io.Copy(fw, bytes.NewReader(raw))
+		io.Copy(fw, bytes.NewReader(files[name]))
 	}
 	mw.Close()
 	r := httptest.NewRequest("POST", path, &body)
