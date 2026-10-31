@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-31
+
+- Verify asks the archive to recompute each photo's checksums from its disk (life-weaver v0.18's `GET /items/{item}/fixity`) and compares that with the receipt taken at deposit and the bag; a fault at the archive is reported in its own words, and the verdict says whether the files were recomputed or, for an archive too old to, its receipt alone was checked
+
+### Changed
+
+- Verify asks the archive to recompute each photo's checksums from its disk (life-weaver v0.18's `GET /items/{item}/fixity`) and compares that with the receipt taken at deposit and the bag; a fault at the archive is reported in its own words, and the verdict says whether the files were recomputed or, for an archive too old to, its receipt alone was checked (#125)
+
 ## [0.22.0] - 2026-10-31
 
 - `bytestone-scan verify BATCH[/SCAN]` and **Verify against the archive** on a completed scan's page ask the archive afresh whether it still holds each of the scan's photos as receipted: each item's receipt is compared, checksum for checksum, with the one taken at deposit and with the bag while it is still in staging, nothing being downloaded; an item the archive has lost, holds no bag for, or holds with another checksum is reported file by file, and the command fails on any
