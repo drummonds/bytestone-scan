@@ -32,6 +32,12 @@ type Fake struct {
 	Down bool
 	// Serving is the instance the fake says it serves; Example's is a scratch one.
 	Serving archive.Instance
+	// NoFixity makes the fake an archive from before life-weaver#87: the
+	// fixity call is not there, so it answers as for an unknown item.
+	NoFixity bool
+	// Rotten are files the fake reports as failing their fixity check,
+	// for tests of a master that has decayed at the archive.
+	Rotten map[pid.ID][]string
 	// Renditions are the rendition files each held item's deposit carried,
 	// relative to renditions/: <recipe>/display.jpg and so on.
 	Renditions map[pid.ID][]string
@@ -47,7 +53,7 @@ type item struct {
 
 // New is a fake over people, item ids counting from 0.
 func New(people ...archive.Person) *Fake {
-	return &Fake{Register: people, RejectAs: map[pid.ID]pid.ID{}, Renditions: map[pid.ID][]string{}, items: map[pid.ID]*item{}}
+	return &Fake{Register: people, RejectAs: map[pid.ID]pid.ID{}, Rotten: map[pid.ID][]string{}, Renditions: map[pid.ID][]string{}, items: map[pid.ID]*item{}}
 }
 
 // Example is a fake over two people, Ada (a) and Aaron (e) Example.
@@ -120,6 +126,30 @@ func (f *Fake) Receipt(id pid.ID) (archive.Receipt, error) {
 		return archive.Receipt{}, fmt.Errorf("item %s (a stand-in): %w", id, archive.ErrUnknown)
 	}
 	return receipt(id, it), nil
+}
+
+// Fixity answers as the real service does: the item's manifest with
+// every file sound, but for those Rotten says have decayed.
+func (f *Fake) Fixity(id pid.ID) (archive.Fixity, error) {
+	if f.Down {
+		return archive.Fixity{}, errDown
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	it := f.items[id]
+	if it == nil || f.NoFixity {
+		return archive.Fixity{}, fmt.Errorf("fixity of item %s (a stand-in): %w", id, archive.ErrUnknown)
+	}
+	fx := archive.Fixity{Item: id, Home: it.home, Status: archive.Reserved}
+	if it.payload == nil {
+		return fx, nil
+	}
+	fx.Status, fx.Payload, fx.Checked = archive.Held, it.payload, len(it.payload)+3
+	for _, file := range f.Rotten[id] {
+		fx.Failures = append(fx.Failures, archive.Failure{File: file, Reason: "sha256 does not match the manifest"})
+	}
+	fx.Sound = len(fx.Failures) == 0
+	return fx, nil
 }
 
 func receipt(id pid.ID, it *item) archive.Receipt {

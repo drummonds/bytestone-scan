@@ -282,10 +282,10 @@ func report(out io.Writer, key string, checks []batch.Check) int {
 			what = "page"
 		}
 		line := fmt.Sprintf("%s %s %s: %s", key, what, c.Photo, c.Verdict)
-		switch {
-		case c.Verdict == batch.Verified:
+		if c.Verdict == batch.Verified {
 			line += fmt.Sprintf(", %d files", c.Files)
-		case c.Detail != "":
+		}
+		if c.Detail != "" {
 			line += ", " + c.Detail
 		}
 		switch c.Verdict {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/bag"
@@ -17,7 +18,9 @@ type Verdict string
 
 const (
 	// Verified: the archive holds the item with every checksum as receipted
-	// and, while the bag is still in staging, as the bag carries.
+	// and, while the bag is still in staging, as the bag carries; its
+	// files recomputed by the archive when it offers that, else by its
+	// receipt.
 	Verified Verdict = "verified"
 	// Pending: not deposited yet, so nothing to verify.
 	Pending Verdict = "pending"
@@ -38,7 +41,7 @@ type Check struct {
 	Photo   pid.ID
 	Page    bool
 	Verdict Verdict
-	Detail  string // what differs, or which item holds the duplicate
+	Detail  string // how it was verified, what differs, or which item holds the duplicate
 	Files   int    // the files the archive holds
 }
 
@@ -81,20 +84,40 @@ func (l *Scan) verify(id pid.ID, svc archive.Service) (Check, error) {
 		c.Verdict, c.Detail = Rejected, fmt.Sprintf("a duplicate of item %s", d.DuplicateOf)
 		return c, nil
 	}
-	rec, err := svc.Receipt(id)
-	if errors.Is(err, archive.ErrUnknown) {
-		c.Verdict = Unknown
+	// the archive's own check of its disk first (life-weaver#87); an
+	// archive from before it answers as for an unknown item, and its
+	// receipt, what its index says, has to do
+	var held map[string]string
+	fx, err := svc.Fixity(id)
+	switch {
+	case err == nil && fx.Status != archive.Held:
+		c.Verdict, c.Detail = NotHeld, string(fx.Status)
 		return c, nil
-	}
-	if err != nil {
+	case err == nil && !fx.Sound:
+		c.Verdict, c.Detail = Differs, "at the archive, "+joinFailures(fx.Failures)
+		c.Files = len(fx.Payload)
+		return c, nil
+	case err == nil:
+		held, c.Detail = fx.Payload, "checksums recomputed by the archive"
+	case errors.Is(err, archive.ErrUnknown):
+		rec, err := svc.Receipt(id)
+		if errors.Is(err, archive.ErrUnknown) {
+			c.Verdict = Unknown
+			return c, nil
+		}
+		if err != nil {
+			return c, err
+		}
+		if rec.Status != archive.Held {
+			c.Verdict, c.Detail = NotHeld, string(rec.Status)
+			return c, nil
+		}
+		held, c.Detail = rec.Payload, "the archive's receipt only: it offers no fixity check"
+	default:
 		return c, err
 	}
-	if rec.Status != archive.Held {
-		c.Verdict, c.Detail = NotHeld, string(rec.Status)
-		return c, nil
-	}
-	c.Files = len(rec.Payload)
-	if file := differs(rec.Payload, d.Payload); file != "" {
+	c.Files = len(held)
+	if file := differs(held, d.Payload); file != "" {
 		c.Verdict, c.Detail = Differs, file+": the archive's checksum is not the one receipted"
 		return c, nil
 	}
@@ -106,12 +129,21 @@ func (l *Scan) verify(id pid.ID, svc archive.Service) (Check, error) {
 	if err != nil {
 		return c, err
 	}
-	if file := differs(rec.Payload, manifest); file != "" {
+	if file := differs(held, manifest); file != "" {
 		c.Verdict, c.Detail = Differs, file+": the archive's checksum is not the bag's"
 		return c, nil
 	}
 	c.Verdict = Verified
 	return c, nil
+}
+
+// joinFailures names each fault the archive found, in its order.
+func joinFailures(fs []archive.Failure) string {
+	parts := make([]string, len(fs))
+	for i, f := range fs {
+		parts[i] = f.String()
+	}
+	return strings.Join(parts, "; ")
 }
 
 // differs is the first file, in name order, whose checksum the two

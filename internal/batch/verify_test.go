@@ -14,9 +14,10 @@ import (
 )
 
 // #118: a completed scan is verified against the archive afresh: the
-// archive is asked for each photo's receipt, which must say held with the
-// checksums the deposit record took and the bag carries, nothing being
-// downloaded. A photo rejected as a duplicate has no item to verify; one
+// archive is asked to recompute each photo's checksums from its disk
+// (life-weaver#87), or for its receipt when it is too old to, which must
+// say held with the checksums the deposit record took and the bag
+// carries, nothing being downloaded. A photo rejected as a duplicate has no item to verify; one
 // the archive has lost, has reserved but not held, or holds with another
 // checksum is reported, file by file; a service that is down verifies
 // nothing.
@@ -31,10 +32,21 @@ func TestAScanIsVerifiedAgainstTheArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Check{{Photo: dup, Verdict: Rejected, Detail: "a duplicate of item 7"}, {Photo: held, Verdict: Verified, Files: 3}}
+	want := []Check{{Photo: dup, Verdict: Rejected, Detail: "a duplicate of item 7"}, {Photo: held, Verdict: Verified, Files: 3, Detail: "checksums recomputed by the archive"}}
 	if len(checks) != 2 || checks[0] != want[0] || checks[1] != want[1] {
 		t.Errorf("checks %+v, want %+v", checks, want)
 	}
+
+	svc.Rotten[held] = []string{"data/front.tif"}
+	if c := check(t, l, svc, held); c.Verdict != Differs || !strings.Contains(c.Detail, "at the archive, data/front.tif: sha256 does not match") {
+		t.Errorf("a master decayed at the archive: %+v, want differs with the archive's fault", c)
+	}
+	delete(svc.Rotten, held)
+	svc.NoFixity = true // an archive from before life-weaver#87
+	if c := check(t, l, svc, held); c.Verdict != Verified || !strings.Contains(c.Detail, "receipt only") {
+		t.Errorf("an archive without fixity: %+v, want verified by its receipt only", c)
+	}
+	svc.NoFixity = false
 
 	rec, _ := svc.Receipt(held)
 	altered := map[string]string{}
