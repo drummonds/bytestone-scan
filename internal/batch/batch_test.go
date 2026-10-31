@@ -981,3 +981,21 @@ func TestALargeCloseUpIsReducedToFit(t *testing.T) {
 		t.Errorf("the image spans %.1f mm at the frame's scale, want the region's %.1f mm and up to %.0f mm of context", mm, r, 2*closeUpContext)
 	}
 }
+
+// #128: a described batch is in the queue from the start: its run exists,
+// waiting at scans, before any scan runs. Without a store there is still
+// only the record on disk.
+func TestDescribeStartsTheBatchRun(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	b, err := Describe(root, service(root), store, Description{Text: "SS Bonita", Person: 10, ScanPPI: 600, Credit: "© Example"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.FindRunByKey(context.Background(), Workflow, b.ID)
+	if err != nil || run == nil {
+		t.Fatalf("run for %s: %v, %v, want one waiting at scans", b.ID, run, err)
+	}
+	if run.Status != wf.StatusWaiting {
+		t.Errorf("run status %s, want %s", run.Status, wf.StatusWaiting)
+	}
+}
