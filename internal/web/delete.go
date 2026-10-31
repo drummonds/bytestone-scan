@@ -28,7 +28,7 @@ func (a *App) deletion(mux *http.ServeMux, render func(http.ResponseWriter, stri
 		scans, _ := b.Scans()
 		render(w, "Delete batch "+b.ID, fmt.Sprintf(`<h1 class="title">Delete batch %s?</h1>
 <p class="subtitle">%s</p>
-<p>Its %d scans and their photos' work files, bags and renditions go from staging, and its runs are cancelled. Nothing the archive holds is touched.</p>
+<p>Its %d scans and their photos' work files, bags and renditions go from staging, and its runs go from the Queue. Nothing the archive holds is touched.</p>
 %s<form action="batches/%s/delete" method="post" class="buttons mt-4"><button class="button is-danger" type="submit">Delete</button> <a class="button" href="batches/%s">Keep</a></form>`,
 			html.EscapeString(b.ID), html.EscapeString(b.Title), len(scans), lost(b), html.EscapeString(b.ID), html.EscapeString(b.ID)))
 	})
@@ -90,17 +90,9 @@ func (a *App) batchesPage() string {
 	t.WriteString(`<table class="table is-striped"><thead><tr><th>Batch</th><th>Title</th><th>Home</th><th>Started</th><th>Scans</th><th>Where</th><th></th></tr></thead><tbody>`)
 	for _, b := range batches {
 		scans, _ := b.Scans()
-		where := "open"
-		if _, ok := b.Purged(); ok {
-			where = "purged"
-		} else if _, ok := b.Closed(); ok {
-			where = "closed"
-		} else if b.Finished() {
-			where = "finished"
-		}
 		fmt.Fprintf(&t, `<tr><td><a href="batches/%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
 			html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.Title), html.EscapeString(b.PersonName),
-			b.Created.Local().Format("2 Jan 2006 15:04"), len(scans), where, deleteButton(b.ID, "is-small"))
+			b.Created.Local().Format("2 Jan 2006 15:04"), len(scans), where(b), deleteButton(b.ID, "is-small"))
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
@@ -137,6 +129,20 @@ func (a *App) batchesPage() string {
 		c.HTML(s.String())
 	}
 	return c.Buffer()
+}
+
+// where is the batch's state as the lists say it.
+func where(b *batch.Batch) string {
+	switch {
+	case b.Completed():
+		if _, ok := b.Purged(); ok {
+			return "purged"
+		}
+		return "closed"
+	case b.Finished():
+		return "finished"
+	}
+	return "open"
 }
 
 // deleteButton leads to the batch's delete confirmation.
