@@ -135,25 +135,42 @@ var closeUpFit = image.Pt(720, 540)
 // closeUpContext is how far round the region a close-up shows, mm.
 const closeUpContext = 6.0
 
+// wholeBedShare is the least of its scale a close-up keeps when it shows
+// the whole bed instead of the context round its region: a region most
+// of the bed's size is shown with the whole bed, since that costs it
+// little and shows what the region misses (#130).
+const wholeBedShare = 0.8
+
 // closeUpView is the box of the bed a close-up of p shows, its scale in
-// close-up pixels per preview pixel, and the close-up's size: a small
+// screen pixels per preview pixel, and its size in pixels: a small
 // region is enlarged pixel for pixel towards closeUpWidth, a large one
-// reduced to fit closeUpFit.
+// reduced to fit closeUpFit. The view is the region with closeUpContext
+// round it, or the whole bed when that keeps wholeBedShare of the scale.
 func closeUpView(p find.Print, bed find.Rect) (view find.Box, scale float64, w, h int) {
-	const mm = 25.4 / PreviewPPI
 	view = p.Region
 	view.W += 2 * closeUpContext
 	view.H += 2 * closeUpContext
 	if view.Angle == 0 {
 		view = find.BoxOf(view.On(bed)) // square to the bed, it stops at the bed as before
 	}
+	scale, w, h = fitCloseUp(view)
+	whole := find.BoxOf(bed)
+	whole.Angle = p.Region.Angle // the bed as the region's frame sees it
+	if ws, ww, wh := fitCloseUp(whole); ws >= wholeBedShare*scale {
+		return whole, ws, ww, wh
+	}
+	return view, scale, w, h
+}
+
+// fitCloseUp is the scale and size in pixels a close-up of view has.
+func fitCloseUp(view find.Box) (scale float64, w, h int) {
+	const mm = 25.4 / PreviewPPI
 	pw, ph := max(1, int(view.W/mm)), max(1, int(view.H/mm))
 	scale = float64(max(1, min(4, closeUpWidth/pw)))
 	if pw > closeUpFit.X || ph > closeUpFit.Y {
 		scale = min(float64(closeUpFit.X)/float64(pw), float64(closeUpFit.Y)/float64(ph))
 	}
-	w, h = int(math.Round(float64(pw)*scale)), int(math.Round(float64(ph)*scale))
-	return view, scale, w, h
+	return scale, int(math.Round(float64(pw) * scale)), int(math.Round(float64(ph) * scale))
 }
 
 // CloseUpFrame is where print n's close-up lies in the region's own
@@ -178,13 +195,10 @@ func (b *Scan) CloseUpFrame(n int) (CloseUpFrame, error) {
 	const mm = 25.4 / PreviewPPI
 	p := prints[n]
 	view, scale, w, h := closeUpView(p, b.Bed())
-	f := CloseUpFrame{W: w, H: h, Scale: scale / mm, U0: -closeUpContext, V0: -closeUpContext}
-	if p.Region.Angle == 0 {
-		// clamped to the bed: the image may start short of the context
-		f.U0 = view.CX - view.W/2 - (p.Region.CX - p.Region.W/2)
-		f.V0 = view.CY - view.H/2 - (p.Region.CY - p.Region.H/2)
-	}
-	return f, nil
+	// the view's top left corner in the region's frame: the two share
+	// an angle, so this is exact
+	u0, v0 := p.Region.In(view.At(0, 0))
+	return CloseUpFrame{W: w, H: h, Scale: scale / mm, U0: u0, V0: v0}, nil
 }
 
 // CloseUp is print n's region on the preview with 6 mm round it, turned

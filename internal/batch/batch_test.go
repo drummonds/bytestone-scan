@@ -959,26 +959,47 @@ func TestBackCloseUps(t *testing.T) {
 // #105: a close-up that would not fit on the screen pixel for pixel is
 // reduced to fit, so a large print's controls stay in view; its frame
 // says the reduced scale, so the rulers still land on the picture.
+// #130: a region most of the bed's size shows the whole bed instead of
+// 6 mm round itself, since that costs it less than a fifth of its scale
+// and shows what the region misses; a smaller region keeps its close-up.
 func TestALargeCloseUpIsReducedToFit(t *testing.T) {
-	root := t.TempDir()
-	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 200, Y1: 280, Value: 20000}}}
-	b := describe(t, root)
-	run(t, b, wf.NewMemStore(), scanner)
-	img, err := b.CloseUp(0)
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name  string
+		print batchtest.Print
+		whole bool // the close-up is the whole bed
+	}{
+		{"most of the bed's height", batchtest.Print{X0: 20, Y0: 30, X1: 140, Y1: 265, Value: 20000}, true},
+		{"a large print", batchtest.Print{X0: 20, Y0: 20, X1: 130, Y1: 180, Value: 20000}, false},
 	}
-	size := img.Bounds().Size()
-	if size.X > closeUpFit.X || size.Y > closeUpFit.Y || (size.X < closeUpFit.X && size.Y < closeUpFit.Y) {
-		t.Errorf("close-up %v px, want it reduced to fit %v exactly one way", size, closeUpFit)
-	}
-	f, err := b.CloseUpFrame(0)
-	if err != nil || f.W != size.X || f.H != size.Y {
-		t.Errorf("frame %+v, %v; want the image's %v", f, err, size)
-	}
-	prints, _, _ := b.Found()
-	if mm, r := float64(f.W)/f.Scale, prints[0].Region.W; mm < r-1 || mm > r+2*closeUpContext+1 {
-		t.Errorf("the image spans %.1f mm at the frame's scale, want the region's %.1f mm and up to %.0f mm of context", mm, r, 2*closeUpContext)
+	for _, tc := range cases {
+		root := t.TempDir()
+		scanner := &batchtest.Scanner{Prints: []batchtest.Print{tc.print}}
+		b := describe(t, root)
+		run(t, b, wf.NewMemStore(), scanner)
+		img, err := b.CloseUp(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		size := img.Bounds().Size()
+		if size.X > closeUpFit.X || size.Y > closeUpFit.Y || (size.X < closeUpFit.X && size.Y < closeUpFit.Y) {
+			t.Errorf("%s: close-up %v px, want it reduced to fit %v exactly one way", tc.name, size, closeUpFit)
+		}
+		f, err := b.CloseUpFrame(0)
+		if err != nil || f.W != size.X || f.H != size.Y {
+			t.Errorf("%s: frame %+v, %v; want the image's %v", tc.name, f, err, size)
+		}
+		prints, _, _ := b.Found()
+		r, bed := prints[0].Region, b.Bed()
+		mm := float64(f.W) / f.Scale
+		if tc.whole {
+			if left := r.CX - r.W/2; mm < bed.X1-bed.X0-1 || mm > bed.X1-bed.X0+1 || math.Abs(f.U0+left) > 1 {
+				t.Errorf("%s: the image spans %.1f mm from u=%.1f, want the bed's %.1f mm from the region's left edge at %.1f", tc.name, mm, f.U0, bed.X1-bed.X0, left)
+			}
+			continue
+		}
+		if mm < r.W-1 || mm > r.W+2*closeUpContext+1 {
+			t.Errorf("%s: the image spans %.1f mm at the frame's scale, want the region's %.1f mm and up to %.0f mm of context", tc.name, mm, r.W, 2*closeUpContext)
+		}
 	}
 }
 

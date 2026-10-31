@@ -10,19 +10,31 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 )
 
-// Arrow steps, in mm.
+// Arrow steps, in mm. The huge step is offered on an axis along which the
+// region is over pageSize, as a received page can be (#130).
 const (
 	smallStep = 0.5
 	largeStep = 3.0
+	hugeStep  = 30.0
+	pageSize  = 300.0
 )
 
-// arrows are each edge's buttons, outermost first: large out, small out,
-// small in, large in.
-var arrows = map[find.Edge][4]string{
-	find.Top:    {"⇈", "↑", "↓", "⇊"},
-	find.Bottom: {"⇊", "↓", "↑", "⇈"},
-	find.Left:   {"⇇", "←", "→", "⇉"},
-	find.Right:  {"⇉", "→", "←", "⇇"},
+// arrows are each edge's buttons, outermost first: huge, large and small
+// out, then small, large and huge in.
+var arrows = map[find.Edge][6]string{
+	find.Top:    {"⤊", "⇈", "↑", "↓", "⇊", "⤋"},
+	find.Bottom: {"⤋", "⇊", "↓", "↑", "⇈", "⤊"},
+	find.Left:   {"⇚", "⇇", "←", "→", "⇉", "⇛"},
+	find.Right:  {"⇛", "⇉", "→", "←", "⇇", "⇚"},
+}
+
+// pageSized reports whether the region is over pageSize along the axis
+// edge e moves on.
+func pageSized(r find.Box, e find.Edge) bool {
+	if e == find.Top || e == find.Bottom {
+		return r.H > pageSize
+	}
+	return r.W > pageSize
 }
 
 // edgeArrows are the arrows on one edge of print n's region, each a
@@ -41,8 +53,8 @@ func edgeArrows(n int, p find.Print, bed find.Rect, e find.Edge, vertical bool) 
 		cls += " is-flex-direction-column"
 	}
 	fmt.Fprintf(&s, `<div class="%s" style="justify-content:center">`, cls)
-	for k, by := range []float64{largeStep, smallStep, -smallStep, -largeStep} {
-		if !p.Region.CanMove(e, by, bed) {
+	for k, by := range []float64{hugeStep, largeStep, smallStep, -smallStep, -largeStep, -hugeStep} {
+		if (math.Abs(by) == hugeStep && !pageSized(p.Region, e)) || !p.Region.CanMove(e, by, bed) {
 			continue
 		}
 		dir := "out"
@@ -91,11 +103,19 @@ func regionEditor(b *batch.Scan, i int, p find.Print, last bool) string {
 	return fmt.Sprintf(`<div class="box" id="print-%d">
 <div class="level is-mobile mb-3"><div class="level-left"><h2 class="title is-5 mb-0">Print %d: %.1f × %.1f mm</h2></div><div class="level-right">%s</div></div>
 %s
-<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm.</p>
+<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm%s.</p>
 <div class="buttons mt-3">%s%s%s</div>
 </div>`, n, n, p.Print.W, p.Print.H, remove,
 		edgeGrid(id+"/adjust", n, p, b.Bed(), img),
-		turnedBack(p.Region), tick, smallStep, largeStep, confirmButton(id, last), splitButton(id, n, p), remove)
+		turnedBack(p.Region), tick, smallStep, largeStep, hugeArrows(p.Region), confirmButton(id, last), splitButton(id, n, p), remove)
+}
+
+// hugeArrows says what the triple arrows do, on a region that has them.
+func hugeArrows(r find.Box) string {
+	if !pageSized(r, find.Top) && !pageSized(r, find.Left) {
+		return ""
+	}
+	return fmt.Sprintf(", triple arrows %.0f mm", hugeStep)
 }
 
 // confirmButton is the last print's Confirm and scan, the same step as
