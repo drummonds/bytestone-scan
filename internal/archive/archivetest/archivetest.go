@@ -117,7 +117,7 @@ func (f *Fake) Receipt(id pid.ID) (archive.Receipt, error) {
 	defer f.mu.Unlock()
 	it := f.items[id]
 	if it == nil {
-		return archive.Receipt{}, fmt.Errorf("item %s is not known (a stand-in)", id)
+		return archive.Receipt{}, fmt.Errorf("item %s (a stand-in): %w", id, archive.ErrUnknown)
 	}
 	return receipt(id, it), nil
 }
@@ -306,4 +306,23 @@ func readDeposit(id pid.ID, r io.Reader) (map[string]string, map[string]string, 
 		return nil, nil, errors.New("bad bag: the manifest and the payload differ")
 	}
 	return payload, renditions, nil
+}
+
+// Hold sets what the fake holds for id, for tests of verifying against
+// an archive that has changed: payload is the manifest it now holds, nil
+// leaving the id reserved with no bag.
+func (f *Fake) Hold(id pid.ID, payload map[string]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.items[id] == nil {
+		f.items[id] = &item{}
+	}
+	f.items[id].payload = payload
+}
+
+// Forget drops the item altogether, as an archive that has lost it.
+func (f *Fake) Forget(id pid.ID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.items, id)
 }
