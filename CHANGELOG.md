@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-31
+
+- `bytestone-scan verify BATCH[/SCAN]` and **Verify against the archive** on a completed scan's page ask the archive afresh whether it still holds each of the scan's photos as receipted: each item's receipt is compared, checksum for checksum, with the one taken at deposit and with the bag while it is still in staging, nothing being downloaded; an item the archive has lost, holds no bag for, or holds with another checksum is reported file by file, and the command fails on any
+
+### Added
+
+- `bytestone-scan verify BATCH[/SCAN]` and **Verify against the archive** on a completed scan's page ask the archive afresh whether it still holds each of the scan's photos as receipted: each item's receipt is compared, checksum for checksum, with the one taken at deposit and with the bag while it is still in staging, nothing being downloaded; an item the archive has lost, holds no bag for, or holds with another checksum is reported file by file, and the command fails on any (#118)
+
 ## [0.21.0] - 2026-10-31
 
 - A batch, scan or photo is reached straight from the Queue and from an instance's children, its own page preferred over the generic workflow instance, which stays a step beside as **Instance**; the batch, scan and photo pages each link back to their instance the same way. The Queue's Workflow and Revision columns are one **What** column, `scan_batch-8b`, linked to the definition. Takes gobank-workflow v0.13; `serve` listens on the next free port up when its own, `8080+slot`, is in use, trying ten before giving up, and prints the URL it actually listens on; any other failure to listen still fails as before (#115); **Tools → Clean up**: the batches newest first, each row with **Delete below**, which deletes every closed or purged batch below that row as Delete does each, leaving open ones, after a confirm page that says what goes, what stays and which orphans go with them. Orphans, what no batch claims in staging or the Queue after a deletion failed part way, are listed there and removable on their own. Deleting a batch now removes its runs from the Queue instead of cancelling them (#100); its id is still not given out again, a record of the deletion staying in staging. Takes gobank-workflow v0.13 (#116); The stale-data test purged at a fixed date 40 days after the fixture's clock while the batch closed at the real clock, so it began failing on 2026-10-30 (#116); About links to **Statistics**: the batches by state (open, finished, closed, purged), the scans, the photos held, pending and rejected, the size of each entry at the staging root with the workflow database among them, and the runs in that database by workflow and status (#117)
