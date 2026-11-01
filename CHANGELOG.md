@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-01
+
+- The batch page shows the batch's steps as its workflow instance has them, with a link to it; stands each scan where its photos stand, so a photo that failed at deposit is named, on the page, beside Finish scanning and in its refusal; shows a thumbnail of each photo; and gives the batch's folder in staging (#132)
+
+### Changed
+
+- The batch page shows the batch's steps as its workflow instance has them, with a link to it; stands each scan where its photos stand, so a photo that failed at deposit is named, on the page, beside Finish scanning and in its refusal; shows a thumbnail of each photo; and gives the batch's folder in staging (#132) (#132)
+
 ## [0.23.2] - 2026-11-01
 
 - A close-up shows the whole bed instead of 6 mm round its region when that costs it less than a fifth of its scale, so a region most of a page's size is seen with what it misses and the rulers reach it; on an axis along which the region is over 300 mm, triple arrows move the edge 30 mm (#130).
