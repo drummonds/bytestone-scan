@@ -45,6 +45,11 @@ func TestArrowsOnlyWhereARegionCanMove(t *testing.T) {
 			t.Errorf("print 2 lacks the arrow %q", present)
 		}
 	}
+	for _, absent := range []string{"right 30", "top 30", "bottom -30"} {
+		if strings.Contains(body, arrow(2, absent)) {
+			t.Errorf("print 2, an ordinary print, has a 30 mm arrow %q", absent)
+		}
+	}
 	if !strings.Contains(body, loc[1:]+"/regions/1.png") {
 		t.Error("no close-up of print 1")
 	}
@@ -222,5 +227,34 @@ func TestRulersSetAnEdge(t *testing.T) {
 	}
 	if w := post(t, h, loc+"/reshape", url.Values{"move": {"2 left =-4.5"}}); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("an absolute move on the quality page: %d", w.Code)
+	}
+}
+
+// #130: a region over 300 mm along an axis, as a received page can be,
+// has triple arrows that move its edges on that axis 30 mm at a time;
+// the other axis keeps the two steps an ordinary print has.
+func TestAPageSizedRegionHas30mmArrows(t *testing.T) {
+	a := live(t, &batchtest.Scanner{})
+	h := a.Handler()
+	act(t, a, h, "/batches", url.Values{"title": {"Pages"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}, "then": {"import"}})
+	w := upload(t, h, "/batches/20261020-1/imports", url.Values{"sender": {"Cousin Mary"}, "received": {"2026-10-19"}},
+		map[string][]byte{"wide.png": pageOf(t, 400, 300, [4]float64{40, 90, 360, 210})})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("import: %d %s", w.Code, w.Body)
+	}
+	a.wait()
+	body := get(t, h, "/batches/20261020-1/scans/1").Body.String()
+	for _, present := range []string{"left 30", "right -30", "right 3", "top 3"} {
+		if !strings.Contains(body, arrow(1, present)) {
+			t.Errorf("the page-wide region lacks the arrow %q", present)
+		}
+	}
+	for _, absent := range []string{"top 30", "bottom -30"} {
+		if strings.Contains(body, arrow(1, absent)) {
+			t.Errorf("the region, under 300 mm tall, has the arrow %q", absent)
+		}
+	}
+	if !strings.Contains(body, "triple arrows 30 mm") {
+		t.Error("the help does not say what the triple arrows do")
 	}
 }
