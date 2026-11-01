@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-11-01
+
+- A close-up shows the whole bed instead of 6 mm round its region when that costs it less than a fifth of its scale, so a region most of a page's size is seen with what it misses and the rulers reach it; on an axis along which the region is over 300 mm, triple arrows move the edge 30 mm (#130).
+
+### Fixed
+
+- A close-up shows the whole bed instead of 6 mm round its region when that costs it less than a fifth of its scale, so a region most of a page's size is seen with what it misses and the rulers reach it; on an axis along which the region is over 300 mm, triple arrows move the edge 30 mm (#130). (#130)
+
 ## [0.23.1] - 2026-10-31
 
 - A described batch is in the queue from the start: its run is started, waiting at scans, when it is described rather than when its first scan runs, so the Batches page and the Queue list the same batches (#128).
