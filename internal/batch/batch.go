@@ -493,10 +493,10 @@ func (b *Batch) Finish(ctx context.Context, store wf.Store) (*wf.RunRecord, erro
 		return nil, fmt.Errorf("batch %s: nothing has been scanned", b.ID)
 	}
 	for _, l := range scans {
-		if done, err := l.done(ctx, store); err != nil {
+		if s, err := l.Standing(ctx, store); err != nil {
 			return nil, err
-		} else if !done {
-			return nil, fmt.Errorf("batch %s: scan %d is not through yet", b.ID, l.N)
+		} else if !s.Through() {
+			return nil, fmt.Errorf("batch %s: scan %d is not through yet: %s", b.ID, l.N, s)
 		}
 	}
 	if err := os.WriteFile(b.path("finished"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644); err != nil {
@@ -528,7 +528,7 @@ func (b *Batch) Stages(ctx context.Context, store wf.Store) []wf.Stage {
 				return false, err
 			}
 			for _, l := range scans {
-				if done, err := l.done(ctx, store); err != nil || !done {
+				if s, err := l.Standing(ctx, store); err != nil || !s.Through() {
 					return false, err
 				}
 			}
@@ -670,26 +670,6 @@ func (l *Scan) path(name string) string { return filepath.Join(l.Dir(), name) }
 
 // Sitting is the batch the scan belongs to.
 func (l *Scan) Sitting() *Batch { return l.batch }
-
-// done reports whether the scan's workflow and every one of its photos'
-// have completed.
-func (l *Scan) done(ctx context.Context, store wf.Store) (bool, error) {
-	run, err := store.FindRunByKey(ctx, ScanWorkflow, l.Key())
-	if err != nil || run == nil || run.Status != wf.StatusCompleted {
-		return false, err
-	}
-	_, ids, err := l.Found()
-	if err != nil {
-		return false, err
-	}
-	for _, id := range ids {
-		pr, err := store.FindRunByKey(ctx, PhotoWorkflow, id.String())
-		if err != nil || pr == nil || pr.Status != wf.StatusCompleted {
-			return false, err
-		}
-	}
-	return true, nil
-}
 
 // Confirm accepts the prints found on the preview.
 func (b *Scan) Confirm() error {

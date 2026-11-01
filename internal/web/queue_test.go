@@ -47,10 +47,10 @@ func TestTheQueuePrefersTheBatchPageAndEachPageLinksToItsInstance(t *testing.T) 
 	}
 	page(t, h, "/workflows/", `<a href="batches/20261020-1"><strong>20261020-1</strong></a>`, instance(batch.Workflow, "20261020-1")+`>Instance</a>`)
 	page(t, h, "/workflows/?workflow=scan", `<a href="batches/20261020-1/scans/1"><strong>20261020-1/1</strong></a>`)
-	page(t, h, "/batches/20261020-1", instance(batch.Workflow, "20261020-1")+`>Instance</a>`)
-	page(t, h, "/batches/20261020-1/scans/1", instance(batch.ScanWorkflow, "20261020-1/1")+`>Instance</a>`)
+	page(t, h, "/batches/20261020-1", instance(batch.Workflow, "20261020-1")+`>Workflow instance</a>`)
+	page(t, h, "/batches/20261020-1/scans/1", instance(batch.ScanWorkflow, "20261020-1/1")+`>Workflow instance</a>`)
 	ids := get(t, h, "/workflows/?workflow=scan_photo").Body.String()
 	_, after, _ := strings.Cut(ids, `<a href="photos/`)
 	id, _, _ := strings.Cut(after, `"`)
-	page(t, h, "/photos/"+id, instance(batch.PhotoWorkflow, id)+`>Instance</a>`)
+	page(t, h, "/photos/"+id, instance(batch.PhotoWorkflow, id)+`>Workflow instance</a>`)
 }

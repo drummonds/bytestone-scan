@@ -286,7 +286,7 @@ func (a *App) instanceLink(ctx context.Context, typ wf.WorkflowType, key string)
 	if err != nil || run == nil {
 		return ""
 	}
-	return fmt.Sprintf(`<a class="tag is-link is-light" href="workflows/instances/%s">Instance</a>`, html.EscapeString(run.ID))
+	return fmt.Sprintf(`<a class="tag is-link is-light" href="workflows/instances/%s">Workflow instance</a>`, html.EscapeString(run.ID))
 }
 
 // scanURL is the page of the scan with key, <batch id>/<n>.
@@ -295,41 +295,47 @@ func scanURL(key string) string {
 	return "batches/" + html.EscapeString(id) + "/scans/" + html.EscapeString(n)
 }
 
-// batchPage is a batch's details, its scans and what the operator can do
-// next: do one more scan, or finish scanning.
+// batchPage is a batch's details, its steps, its scans and what the
+// operator can do next: do one more scan, or finish scanning.
 func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
+	ctx := r.Context()
 	c := lofigui.NewContext()
 	c.HTML(fmt.Sprintf(`<h1 class="title">Batch %s</h1>
-<p class="subtitle">%s %s</p>
+<p class="subtitle">%s</p>
 <table class="table"><tbody>
 <tr><th>Home</th><td>%s (%s)</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
 <tr><th>Scanned at</th><td>%d ppi</td></tr>
 <tr><th>Started</th><td>%s</td></tr>
-</tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Title), a.instanceLink(r.Context(), batch.Workflow, b.ID),
+<tr><th>Files</th><td><code>%s</code></td></tr>
+</tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
-		b.ScanPPI, b.Created.Local().Format("2 Jan 2006 15:04")))
+		b.ScanPPI, b.Created.Local().Format("2 Jan 2006 15:04"), html.EscapeString(b.Dir())))
+	c.HTML(a.batchSteps(ctx, b))
 	scans, err := b.Scans()
 	if err != nil {
 		c.HTML(`<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`)
 		return c.Buffer()
 	}
 	var t strings.Builder
-	t.WriteString(`<h2 class="title is-5">Scans and imports</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints</th><th>Where</th></tr></thead><tbody>`)
+	var blocking []string
+	t.WriteString(`<h2 class="title is-5">Scans and imports</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints</th><th>Photos</th><th>Where</th></tr></thead><tbody>`)
 	for _, l := range scans {
-		where := "not started"
+		var where string
 		if busy, step, _ := a.busyWith(l.Key()); busy {
 			where = "working: " + step
-		} else if run, waiting := a.where(r.Context(), l); run != nil {
-			where = string(run.Status)
-			if waiting != "" {
-				where = "waiting at " + waiting
+		} else if s, err := l.Standing(ctx, a.Store); err != nil {
+			where = err.Error()
+		} else {
+			where = s.String()
+			if !s.Through() {
+				blocking = append(blocking, fmt.Sprintf("%s %d: %s", strings.ToLower(kind(l)), l.N, where))
 			}
 		}
-		prints, _, _ := l.Found()
-		fmt.Fprintf(&t, `<tr><td><a href="%s">%s %d</a></td><td>%s</td><td>%d</td><td>%s</td></tr>`,
-			scanURL(l.Key()), kind(l), l.N, html.EscapeString(l.Description), len(prints), html.EscapeString(where))
+		prints, ids, _ := l.Found()
+		fmt.Fprintf(&t, `<tr><td><a href="%s">%s %d</a></td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
+			scanURL(l.Key()), kind(l), l.N, html.EscapeString(l.Description), len(prints), a.thumbnails(ids), html.EscapeString(where))
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
@@ -349,11 +355,70 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 		c.HTML(fmt.Sprintf(`<div class="notification %s">Finished: %s.</div><div class="buttons">%s</div>`, class, msg, del))
 		return c.Buffer()
 	}
+	for _, why := range blocking {
+		c.HTML(`<p class="help has-text-danger">Finish scanning waits for ` + html.EscapeString(why) + `</p>`)
+	}
 	c.HTML(fmt.Sprintf(`<div class="buttons"><a class="button is-primary" href="batches/%s/scans/new">Do one more scan</a> `+
 		`<a class="button" href="batches/%s/imports/new">Import pages</a> `+
 		`<form action="batches/%s/finish" method="post" style="display:inline"><button class="button" type="submit">Finish scanning</button></form> %s</div>`,
 		html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), del))
 	return c.Buffer()
+}
+
+// batchSteps is the batch's steps as its workflow instance has them, each
+// with its status, and the way to that instance.
+func (a *App) batchSteps(ctx context.Context, b *batch.Batch) string {
+	status := map[string]wf.RunStatus{}
+	if run, err := a.Store.FindRunByKey(ctx, batch.Workflow, b.ID); err == nil && run != nil {
+		steps, _ := a.Store.ListSteps(ctx, run.ID)
+		for _, s := range steps {
+			status[s.StepName] = s.Status
+		}
+	}
+	var t strings.Builder
+	t.WriteString(`<h2 class="title is-5">Steps ` + a.instanceLink(ctx, batch.Workflow, b.ID) + `</h2><table class="table is-narrow"><tbody>`)
+	for _, d := range batch.Definitions {
+		if d.Type != batch.Workflow {
+			continue
+		}
+		for _, step := range d.Steps {
+			fmt.Fprintf(&t, `<tr><td>%s</td><td>%s</td></tr>`, html.EscapeString(step.Name), statusTag(status[step.Name]))
+		}
+	}
+	t.WriteString(`</tbody></table>`)
+	return t.String()
+}
+
+// statusTag colours a step's status: green through, red failed, yellow
+// cancelled, blue waiting or running, grey not run.
+func statusTag(s wf.RunStatus) string {
+	class, text := "is-light", "not run"
+	switch s {
+	case wf.StatusCompleted:
+		class, text = "is-success", string(s)
+	case wf.StatusFailed:
+		class, text = "is-danger", string(s)
+	case wf.StatusCancelled:
+		class, text = "is-warning", string(s)
+	case wf.StatusWaiting, wf.StatusRunning, wf.StatusPending:
+		class, text = "is-info", string(s)
+	}
+	return `<span class="tag ` + class + `">` + text + `</span>`
+}
+
+// thumbnails are the tiny renditions of the photos that have one, each
+// linking to its photo.
+func (a *App) thumbnails(ids []pid.ID) string {
+	var t strings.Builder
+	for _, id := range ids {
+		dir := a.renditionDir(id)
+		if _, err := os.Stat(filepath.Join(dir, "tiny.jpg")); err != nil {
+			continue
+		}
+		fmt.Fprintf(&t, `<a href="photos/%s"><img src="photos/%s/renditions/%s/tiny.jpg" alt="photo %s" title="photo %s" style="height:48px;margin-right:4px"></a>`,
+			id, id, filepath.Base(dir), id, id)
+	}
+	return t.String()
 }
 
 // kind is what the scan is called: a scan of the bed, or an import of a page.
@@ -724,18 +789,21 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
 	c.HTML(a.describeSection(id, p))
-	c.HTML(a.archiveSection(id))
+	c.HTML(a.archiveSection(r.Context(), id))
 	c.HTML(`</div></div>`)
 	return c.Buffer()
 }
 
 // archiveSection is where the photo stands with the archive.
-func (a *App) archiveSection(id pid.ID) string {
+func (a *App) archiveSection(ctx context.Context, id pid.ID) string {
 	d, err := batch.DepositOf(a.Staging, id)
 	switch {
 	case err != nil:
 		return `<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">` + html.EscapeString(err.Error()) + `</p>`
 	case d == nil:
+		if s, err := batch.PhotoStanding(ctx, a.Store, id); err == nil && (s.Status == wf.StatusFailed || s.Status == wf.StatusCancelled) {
+			return `<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Not deposited: ` + html.EscapeString(s.String()) + `</p>`
+		}
 		return `<h2 class="title is-6 mt-4">Archive</h2><p class="help">Not yet deposited.</p>`
 	case d.Status == "duplicate":
 		return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Rejected by the archive: %s is a duplicate of item <code>%s</code> (home %s). The photo ends here; its bag stays in staging.</p>`,

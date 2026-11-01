@@ -65,7 +65,7 @@ func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 	if pr := photoRun(t, store, 1); runnertest.Steps(t, store, pr.ID)["describe"] != wf.StatusWaiting {
 		t.Errorf("photo 1: %v, want waiting to be described", runnertest.Steps(t, store, pr.ID))
 	}
-	if done, _ := b.done(ctx, store); done {
+	if s, _ := b.Standing(ctx, store); s.Through() {
 		t.Error("scan done with a photo still to describe")
 	}
 	raw, _ := os.ReadFile(filepath.Join(arc, "0", "data", "photo.yaml"))
@@ -87,7 +87,7 @@ func TestAPhotoIsDescribedBeforeItIsArchived(t *testing.T) {
 	if strings.Contains(string(raw), "claims") || !strings.Contains(string(raw), "described:") {
 		t.Errorf("skipped photo.yaml:\n%s", raw)
 	}
-	if done, _ := b.done(ctx, store); !done {
+	if s, _ := b.Standing(ctx, store); !s.Through() {
 		t.Error("scan not done once every photo is archived")
 	}
 	if err := b.DescribePhoto(0, said); err == nil || !strings.Contains(err.Error(), "archived") {

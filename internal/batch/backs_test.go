@@ -154,7 +154,7 @@ func TestBacksAreScannedWhereTheFrontsLay(t *testing.T) {
 			t.Errorf("photo %s back master left in the scan after archiving", id)
 		}
 	}
-	if done, _ := b.done(context.Background(), store); !done {
+	if s, _ := b.Standing(context.Background(), store); !s.Through() {
 		t.Error("scan not done once its photos are archived")
 	}
 }
