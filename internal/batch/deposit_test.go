@@ -75,7 +75,7 @@ func TestEachPhotoIsDepositedAndReceipted(t *testing.T) {
 	if rec, _ := svc.Receipt(41); rec.Status != "reserved" {
 		t.Errorf("a refused bag was held: %+v", rec)
 	}
-	if done, _ := b.done(ctx, store); !done {
+	if s, _ := b.Standing(ctx, store); !s.Through() {
 		t.Error("scan not done once every photo is held or rejected")
 	}
 
