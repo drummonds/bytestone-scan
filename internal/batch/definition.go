@@ -27,7 +27,7 @@ var Definitions = []wf.Definition{
 		InstanceKey: "batch id",
 		Steps: []wf.Step{
 			{Name: "describe", Description: "The batch's title, home person, provenance, credit and scan ppi are recorded", Source: src},
-			{Name: "scans", Description: "A scan of the bed at a time, each started by the operator; waits until scanning is finished and every scan is through: every photo held by the archive or rejected by it", Source: src, Child: ScanWorkflow, Many: true},
+			{Name: "scans", Description: "A scan of the bed at a time, each started by the operator; waits until scanning is finished and every scan is through: every photo held by the archive or rejected by it", Source: src, Child: ScanWorkflow, Mode: wf.OneAtATime, Given: "the batch id and its scan number, from which it reads the batch's home person, provenance, credit and ppi"},
 			{Name: "close", Description: "The batch closes: its work files are redundant, and are purged 30 days later, or sooner when staging is short of space", Source: src},
 		},
 	},
@@ -47,7 +47,7 @@ var Definitions = []wf.Definition{
 			{Name: "find prints", Description: "Prints are found on the preview, with a margin; doubtful ones are flagged for review", Source: src},
 			{Name: "confirm", Description: "Waits for the operator to accept the prints, then reserves a photo id for each", Source: src},
 			{Name: "fronts", Description: "One scan over every print's front, averaged down to each master's ppi and written as 16-bit master TIFFs", Source: src},
-			{Name: "photos", Description: "A photo workflow is started for each print", Source: src, Child: PhotoWorkflow, Many: true},
+			{Name: "photos", Description: "A photo workflow is started for each print", Source: src, Child: PhotoWorkflow, Mode: wf.AllAtOnce, Given: "the photo id, from which it finds its scan, its print's region and its masters"},
 			{Name: "backs preview", Description: "Waits for the operator to turn the prints over in place, or to say the backs are blank; then previews the bed to see where each back lies within its front's region; a back whose size differs from its front's, or that is not found, is flagged for review", Source: src},
 			{Name: "backs", Description: "Waits for the operator to confirm the backs on their preview, then scans the fronts' regions once more at 300 ppi, 8 bits", Source: src},
 			{Name: "check quality", Description: "Waits for the operator to accept the masters, or to send the scan back a step", Source: src},

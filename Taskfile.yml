@@ -29,7 +29,7 @@ tasks:
     cmds:
       - go run ./cmd/bytestone-scan serve {{.CLI_ARGS}}
   diagrams:
-    desc: Draw each workflow definition as internal/web/diagrams/<type>.svg (needs d2)
+    desc: Draw each workflow definition as internal/web/diagrams/<type>.svg and <type>.down.svg (needs d2)
     cmds:
       - go run ./internal/web/diagrams/gen
   docs:build:
