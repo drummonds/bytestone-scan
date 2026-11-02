@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-02
+
+- gobank-workflow 0.13.0 → 0.17.1: the batch's *scans* step starts its scans one at a time and the scan's *photos* step its photos all at once, each saying what its children are given; every workflow is drawn across and down, the phone shown the down picture (#136)
+
+### Changed
+
+- gobank-workflow 0.13.0 → 0.17.1: the batch's *scans* step starts its scans one at a time and the scan's *photos* step its photos all at once, each saying what its children are given; every workflow is drawn across and down, the phone shown the down picture (#136) (#136)
+
 ## [0.24.0] - 2026-11-01
 
 - The batch page shows the batch's steps as its workflow instance has them, with a link to it; stands each scan where its photos stand, so a photo that failed at deposit is named, on the page, beside Finish scanning and in its refusal; shows a thumbnail of each photo; and gives the batch's folder in staging (#132)
