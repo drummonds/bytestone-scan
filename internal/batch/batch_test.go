@@ -371,9 +371,13 @@ func TestEveryStepHasADefinition(t *testing.T) {
 			}
 		}
 	}
-	// the batch's scans step is the sub-process its scans run under
-	if Definitions[0].Steps[1].Child != ScanWorkflow || !Definitions[0].Steps[1].Many {
-		t.Errorf("scans step: %+v", Definitions[0].Steps[1])
+	// the batch's scans step is the sub-process its scans run under, one
+	// scan at a time; the scan's photos step starts a photo per print
+	if st := Definitions[0].Steps[1]; st.Child != ScanWorkflow || st.Mode != wf.OneAtATime {
+		t.Errorf("scans step: %+v", st)
+	}
+	if st := Definitions[1].Steps[5]; st.Child != PhotoWorkflow || st.Mode != wf.AllAtOnce {
+		t.Errorf("photos step: %+v", st)
 	}
 }
 

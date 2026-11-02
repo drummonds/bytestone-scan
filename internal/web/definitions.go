@@ -5,8 +5,9 @@ import (
 	"io/fs"
 )
 
-// pictures holds one <type>.svg per definition in batch.Definitions,
-// drawn by internal/web/diagrams/gen (task diagrams).
+// pictures holds a <type>.svg drawn across and a <type>.down.svg drawn
+// down per definition in batch.Definitions, by internal/web/diagrams/gen
+// (task diagrams).
 //
 //go:embed diagrams/*.svg
 var pictures embed.FS
