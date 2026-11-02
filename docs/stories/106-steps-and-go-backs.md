@@ -37,7 +37,10 @@ markers for: preview, confirm, fronts, backs preview and backs. Follows
 
 - Scan page and photo page: a *Steps* table as the batch page has, drawn
   from `batch.Definitions`: step, status, error, action. The batch page's
-  table gains the error and action columns.
+  table gains the error and action columns. The heading names the
+  definition the page is an instance of, linking to its definition page
+  ("Archive one photo", `scan_photo`), beside the instance tag: a photo
+  page reads as an instance of its workflow, as the instance page does.
 - Every page: a Parent line above the steps (the batch for a scan, the
   scan for a photo) and the children below (the batch's scans, the scan's
   photos), each with its own step and status, as the engine's instance
@@ -71,6 +74,7 @@ markers for: preview, confirm, fronts, backs preview and backs. Follows
 
 | Page | Element | Outcome |
 |---|---|---|
+| any | Steps heading | names the definition's purpose, linking to `workflows/definitions/<type>`, beside the instance tag |
 | scan | Parent | links to its batch, with the batch's step and status |
 | scan | Children | one row per photo: its id linking to its page, its step and status |
 | photo | Parent | links to its scan, with the scan's step and status |
