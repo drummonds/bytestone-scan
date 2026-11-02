@@ -735,6 +735,13 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		c.HTML(`<div class="notification is-danger">Failed: ` + html.EscapeString(run.Error) + `</div>` +
 			`<div class="buttons">` + button("retry", "Retry", "is-primary") + `</div>`)
 	case run.Status == wf.StatusCompleted:
+		if s, err := l.Standing(r.Context(), a.Store); err == nil && s.Photo != nil && (s.Status == wf.StatusFailed || s.Status == wf.StatusCancelled) {
+			// a photo the scan is through to, failed: a tick of the
+			// scan runs every photo of it as far as it can go
+			c.HTML(`<div class="notification is-danger">Photo ` + html.EscapeString(strings.TrimPrefix(s.String(), "photo ")) + `</div>` +
+				`<div class="buttons">` + button("retry", "Retry", "is-primary") + `</div>`)
+			break
+		}
 		if waiting := a.undescribed(r.Context(), l); len(waiting) > 0 {
 			var links []string
 			for _, id := range waiting {
