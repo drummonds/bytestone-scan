@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-02
+
+- Progress dots: the batch page draws its run as a row of coloured dots and, under it, a row per scan with a dot per photo coloured by the photo's run, each titled with where it stands and linking to its page; the scan page draws its own run the same way, and when a photo of a finished scan has failed, says which and why in red with a Retry button that attempts it again (#135)
+
+### Added
+
+- Progress dots: the batch page draws its run as a row of coloured dots and, under it, a row per scan with a dot per photo coloured by the photo's run, each titled with where it stands and linking to its page; the scan page draws its own run the same way, and when a photo of a finished scan has failed, says which and why in red with a Retry button that attempts it again (#135) (#135)
+
 ## [0.25.0] - 2026-11-02
 
 - gobank-workflow 0.13.0 → 0.17.1: the batch's *scans* step starts its scans one at a time and the scan's *photos* step its photos all at once, each saying what its children are given; every workflow is drawn across and down, the phone shown the down picture (#136)

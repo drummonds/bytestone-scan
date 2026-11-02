@@ -55,7 +55,8 @@ type App struct {
 	cached pid.ID
 	img    *master.Image
 
-	work worker
+	work  worker
+	views *view.Views // the engine's pages, set by Handler; its Progress draws the dots
 }
 
 const layout = `<!DOCTYPE html>
@@ -88,7 +89,7 @@ func (a *App) Handler() http.Handler {
 	render := func(w http.ResponseWriter, title string, content string) {
 		ctrl.RenderTemplate(w, lofigui.TemplateContext{"title": title, "content": template.HTML(content), "status": a.indicator(), "archive": a.archiveTag(), "database": a.DB != nil})
 	}
-	views := &view.Views{
+	a.views = &view.Views{
 		Store:       queue{a.Store},
 		Definitions: batch.Definitions,
 		Diagrams:    diagrams(),
@@ -106,7 +107,7 @@ func (a *App) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /assets/bulma.min.css", lofigui.ServeBulma)
 	mux.HandleFunc("GET /favicon.ico", lofigui.ServeFavicon)
-	mux.Handle("/workflows/", http.StripPrefix("/workflows", views.Handler()))
+	mux.Handle("/workflows/", http.StripPrefix("/workflows", a.views.Handler()))
 	// the workflow database, browsed read-only through go-dbexplorer in
 	// the app's own layout; its links are relative to db/
 	mux.HandleFunc("GET /db/", func(w http.ResponseWriter, r *http.Request) {
@@ -312,12 +313,12 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 </tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		b.ScanPPI, b.Created.Local().Format("2 Jan 2006 15:04"), html.EscapeString(b.Dir())))
-	c.HTML(a.batchSteps(ctx, b))
 	scans, err := b.Scans()
 	if err != nil {
 		c.HTML(`<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`)
 		return c.Buffer()
 	}
+	c.HTML(a.batchSteps(ctx, b, scans))
 	var t strings.Builder
 	var blocking []string
 	t.WriteString(`<h2 class="title is-5">Scans and imports</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints</th><th>Photos</th><th>Where</th></tr></thead><tbody>`)
@@ -366,8 +367,10 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 }
 
 // batchSteps is the batch's steps as its workflow instance has them, each
-// with its status, and the way to that instance.
-func (a *App) batchSteps(ctx context.Context, b *batch.Batch) string {
+// with its status, and the way to that instance; first as a row of dots,
+// with a row per scan under it, each a dot per photo, so that what holds
+// the batch back is seen at a glance.
+func (a *App) batchSteps(ctx context.Context, b *batch.Batch, scans []*batch.Scan) string {
 	status := map[string]wf.RunStatus{}
 	if run, err := a.Store.FindRunByKey(ctx, batch.Workflow, b.ID); err == nil && run != nil {
 		steps, _ := a.Store.ListSteps(ctx, run.ID)
@@ -376,7 +379,14 @@ func (a *App) batchSteps(ctx context.Context, b *batch.Batch) string {
 		}
 	}
 	var t strings.Builder
-	t.WriteString(`<h2 class="title is-5">Steps ` + a.instanceLink(ctx, batch.Workflow, b.ID) + `</h2><table class="table is-narrow"><tbody>`)
+	t.WriteString(`<h2 class="title is-5">Steps ` + a.instanceLink(ctx, batch.Workflow, b.ID) + `</h2>`)
+	if dots := a.runDots(ctx, batch.Workflow, b.ID); dots != "" {
+		t.WriteString(`<p>` + dots + `</p>`)
+		for _, l := range scans {
+			fmt.Fprintf(&t, `<p class="ml-4"><a href="%s">%s %d</a> %s</p>`, scanURL(l.Key()), kind(l), l.N, a.scanDots(ctx, l))
+		}
+	}
+	t.WriteString(`<table class="table is-narrow"><tbody>`)
 	for _, d := range batch.Definitions {
 		if d.Type != batch.Workflow {
 			continue
@@ -464,6 +474,9 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 </tbody></table>`, kind(l), l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), a.instanceLink(r.Context(), batch.ScanWorkflow, l.Key()), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		capture, l.Created.Local().Format("2 Jan 2006 15:04")))
+	if dots := a.runDots(r.Context(), batch.ScanWorkflow, l.Key()); dots != "" {
+		c.HTML(`<p>` + dots + ` ` + a.scanDots(r.Context(), l) + `</p>`)
+	}
 
 	prints, ids, err := l.Found()
 	if err != nil {
