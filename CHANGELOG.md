@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-03
+
+- Verify looks at the site as well as the archive: each held item's links on i.bytestone.uk and i.bytestone.org are tagged published, not yet or unreachable, and the summary says how many of the items each site has, a warning rather than a success while any is missing (#143).
+
+### Added
+
+- Verify looks at the site as well as the archive: each held item's links on i.bytestone.uk and i.bytestone.org are tagged published, not yet or unreachable, and the summary says how many of the items each site has, a warning rather than a success while any is missing (#143). (#143)
+
 ## [0.28.0] - 2026-11-03
 
 - The verify page links each deposited item to its page on i.bytestone.uk and i.bytestone.org, by its home person; the uk link works once life-weaver has published, the org link once it has promoted (#141).
