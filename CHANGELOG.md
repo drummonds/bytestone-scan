@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-03
+
+- Steps on every page, from the workflow definitions: the batch, scan and photo pages each show a Steps table of the definition they are an instance of, named and linked, with each step's status, its error and what the operator can do there: *Back to* the preview, the prints, the fronts, the backs preview or the backs until a photo is packaged, *Retry* on a failed step; the parent above and the children below, each at its step. A photo refused at deposit says the cause and the next step once, the step named by its standing and the item not at all, and has a Retry of its own that ticks its scan and returns to the photo
+
+### Changed
+
+- Steps on every page, from the workflow definitions: the batch, scan and photo pages each show a Steps table of the definition they are an instance of, named and linked, with each step's status, its error and what the operator can do there: *Back to* the preview, the prints, the fronts, the backs preview or the backs until a photo is packaged, *Retry* on a failed step; the parent above and the children below, each at its step. A photo refused at deposit says the cause and the next step once, the step named by its standing and the item not at all, and has a Retry of its own that ticks its scan and returns to the photo (#139)
+
 ## [0.26.0] - 2026-11-02
 
 - Progress dots: the batch page draws its run as a row of coloured dots and, under it, a row per scan with a dot per photo coloured by the photo's run, each titled with where it stands and linking to its page; the scan page draws its own run the same way, and when a photo of a finished scan has failed, says which and why in red with a Retry button that attempts it again (#135)
