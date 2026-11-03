@@ -910,6 +910,27 @@ func (b *Scan) DescribePhoto(id pid.ID, d PhotoDescription) error {
 	return writeYAML(b.masterPath(id, "yaml"), photo)
 }
 
+// GoBack is whether step is one the operator sends a scan back to: the
+// preview, the prints (confirm), the fronts, the backs preview or the
+// backs. The other steps follow from one of those or are final.
+func GoBack(step string) bool {
+	switch step {
+	case "preview", "confirm", "fronts", "backs preview", "backs":
+		return true
+	}
+	return false
+}
+
+// Final is whether a photo's step, once done, is never redone: packaging
+// and what follows it, since a bagged photo is never altered.
+func Final(step string) bool {
+	switch step {
+	case "package", "deposit", "receipt":
+		return true
+	}
+	return false
+}
+
 // Redo sends the scan back to the step named from, which and every later
 // step run again on the next tick. A ppi other than 0 changes the batch's
 // scan ppi first. What the operator decided at the steps cleared is
@@ -1206,8 +1227,10 @@ func (b *Scan) depositPath(id pid.ID) string {
 // its renditions at the current recipe, and keeps the answer: held, or
 // refused as a duplicate of an item the archive holds already, which
 // ends the photo. A refusal for the renditions redevelops both sides at
-// the current recipe and fails the step, to deposit again; a conflict or
-// a failure fails the step, to be tried again.
+// the current recipe and fails the step, a retry depositing again; a
+// conflict or a failure fails the step, to be tried again. The error is
+// the cause as the operator reads it: the step and the item are the
+// run's and the page's to name.
 func (b *Scan) deposit(id pid.ID, env Env) error {
 	return b.depositItem(id, env, func(again bool) error {
 		if again {
@@ -1241,11 +1264,26 @@ func (b *Scan) depositItem(id pid.ID, env Env, develop func(again bool) error) e
 		return writeYAML(b.depositPath(id), Deposit{Status: "duplicate", Home: refusal.Home, DuplicateOf: refusal.DuplicateOf, File: refusal.File, At: env.Now().UTC()})
 	case errors.As(err, &refusal) && refusal.Status == "renditions":
 		if rerr := develop(true); rerr != nil {
-			return fmt.Errorf("item %s: %w; redeveloping: %v", id, err, rerr)
+			return fmt.Errorf("%w; remaking the renditions: %v", err, rerr)
 		}
-		return fmt.Errorf("item %s: %w; redeveloped at recipe %d, to deposit again", id, err, rendition.Version)
+		return fmt.Errorf("%w; the renditions were remade at recipe %d, Retry deposits again", err, rendition.Version)
 	}
 	return err
+}
+
+// Packaged is whether any photo of the scan is bagged: final, so nothing
+// before packaging can be redone.
+func (b *Scan) Packaged() bool {
+	ids, err := b.items()
+	if err != nil {
+		return false
+	}
+	for _, id := range ids {
+		if bag.Complete(b.bags(), id) {
+			return true
+		}
+	}
+	return false
 }
 
 // redevelop makes the photo's renditions again at the current recipe,

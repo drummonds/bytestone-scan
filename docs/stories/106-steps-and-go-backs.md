@@ -1,6 +1,6 @@
 # 106 — Steps, errors and go-backs on every page, from the workflow definitions (#139)
 
-**Status:** proposed 2026-11-02
+**Status:** built 2026-11-03
 
 ## Why
 
@@ -74,12 +74,12 @@ markers for: preview, confirm, fronts, backs preview and backs. Follows
 
 | Page | Element | Outcome |
 |---|---|---|
-| any | Steps heading | names the definition's purpose, linking to `workflows/definitions/<type>`, beside the instance tag |
+| any | Steps heading | "Steps of" the definition's purpose, linking to `workflows/definitions/<type>`, the instance tag beside |
 | scan | Parent | links to its batch, with the batch's step and status |
 | scan | Children | one row per photo: its id linking to its page, its step and status |
 | photo | Parent | links to its scan, with the scan's step and status |
 | batch | Children | one row per scan, as the Scans and imports table; a scan's step and status |
-| photo | Archive, run failed | "The archive refused the deposit: …" with the cause from the step's error and a *Retry* |
+| photo | Archive, run failed | "Not deposited: failed at deposit: …" with the cause from the step's error and a *Retry* |
 | photo, scan, batch | failure text | names the step once and the item not at all: `refused for its renditions` appears once, no `deposit: item 16: depositing item 16:` |
 
 ## Out of scope
@@ -94,6 +94,14 @@ markers for: preview, confirm, fronts, backs preview and backs. Follows
   (life-weaver#110): the page says what the archive said and what Retry
   does.
 
+## Where it sits
+
+The engine's view already has the hooks this needs: `Specific` makes the
+scanner's page the one an instance is linked to, and the generic instance
+page stays reachable from the Steps heading's tag. That page knows only
+the run, so it can never carry the controls; the scanner's sections know
+what the page is about, and do.
+
 ## Decisions
 
 - The dots row stays as the glance; the Steps table carries the controls.
@@ -102,6 +110,6 @@ markers for: preview, confirm, fronts, backs preview and backs. Follows
 
 ## Done when
 
-- [ ] tests express the acceptance tables and pass
-- [ ] changelog fragment
+- [x] tests express the acceptance tables and pass
+- [x] changelog fragment
 - [ ] issue closed with a link to the release

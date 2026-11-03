@@ -204,7 +204,7 @@ func (r *Refusal) Error() string {
 	case "duplicate":
 		return fmt.Sprintf("refused as a duplicate: %s is held already as part of item %s (home %s)", r.File, r.DuplicateOf, r.Home)
 	case "renditions":
-		return fmt.Sprintf("refused for its renditions: %s is missing or not this bag's", r.File)
+		return fmt.Sprintf("refused for its renditions: the archive wants %s, a rendition missing or of a master not in the bag", r.File)
 	}
 	return "refused: the item holds a bag with other contents"
 }
@@ -276,10 +276,14 @@ func (c Client) Reserve(home pid.ID) (pid.ID, error) {
 	return r.Item, nil
 }
 
-// Deposit puts the photo's deposit to the service.
+// Deposit puts the photo's deposit to the service. A refusal is the
+// archive's answer, given as said; a failure to deposit names the item.
 func (c Client) Deposit(item pid.ID, deposit io.Reader) (Receipt, error) {
 	var r Receipt
 	err := c.call(http.MethodPut, "/items/"+item.String(), deposit, &r)
+	if refusal, ok := errors.AsType[*Refusal](err); ok {
+		return r, refusal
+	}
 	if errors.Is(err, errNotFound) {
 		return r, fmt.Errorf("item %s is not reserved at %s", item, c.URL)
 	}

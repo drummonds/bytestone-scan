@@ -371,6 +371,23 @@ func TestEveryStepHasADefinition(t *testing.T) {
 			}
 		}
 	}
+	// #139: the go-back steps are steps of the scan, the final ones steps
+	// of the photo, from the packaging on
+	for _, name := range []string{"preview", "confirm", "fronts", "backs preview", "backs"} {
+		if !GoBack(name) || !slices.ContainsFunc(Definitions[1].Steps, func(s wf.Step) bool { return s.Name == name }) {
+			t.Errorf("go-back %s: not a step of the scan", name)
+		}
+	}
+	for _, name := range []string{"describe", "find prints", "check quality", "photos", ""} {
+		if GoBack(name) {
+			t.Errorf("%q is not a go-back", name)
+		}
+	}
+	for i, st := range Definitions[2].Steps {
+		if want := i >= slices.IndexFunc(Definitions[2].Steps, func(s wf.Step) bool { return s.Name == "package" }); Final(st.Name) != want {
+			t.Errorf("photo step %s final: %v, want %v", st.Name, Final(st.Name), want)
+		}
+	}
 	// the batch's scans step is the sub-process its scans run under, one
 	// scan at a time; the scan's photos step starts a photo per print
 	if st := Definitions[0].Steps[1]; st.Child != ScanWorkflow || st.Mode != wf.OneAtATime {
