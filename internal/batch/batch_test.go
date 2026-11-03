@@ -1041,3 +1041,35 @@ func TestDescribeStartsTheBatchRun(t *testing.T) {
 		t.Errorf("run status %s, want %s", run.Status, wf.StatusWaiting)
 	}
 }
+
+// Story 111: a region is split by hand into equal parts, which replace
+// it in the prints' order; it is an edit, refused once confirmed.
+func TestSplitARegionByHand(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{
+		{X0: 10, Y0: 10, X1: 130, Y1: 70, Value: 20000},
+		{X0: 10, Y0: 100, X1: 70, Y1: 150, Value: 20000},
+	}}
+	b := describe(t, root)
+	run(t, b, wf.NewMemStore(), scanner)
+	if err := b.SplitInto(0, 2, 1); err != nil {
+		t.Fatal(err)
+	}
+	prints, _, _ := b.Found()
+	if len(prints) != 3 {
+		t.Fatalf("%d regions after the split, want 3", len(prints))
+	}
+	if r1, r2 := prints[0].Region.Bounds(), prints[1].Region.Bounds(); math.Abs(r1.X1-r2.X0) > 1e-6 || math.Abs(r1.X1-(r1.X0+r2.X1)/2) > 0.5 || math.Abs(prints[2].Print.Bounds().Y0-100) > 0.5 {
+		t.Errorf("after the split: %+v, %+v, %+v", prints[0].Region, prints[1].Region, prints[2].Region)
+	}
+	if err := b.SplitInto(2, 1, 1); err == nil {
+		t.Error("split a region into one")
+	}
+	if err := b.SplitInto(3, 2, 1); err == nil {
+		t.Error("split a region that is not there")
+	}
+	b.Confirm()
+	if err := b.SplitInto(0, 2, 1); err == nil {
+		t.Error("split a region after confirming")
+	}
+}

@@ -695,12 +695,24 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		return n, l.Adjust(n-1, edge, by)
 	})
+	// the finder's split, or, given across and down, one by hand
 	edit("split", func(r *http.Request, l *batch.Scan) (int, error) {
 		n, err := strconv.Atoi(r.FormValue("print"))
 		if err != nil {
 			return 0, fmt.Errorf("no print given")
 		}
-		return n, l.Split(n - 1)
+		if r.FormValue("across") == "" && r.FormValue("down") == "" {
+			return n, l.Split(n - 1)
+		}
+		across, err := strconv.Atoi(r.FormValue("across"))
+		if err != nil {
+			return 0, fmt.Errorf("split across %q: not a number", r.FormValue("across"))
+		}
+		down, err := strconv.Atoi(r.FormValue("down"))
+		if err != nil {
+			return 0, fmt.Errorf("split down %q: not a number", r.FormValue("down"))
+		}
+		return n, l.SplitInto(n-1, across, down)
 	})
 	edit("remove", func(r *http.Request, l *batch.Scan) (int, error) {
 		n, err := strconv.Atoi(r.FormValue("print"))

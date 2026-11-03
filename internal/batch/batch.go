@@ -784,6 +784,21 @@ func (b *Scan) Split(n int) error {
 	return writeYAML(b.path("prints.yaml"), f)
 }
 
+// SplitInto replaces print n's region with its parts, across × down, cut
+// by hand where the finder cannot tell the prints apart.
+func (b *Scan) SplitInto(n, across, down int) error {
+	f, err := b.editable(n)
+	if err != nil {
+		return err
+	}
+	parts, err := f.Prints[n].Divide(across, down)
+	if err != nil {
+		return fmt.Errorf("print %d: %w", n+1, err)
+	}
+	f.Prints = append(f.Prints[:n], append(parts, f.Prints[n+1:]...)...)
+	return writeYAML(b.path("prints.yaml"), f)
+}
+
 // Remove drops print n's region: a mark that is not a print.
 func (b *Scan) Remove(n int) error {
 	f, err := b.editable(n)

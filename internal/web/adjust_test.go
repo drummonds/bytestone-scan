@@ -162,8 +162,8 @@ func TestSplitAndRemoveRegions(t *testing.T) {
 	h := a.Handler()
 	loc := act(t, a, h, "/batches", url.Values{"title": {"three"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
 	body := get(t, h, loc).Body.String()
-	if strings.Count(body, `action="`+loc[1:]+`/split"`) != 1 {
-		t.Error("want a split button on the merged region only")
+	if strings.Count(body, ">Split into 2<") != 1 || strings.Count(body, ">Split by hand<") != 2 {
+		t.Error("want the finder's split button on the merged region only, and split by hand on both")
 	}
 	if strings.Count(body, `action="`+loc[1:]+`/remove"`) != 4 {
 		t.Error("want a remove button above and below each region")
