@@ -4,12 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	wf "git.bytestone.uk/hum3/gobank-workflow"
 	"git.bytestone.uk/hum3/gobank-workflow/runnertest"
 
+	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
@@ -145,5 +147,55 @@ func TestABatchsOutcomeCountsItsPhotos(t *testing.T) {
 	run(t, open, store, scanner)
 	if o, err := open.Sitting().Outcome(); err != nil || o.Held != 0 || len(o.Rejected) != 0 || o.Pending != 2 {
 		t.Errorf("an open batch's outcome %+v, %v; want 2 pending", o, err)
+	}
+}
+
+// Story 110: a cancelled scan is left out of its batch. Finish scanning
+// does not wait for it, and the batch closes without it; a scan through
+// to its photos cannot be cancelled, nor one with no run yet; a batch
+// whose scans are all cancelled has nothing scanned.
+func TestACancelledScanIsLeftOutOfTheBatch(t *testing.T) {
+	ctx := context.Background()
+	root, store := t.TempDir(), wf.NewMemStore()
+	a, al := through(t, root, store)
+	empty, err := a.NewScan("empty bed", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := empty.Cancel(ctx, store); err == nil {
+		t.Error("cancelled a scan with no run")
+	}
+	run(t, empty, store, &batchtest.Scanner{}) // waits at confirm with no prints
+	if _, err := a.Finish(ctx, store); err == nil || !strings.Contains(err.Error(), "scan 2 is not through") {
+		t.Fatalf("finish with an empty scan in hand: %v", err)
+	}
+	if err := al.Cancel(ctx, store); err == nil {
+		t.Error("cancelled a scan that is through")
+	}
+	if err := empty.Cancel(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	if err := empty.Cancel(ctx, store); err == nil {
+		t.Error("cancelled a scan twice")
+	}
+	if s, err := empty.Standing(ctx, store); err != nil || !s.Cancelled() || s.String() != "cancelled" {
+		t.Errorf("standing %+v %v, want cancelled", s, err)
+	}
+	rec, err := a.Finish(ctx, store)
+	if err != nil || rec.Status != wf.StatusCompleted {
+		t.Fatalf("finish with a cancelled scan: %v %+v", err, rec)
+	}
+	if _, ok := a.Closed(); !ok {
+		t.Error("not closed")
+	}
+
+	b := sitting(t, root)
+	l, _ := b.NewScan("", now)
+	run(t, l, store, &batchtest.Scanner{})
+	if err := l.Cancel(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Finish(ctx, store); err == nil || !strings.Contains(err.Error(), "nothing has been scanned") {
+		t.Errorf("finished a batch of cancelled scans: %v", err)
 	}
 }
