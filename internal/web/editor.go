@@ -103,11 +103,26 @@ func regionEditor(b *batch.Scan, i int, p find.Print, last bool) string {
 	return fmt.Sprintf(`<div class="box" id="print-%d">
 <div class="level is-mobile mb-3"><div class="level-left"><h2 class="title is-5 mb-0">Print %d: %.1f × %.1f mm</h2></div><div class="level-right">%s</div></div>
 %s
-<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm%s.</p>
-<div class="buttons mt-3">%s%s%s</div>
+<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm%s. Split by hand cuts the region into equal parts, for a contact print or prints that touch; the arrows then move the cuts.</p>
+<div class="buttons mt-3">%s%s%s%s</div>
 </div>`, n, n, p.Print.W, p.Print.H, remove,
 		edgeGrid(id+"/adjust", n, p, b.Bed(), img),
-		turnedBack(p.Region), tick, smallStep, largeStep, hugeArrows(p.Region), confirmButton(id, last), splitButton(id, n, p), remove)
+		turnedBack(p.Region), tick, smallStep, largeStep, hugeArrows(p.Region), confirmButton(id, last), splitButton(id, n, p), remove, splitByHand(id, n, p))
+}
+
+// splitByHand is the form that cuts print n's region into equal parts,
+// for the prints the finder cannot tell apart: a contact print, a strip
+// of frames, prints butted together. The arrows then move the cuts.
+// A print turned too far to deskew has no edges to move, so no cuts.
+func splitByHand(url string, n int, p find.Print) string {
+	if p.Straighten() {
+		return ""
+	}
+	return fmt.Sprintf(`<form action="%s/split" method="post" class="field is-grouped is-align-items-center" style="margin-left:auto"><input type="hidden" name="print" value="%d">`+
+		`<span class="mr-1">Split into</span><input class="input is-small" type="number" name="across" value="2" min="1" max="%d" style="width:4em"> <span class="mx-1">across and</span>`+
+		`<input class="input is-small" type="number" name="down" value="1" min="1" max="%d" style="width:4em"> <span class="mx-1">down</span>`+
+		`<button class="button is-small is-warning" type="submit">Split by hand</button></form>`,
+		url, n, max(1, int(p.Region.W/20)), max(1, int(p.Region.H/20)))
 }
 
 // hugeArrows says what the triple arrows do, on a region that has them.

@@ -818,3 +818,27 @@ func TestARulerOnAReducedCloseUpKeepsItsTicksApart(t *testing.T) {
 		t.Errorf("the help should say the wider tick spacing the rulers use, got %q", every)
 	}
 }
+
+// Story 111: every region at confirm has a form to split it by hand into
+// so many across and down; the parts take the region's place.
+func TestSplitARegionByHandFromTheEditor(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 10, Y0: 10, X1: 130, Y1: 70, Value: 20000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"contact print"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	page(t, h, loc, `name="across"`, `name="down"`, "Split into")
+	if body := get(t, h, loc).Body.String(); strings.Contains(body, `id="print-2"`) {
+		t.Fatal("two regions before the split")
+	}
+	w := post(t, h, loc+"/split", url.Values{"print": {"1"}, "across": {"2"}, "down": {"1"}})
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != loc+"#print-1" {
+		t.Fatalf("split: %d %s %s", w.Code, w.Header().Get("Location"), w.Body)
+	}
+	page(t, h, loc, `id="print-1"`, `id="print-2"`)
+	if w := post(t, h, loc+"/split", url.Values{"print": {"1"}, "across": {"1"}, "down": {"1"}}); w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("split into one: %d, want 422", w.Code)
+	}
+	if w := post(t, h, loc+"/split", url.Values{"print": {"1"}, "across": {"x"}}); w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("split into x: %d, want 422", w.Code)
+	}
+}

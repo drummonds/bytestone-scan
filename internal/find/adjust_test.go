@@ -211,3 +211,53 @@ func TestAMovedEdgeCarriesThePrintsEdgeWithIt(t *testing.T) {
 	}
 	checkBox(t, "a print over 10°, region moved", got.Print, over.Print)
 }
+
+// Story 111: a region is divided by hand into across × down equal parts
+// along its own axes, numbered in rows. A part's print keeps the
+// original's edge on the outside and sits the margin inside a cut edge.
+func TestDivideAPrintByHand(t *testing.T) {
+	p := Print{Print: square(11, 11, 129, 69), Region: square(10, 10, 130, 70), Skew: 0, Fill: 0.99, Parts: 1}
+	parts, err := p.Divide(2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("%d parts, want 2", len(parts))
+	}
+	checkBox(t, "part 1 region", parts[0].Region, square(10, 10, 70, 70))
+	checkBox(t, "part 1 print", parts[0].Print, square(11, 11, 69.5, 69))
+	checkBox(t, "part 2 region", parts[1].Region, square(70, 10, 130, 70))
+	checkBox(t, "part 2 print", parts[1].Print, square(70.5, 11, 129, 69))
+	for i, part := range parts {
+		if part.Parts != 0 || part.Review || part.Fill != p.Fill {
+			t.Errorf("part %d: %+v, want no parts, no review, the fill kept", i+1, part)
+		}
+	}
+
+	for _, bad := range [][2]int{{1, 1}, {0, 2}, {7, 1}, {1, 4}} {
+		if _, err := p.Divide(bad[0], bad[1]); err == nil {
+			t.Errorf("divided %d × %d", bad[0], bad[1])
+		}
+	}
+
+	turned := Print{Print: Box{CX: 70, CY: 40, W: 118, H: 58, Angle: 3}, Region: Box{CX: 70, CY: 40, W: 120, H: 60, Angle: 3}, Skew: 3}
+	parts, err = turned.Divide(2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 4 {
+		t.Fatalf("%d parts, want 4", len(parts))
+	}
+	for i, part := range parts {
+		if part.Region.Angle != 3 || part.Print.Angle != 3 || part.Skew != 3 || math.Abs(part.Region.W-60) > 1e-9 || math.Abs(part.Region.H-30) > 1e-9 {
+			t.Errorf("part %d of a turned print: %+v", i+1, part)
+		}
+	}
+	// numbered in rows: part 2 is right of part 1, part 3 below it, in the region's own frame
+	u1, v1 := turned.Region.In(parts[0].Region.CX, parts[0].Region.CY)
+	u2, v2 := turned.Region.In(parts[1].Region.CX, parts[1].Region.CY)
+	u3, v3 := turned.Region.In(parts[2].Region.CX, parts[2].Region.CY)
+	if math.Abs(u1-30) > 1e-9 || math.Abs(v1-15) > 1e-9 || math.Abs(u2-90) > 1e-9 || math.Abs(v2-15) > 1e-9 || math.Abs(u3-30) > 1e-9 || math.Abs(v3-45) > 1e-9 {
+		t.Errorf("parts' centres in the region's frame: %g,%g %g,%g %g,%g", u1, v1, u2, v2, u3, v3)
+	}
+}
