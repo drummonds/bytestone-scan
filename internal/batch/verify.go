@@ -39,6 +39,7 @@ const (
 // import was cut from.
 type Check struct {
 	Photo   pid.ID
+	Home    pid.ID // the person the item sits under, from the deposit record
 	Page    bool
 	Verdict Verdict
 	Detail  string // how it was verified, what differs, or which item holds the duplicate
@@ -80,7 +81,9 @@ func (l *Scan) verify(id pid.ID, svc archive.Service) (Check, error) {
 	case d == nil:
 		c.Verdict = Pending
 		return c, nil
-	case d.Status == "duplicate":
+	}
+	c.Home = d.Home
+	if d.Status == "duplicate" {
 		c.Verdict, c.Detail = Rejected, fmt.Sprintf("a duplicate of item %s", d.DuplicateOf)
 		return c, nil
 	}
