@@ -34,6 +34,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/quality"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/site"
 )
 
 const (
@@ -49,6 +50,7 @@ type App struct {
 	DB      *sql.DB // the workflow database the store reads, for the explorer; nil without one
 	Scanner batch.Scanner
 	Archive archive.Service
+	Sites   []site.Site // where items are published, asked by Verify; nil for site.Defaults
 	Now     func() time.Time
 
 	mu     sync.Mutex // the last master decoded, since a page and its images all want it
@@ -330,7 +332,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 			where = err.Error()
 		} else {
 			where = s.String()
-			if !s.Through() {
+			if !s.Through() && !s.Cancelled() {
 				blocking = append(blocking, fmt.Sprintf("%s %d: %s", strings.ToLower(kind(l)), l.N, where))
 			}
 		}

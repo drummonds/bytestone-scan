@@ -24,6 +24,10 @@ type Standing struct {
 // Through is whether the scan and every photo of it are through.
 func (s Standing) Through() bool { return s.Status == wf.StatusCompleted }
 
+// Cancelled is whether the scan was cancelled by the operator: it is
+// left out of its batch, which neither waits for it nor counts it.
+func (s Standing) Cancelled() bool { return s.Status == wf.StatusCancelled && s.Photo == nil }
+
 // String says the standing as the operator reads it: "not started",
 // "waiting at confirm", "photo 16 failed at deposit: refused …", "through".
 func (s Standing) String() string {
@@ -126,6 +130,25 @@ func standingOf(ctx context.Context, store wf.Store, typ wf.WorkflowType, key st
 		}
 	}
 	return s, nil
+}
+
+// Cancel ends the scan's run cancelled, so the scan is left out of its
+// batch. A scan through to its photos is refused, as is one already
+// cancelled or with no run yet.
+func (l *Scan) Cancel(ctx context.Context, store wf.Store) error {
+	run, err := store.FindRunByKey(ctx, ScanWorkflow, l.Key())
+	if err != nil {
+		return fmt.Errorf("scan %s: %w", l.Key(), err)
+	}
+	switch {
+	case run == nil:
+		return fmt.Errorf("scan %s: not started, nothing to cancel", l.Key())
+	case run.Status == wf.StatusCompleted:
+		return fmt.Errorf("scan %s is through to its photos: it cannot be cancelled", l.Key())
+	case run.Status == wf.StatusCancelled:
+		return fmt.Errorf("scan %s is cancelled already", l.Key())
+	}
+	return store.CancelRun(ctx, run.ID)
 }
 
 // PhotoStanding is where one photo's own run stands.

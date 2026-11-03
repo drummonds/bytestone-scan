@@ -66,7 +66,10 @@ still holds each photo of the scan, or of every scan of the batch, as it
 was receipted: each item's receipt is compared, checksum for checksum,
 with the one taken at deposit and with the bag while it is still in
 staging, nothing being downloaded. A completed scan's page offers the
-same as *Verify against the archive*.
+same as *Verify against the archive*, and asks i.bytestone.uk and
+i.bytestone.org as well whether each held item's page is there: an item
+reaches the first at life-weaver's `task publish` and the second at its
+`task promote`.
 
 Without the scanner, run the UI on a recorded print: `bytestone-scan
 capture -print <name>` records the one print on the bed (its preview and

@@ -842,3 +842,48 @@ func TestSplitARegionByHandFromTheEditor(t *testing.T) {
 		t.Errorf("split into x: %d, want 422", w.Code)
 	}
 }
+
+// Story 110: a scan is cancelled from its own page while its run is not
+// through and no step is running; cancelled, it is left out of the batch.
+func TestCancelAScanFromItsPage(t *testing.T) {
+	sc := &holdDetail{Scanner: &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 60, Y1: 50, Value: 20000}}}, started: make(chan struct{})}
+	a := live(t, sc.Scanner)
+	a.Scanner = sc
+	h := a.Handler()
+	one := act(t, a, h, "/batches", url.Values{"title": {"first"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	page(t, h, one, one[1:]+"/cancel", "Cancel this scan")
+	if w := post(t, h, one+"/confirm", nil); w.Code != http.StatusSeeOther {
+		t.Fatalf("confirm: %d %s", w.Code, w.Body)
+	}
+	<-sc.started
+	if body := get(t, h, one).Body.String(); strings.Contains(body, "Cancel this scan") {
+		t.Error("cancel offered while a step runs")
+	}
+	if w := post(t, h, one+"/cancel", nil); w.Code != http.StatusConflict {
+		t.Errorf("cancel while a step runs: %d, want 409", w.Code)
+	}
+	act(t, a, h, one+"/stop", nil)
+	a.wait()
+	page(t, h, one, "Stopped", "Cancel this scan")
+
+	sc.Prints = nil // the second scan previews an empty bed
+	two := act(t, a, h, "/batches/20261020-1/scans", url.Values{"description": {"empty bed"}})
+	page(t, h, two, "Cancel this scan")
+	page(t, h, "/batches/20261020-1", "Finish scanning waits for scan 2")
+	if loc := act(t, a, h, two+"/cancel", nil); loc != two {
+		t.Errorf("cancel went to %s", loc)
+	}
+	page(t, h, two, "Cancelled", "left out of the batch")
+	if body := get(t, h, two).Body.String(); strings.Contains(body, "Cancel this scan") || strings.Contains(body, "Carry on") {
+		t.Errorf("a cancelled scan offers more:\n%s", body)
+	}
+	if w := post(t, h, two+"/cancel", nil); w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("cancel twice: %d, want 422", w.Code)
+	}
+	if body := get(t, h, "/batches/20261020-1").Body.String(); strings.Contains(body, "waits for scan 2") || !strings.Contains(body, "cancelled") {
+		t.Errorf("batch page with a cancelled scan:\n%s", body)
+	}
+	if w := post(t, h, "/batches/20261020-1/finish", nil); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "scan 1 is not through") {
+		t.Errorf("finish with scan 1 stopped: %d %s", w.Code, w.Body)
+	}
+}

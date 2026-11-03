@@ -522,6 +522,23 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		http.Redirect(w, r, "/"+scanURL(key), http.StatusSeeOther)
 	})
+	// cancelling takes no scanner either, but waits for the step running
+	mux.HandleFunc("POST /batches/{id}/scans/{n}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		l, err := batch.OpenScan(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if a.running() == l.Key() {
+			fail(w, fmt.Errorf("%w: stop scan %s's step first", errBusy, l.Key()), http.StatusConflict)
+			return
+		}
+		if err := l.Cancel(r.Context(), a.Store); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
+	})
 	act("reshape", func(r *http.Request, l *batch.Scan) error {
 		n, edge, by, absolute, err := parseMove(r.FormValue("move"))
 		if err != nil {
@@ -766,7 +783,11 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		return fmt.Sprintf(`<form action="%s/%s" method="post" style="display:inline"><button class="button %s" type="submit">%s</button></form> `,
 			scanURL(l.Key()), action, class, label)
 	}
+	// a scan not through to its photos can be abandoned: left out of the batch
+	cancel := button("cancel", "Cancel this scan", "is-danger is-light")
 	switch {
+	case run.Status == wf.StatusCancelled:
+		c.HTML(`<div class="notification is-warning">Cancelled: this scan is left out of the batch. To scan the prints after all, do one more scan.</div>`)
 	case run.Status == wf.StatusFailed && strings.Contains(run.Error, errStopped.Error()):
 		// stopped mid-step, most often to size the regions after all
 		back := ""
@@ -774,10 +795,10 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 			back = button("prints", "‹ Back to the prints", "is-primary")
 		}
 		c.HTML(`<div class="notification is-warning">Stopped. Go back to the prints to change them, or carry on where it stopped.</div>` +
-			`<div class="buttons">` + back + button("retry", "Carry on", "") + `</div>`)
+			`<div class="buttons">` + back + button("retry", "Carry on", "") + cancel + `</div>`)
 	case run.Status == wf.StatusFailed:
 		c.HTML(`<div class="notification is-danger">Failed: ` + html.EscapeString(run.Error) + `</div>` +
-			`<div class="buttons">` + button("retry", "Retry", "is-primary") + `</div>`)
+			`<div class="buttons">` + button("retry", "Retry", "is-primary") + cancel + `</div>`)
 	case run.Status == wf.StatusCompleted:
 		if s, err := l.Standing(r.Context(), a.Store); err == nil && s.Photo != nil && (s.Status == wf.StatusFailed || s.Status == wf.StatusCancelled) {
 			// a photo the scan is through to, failed: a tick of the
@@ -799,13 +820,13 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		}
 	case waiting == "confirm" && l.Import():
 		c.HTML(`<div class="notification is-warning">Check the prints found on the page.</div><div class="buttons">` +
-			button("confirm", "Confirm and cut ›", "is-primary") + `</div>`)
+			button("confirm", "Confirm and cut ›", "is-primary") + cancel + `</div>`)
 	case waiting == "confirm":
 		c.HTML(`<div class="notification is-warning">Check the prints found on the preview.</div><div class="buttons">` +
-			button("confirm", "Confirm and scan ›", "is-primary") + button("preview", "Rescan the preview", "") + `</div>`)
+			button("confirm", "Confirm and scan ›", "is-primary") + button("preview", "Rescan the preview", "") + cancel + `</div>`)
 	case waiting == "backs preview":
 		c.HTML(`<div class="notification is-warning">Turn each print over where it lies, so its back faces the glass, then preview the backs. If nothing is written or printed on any back, skip them.</div><div class="buttons">` +
-			button("backs", "Preview the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
+			button("backs", "Preview the backs ›", "is-primary") + button("no-backs", "No backs ›", "") + button("prints", "‹ Back to the prints", "") + cancel + `</div>`)
 	case waiting == "backs":
 		notice := "Check that each back lies where its front did, and untick any back with nothing on it, then scan the backs. A print that moved is put back and the backs previewed again. If nothing is written or printed on any back after all, skip them."
 		if backs, err := l.BacksFound(); err == nil {
@@ -821,7 +842,7 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		}
 		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
 			fmt.Sprintf(`<form id="scan-backs" action="%s/confirm-backs" method="post" style="display:inline"><input type="hidden" name="select" value="1"><button class="button is-primary" type="submit">Scan the backs ›</button></form> `, scanURL(l.Key())) +
-			button("no-backs", "No backs ›", "") + button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + `</div>`)
+			button("no-backs", "No backs ›", "") + button("preview-backs", "Preview the backs again", "") + button("prints", "‹ Back to the prints", "") + cancel + `</div>`)
 	case waiting == "check quality":
 		// the forward step is what accepting leads to: the describing
 		// still to do, or, every photo described, the archive
@@ -833,7 +854,7 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		if l.Import() {
 			notice = strings.Replace(notice, ", front and back,", ",", 1)
 			c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
-				button("accept", accept, "is-primary") + button("prints", "‹ Back to the prints", "") + `</div>`)
+				button("accept", accept, "is-primary") + button("prints", "‹ Back to the prints", "") + cancel + `</div>`)
 			break
 		}
 		c.HTML(`<div class="notification is-warning">` + notice + `</div><div class="buttons">` +
@@ -841,10 +862,10 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 			fmt.Sprintf(`<form action="%s/rescan" method="post" style="display:inline"><div class="select"><select name="ppi">%s</select></div> <button class="button" type="submit">Rescan at</button></form> `,
 				scanURL(l.Key()), ppiOptions(l.Sitting().ScanPPI)) +
 			button("rescan-backs", "Rescan the backs", "") +
-			button("prints", "‹ Back to the prints", "") + `</div>`)
+			button("prints", "‹ Back to the prints", "") + cancel + `</div>`)
 	default:
 		c.HTML(`<div class="notification">` + html.EscapeString(string(run.Status)) + `</div>` +
-			`<div class="buttons">` + button("retry", "Carry on", "") + `</div>`)
+			`<div class="buttons">` + button("retry", "Carry on", "") + cancel + `</div>`)
 	}
 	return false, waiting
 }
