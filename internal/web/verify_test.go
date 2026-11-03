@@ -16,7 +16,10 @@ func TestVerifyPage(t *testing.T) {
 	page(t, h, scan, `href="batches/`+l.Batch+`/scans/1/verify"`, "Verify against the archive")
 	page(t, h, scan+"/verify", `<h1 class="title">Verification of scan 1`, `href="batches/`+l.Batch+`/scans/1"`,
 		`<a href="photos/0">0</a>`, `<a href="photos/1">1</a>`, "<td>verified</td>", "<td>3</td>",
-		`is-success">Verified: 2 photos held by the archive, every checksum as receipted`)
+		`is-success">Verified: 2 photos held by the archive, every checksum as receipted`,
+		// #141: links to the item on both sites, by its home person
+		`<th>Published</th>`, `<a href="https://i.bytestone.uk/a/items/0/">i.bytestone.uk</a>`, `<a href="https://i.bytestone.org/a/items/1/">i.bytestone.org</a>`,
+		"once life-weaver has published", "once it has promoted")
 
 	a.Archive.(*archivetest.Fake).Forget(1)
 	page(t, h, scan+"/verify", "<td>verified</td>", "<td>unknown</td>", `is-danger">Not verified: 1 of 2 photos`)

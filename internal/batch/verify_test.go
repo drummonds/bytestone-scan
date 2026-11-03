@@ -32,7 +32,7 @@ func TestAScanIsVerifiedAgainstTheArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Check{{Photo: dup, Verdict: Rejected, Detail: "a duplicate of item 7"}, {Photo: held, Verdict: Verified, Files: 3, Detail: "checksums recomputed by the archive"}}
+	want := []Check{{Photo: dup, Home: 10, Verdict: Rejected, Detail: "a duplicate of item 7"}, {Photo: held, Home: 10, Verdict: Verified, Files: 3, Detail: "checksums recomputed by the archive"}}
 	if len(checks) != 2 || checks[0] != want[0] || checks[1] != want[1] {
 		t.Errorf("checks %+v, want %+v", checks, want)
 	}

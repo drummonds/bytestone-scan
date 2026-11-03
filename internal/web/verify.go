@@ -8,7 +8,24 @@ import (
 	lofigui "git.bytestone.uk/hum3/lofigui"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
+
+// sites are where life-weaver puts the items, in the order they get
+// them: i.bytestone.uk at a publish, i.bytestone.org at the promotion
+// that follows.
+var sites = []string{"i.bytestone.uk", "i.bytestone.org"}
+
+// published links an item on each site, at its home person's page:
+// https://<site>/<home>/items/<id>/. Whether the page is there yet is
+// not asked.
+func published(home, id pid.ID) string {
+	var links []string
+	for _, site := range sites {
+		links = append(links, fmt.Sprintf(`<a href="https://%s/%s/items/%s/">%s</a>`, site, home, id, site))
+	}
+	return strings.Join(links, " ")
+}
 
 // verifyPage asks the archive afresh for each of the scan's items and
 // shows how each stands: the verdict, the files the archive holds and
@@ -29,7 +46,7 @@ func (a *App) verifyPage(l *batch.Scan) string {
 		return c.Buffer()
 	}
 	var t strings.Builder
-	t.WriteString(`<table class="table is-striped"><thead><tr><th>Item</th><th>Verdict</th><th>Files</th><th>Detail</th></tr></thead><tbody>`)
+	t.WriteString(`<table class="table is-striped"><thead><tr><th>Item</th><th>Verdict</th><th>Files</th><th>Detail</th><th>Published</th></tr></thead><tbody>`)
 	for _, ch := range checks {
 		item := fmt.Sprintf(`<a href="photos/%s">%s</a>`, ch.Photo, ch.Photo)
 		if ch.Page {
@@ -39,11 +56,16 @@ func (a *App) verifyPage(l *batch.Scan) string {
 		if ch.Files > 0 {
 			files = fmt.Sprint(ch.Files)
 		}
-		fmt.Fprintf(&t, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, item, ch.Verdict, files, html.EscapeString(ch.Detail))
+		links := ""
+		if ch.Verdict != batch.Pending && ch.Verdict != batch.Rejected {
+			links = published(ch.Home, ch.Photo)
+		}
+		fmt.Fprintf(&t, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, item, ch.Verdict, files, html.EscapeString(ch.Detail), links)
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
-	c.HTML(fmt.Sprintf(`<p class="help">The archive is asked to recompute each item's checksums from its disk (or for its receipt, when it is too old to), and the answer is compared, checksum for checksum, with the receipt taken at deposit and with the bag while it is still in staging; nothing is downloaded.</p>
+	c.HTML(fmt.Sprintf(`<p class="help">The archive is asked to recompute each item's checksums from its disk (or for its receipt, when it is too old to), and the answer is compared, checksum for checksum, with the receipt taken at deposit and with the bag while it is still in staging; nothing is downloaded.
+An item is on i.bytestone.uk once life-weaver has published and on i.bytestone.org once it has promoted; until then its link is not found.</p>
 <div class="buttons"><a class="button" href="%s">‹ Back to the scan</a></div>`, scanURL(l.Key())))
 	return c.Buffer()
 }
