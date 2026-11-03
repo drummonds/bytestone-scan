@@ -212,6 +212,11 @@ func TestReserveDepositAndReceipt(t *testing.T) {
 	if _, err := c.Deposit(14, strings.NewReader("x")); !errors.As(err, &ref) || ref.Status != "renditions" || ref.File != "renditions/1/display.jpg" || !strings.Contains(err.Error(), "renditions") {
 		t.Errorf("Deposit(e) = %v, want a renditions refusal naming the file", err)
 	}
+	// #139: a refusal is the archive's answer, not a failure to deposit:
+	// it comes back as said, unwrapped, saying what the archive wants
+	if _, err := c.Deposit(14, strings.NewReader("x")); err == nil || err.Error() != "refused for its renditions: the archive wants renditions/1/display.jpg, a rendition missing or of a master not in the bag" {
+		t.Errorf("Deposit(e) = %q, want the refusal as said", err)
+	}
 	if rec, err := c.Receipt(8); err != nil || rec.Status != Held || rec.Home != 10 {
 		t.Errorf("Receipt(8) = %+v, %v", rec, err)
 	}

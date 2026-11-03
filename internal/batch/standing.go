@@ -98,7 +98,9 @@ func (l *Scan) Standing(ctx context.Context, store wf.Store) (Standing, error) {
 }
 
 // standingOf is the standing of one run: its status, the step it is at
-// when not through, and its error.
+// when not through, and its error: the failed step's own, which says
+// the cause without the step's name, or the run's when no step records
+// one.
 func standingOf(ctx context.Context, store wf.Store, typ wf.WorkflowType, key string) (Standing, error) {
 	run, err := store.FindRunByKey(ctx, typ, key)
 	if err != nil {
@@ -118,6 +120,9 @@ func standingOf(ctx context.Context, store wf.Store, typ wf.WorkflowType, key st
 	for _, step := range steps {
 		if step.Status != wf.StatusCompleted {
 			s.Step = step.StepName
+			if step.Status == wf.StatusFailed && step.Error != "" {
+				s.Error = step.Error
+			}
 		}
 	}
 	return s, nil

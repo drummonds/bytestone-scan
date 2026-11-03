@@ -481,6 +481,38 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 	})
 	act("accept", func(r *http.Request, l *batch.Scan) error { return l.Accept() })
 	act("retry", func(r *http.Request, l *batch.Scan) error { return nil })
+	// the steps table's Back to a step: one of the go-back steps only
+	act("redo", func(r *http.Request, l *batch.Scan) error {
+		step := r.FormValue("step")
+		if !batch.GoBack(step) {
+			return fmt.Errorf("%q is not a step the scan goes back to: preview, confirm, fronts, backs preview or backs", step)
+		}
+		return l.Redo(r.Context(), a.Store, step, 0)
+	})
+	// a photo's retry ticks its scan, which runs every photo of it as far
+	// as it goes, and returns to the photo
+	mux.HandleFunc("POST /photos/{id}/retry", func(w http.ResponseWriter, r *http.Request) {
+		id, err := pid.Parse(r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		p, _, err := batch.FindPhoto(a.Staging, id)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		l, err := batch.OpenScan(a.Staging, fmt.Sprintf("%s/%d", p.Batch, p.Scan))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if err := a.start(l, func() error { return nil }); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/photos/"+id.String(), http.StatusSeeOther)
+	})
 	// stopping takes no scanner: it ends the step running, if any
 	mux.HandleFunc("POST /batches/{id}/scans/{n}/stop", func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("id") + "/" + r.PathValue("n")

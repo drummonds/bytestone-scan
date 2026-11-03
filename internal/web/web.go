@@ -367,35 +367,20 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 }
 
 // batchSteps is the batch's steps as its workflow instance has them, each
-// with its status, and the way to that instance; first as a row of dots,
-// with a row per scan under it, each a dot per photo, so that what holds
-// the batch back is seen at a glance.
+// with its status and error, under the definition's name and the way to
+// that instance; first as a row of dots, with a row per scan under it,
+// each a dot per photo, so that what holds the batch back is seen at a
+// glance.
 func (a *App) batchSteps(ctx context.Context, b *batch.Batch, scans []*batch.Scan) string {
-	status := map[string]wf.RunStatus{}
-	if run, err := a.Store.FindRunByKey(ctx, batch.Workflow, b.ID); err == nil && run != nil {
-		steps, _ := a.Store.ListSteps(ctx, run.ID)
-		for _, s := range steps {
-			status[s.StepName] = s.Status
-		}
-	}
 	var t strings.Builder
-	t.WriteString(`<h2 class="title is-5">Steps ` + a.instanceLink(ctx, batch.Workflow, b.ID) + `</h2>`)
+	t.WriteString(a.stepsHeading(ctx, batch.Workflow, b.ID))
 	if dots := a.runDots(ctx, batch.Workflow, b.ID); dots != "" {
 		t.WriteString(`<p>` + dots + `</p>`)
 		for _, l := range scans {
 			fmt.Fprintf(&t, `<p class="ml-4"><a href="%s">%s %d</a> %s</p>`, scanURL(l.Key()), kind(l), l.N, a.scanDots(ctx, l))
 		}
 	}
-	t.WriteString(`<table class="table is-narrow"><tbody>`)
-	for _, d := range batch.Definitions {
-		if d.Type != batch.Workflow {
-			continue
-		}
-		for _, step := range d.Steps {
-			fmt.Fprintf(&t, `<tr><td>%s</td><td>%s</td></tr>`, html.EscapeString(step.Name), statusTag(status[step.Name]))
-		}
-	}
-	t.WriteString(`</tbody></table>`)
+	t.WriteString(a.stepsTable(ctx, batch.Workflow, b.ID, noAction))
 	return t.String()
 }
 
@@ -463,7 +448,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 <tr><th>Device</th><td>%s</td></tr>`, html.EscapeString(p.File), p.Format, p.PPI, p.Depth, html.EscapeString(p.Sender), dateText(p.Received), orUnknown(p.Device))
 	}
 	c.HTML(fmt.Sprintf(`<h1 class="title">%s %d of <a href="batches/%s">batch %s</a></h1>
-<p class="subtitle">%s %s</p>
+<p class="subtitle">%s</p>
 <table class="table"><tbody>
 <tr><th>Batch</th><td>%s</td></tr>
 <tr><th>Home</th><td>%s (%s)</td></tr>
@@ -471,7 +456,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 <tr><th>Credit</th><td>%s</td></tr>
 %s
 <tr><th>Started</th><td>%s</td></tr>
-</tbody></table>`, kind(l), l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), a.instanceLink(r.Context(), batch.ScanWorkflow, l.Key()), html.EscapeString(b.Title),
+</tbody></table>`, kind(l), l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		capture, l.Created.Local().Format("2 Jan 2006 15:04")))
 	if dots := a.runDots(r.Context(), batch.ScanWorkflow, l.Key()); dots != "" {
@@ -481,6 +466,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	prints, ids, err := l.Found()
 	if err != nil {
 		c.HTML(`<p>No preview yet.</p>`)
+		c.HTML(a.scanSteps(r.Context(), l))
 		c.HTML(a.diagnosisSection(l))
 		return c.Buffer()
 	}
@@ -531,6 +517,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 			}
 		}
 	}
+	c.HTML(a.scanSteps(r.Context(), l))
 	c.HTML(a.diagnosisSection(l))
 	return c.Buffer()
 }
@@ -676,8 +663,8 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	s := p.Front
 	key := fmt.Sprintf("%s/%d", p.Batch, p.Scan)
 	c.HTML(fmt.Sprintf(`<h1 class="title">Photo %s</h1>
-<p class="subtitle">%s — <a href="batches/%s">batch %s</a>, <a href="%s">scan %d</a> %s</p>`,
-		id, html.EscapeString(p.Description), html.EscapeString(p.Batch), html.EscapeString(p.Batch), scanURL(key), p.Scan, a.instanceLink(r.Context(), batch.PhotoWorkflow, id.String())))
+<p class="subtitle">%s — <a href="batches/%s">batch %s</a>, <a href="%s">scan %d</a></p>`,
+		id, html.EscapeString(p.Description), html.EscapeString(p.Batch), html.EscapeString(p.Batch), scanURL(key), p.Scan))
 
 	fitW := min(img.W, FitWidth)
 	fitH := img.H * fitW / img.W
@@ -803,6 +790,7 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 	c.HTML(t.String())
 	c.HTML(a.describeSection(id, p))
 	c.HTML(a.archiveSection(r.Context(), id))
+	c.HTML(`<div class="mt-4">` + a.photoSteps(r.Context(), id, key) + `</div>`)
 	c.HTML(`</div></div>`)
 	return c.Buffer()
 }
@@ -815,7 +803,8 @@ func (a *App) archiveSection(ctx context.Context, id pid.ID) string {
 		return `<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">` + html.EscapeString(err.Error()) + `</p>`
 	case d == nil:
 		if s, err := batch.PhotoStanding(ctx, a.Store, id); err == nil && (s.Status == wf.StatusFailed || s.Status == wf.StatusCancelled) {
-			return `<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Not deposited: ` + html.EscapeString(s.String()) + `</p>`
+			return `<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Not deposited: ` + html.EscapeString(s.String()) + `</p>` +
+				`<div class="buttons">` + smallForm("photos/"+id.String()+"/retry", "Retry", " is-primary") + `</div>`
 		}
 		return `<h2 class="title is-6 mt-4">Archive</h2><p class="help">Not yet deposited.</p>`
 	case d.Status == "duplicate":
