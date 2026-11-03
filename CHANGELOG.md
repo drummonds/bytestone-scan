@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-03
+
+- The verify page links each deposited item to its page on i.bytestone.uk and i.bytestone.org, by its home person; the uk link works once life-weaver has published, the org link once it has promoted (#141).
+
+### Added
+
+- The verify page links each deposited item to its page on i.bytestone.uk and i.bytestone.org, by its home person; the uk link works once life-weaver has published, the org link once it has promoted (#141). (#141)
+
 ## [0.27.0] - 2026-11-03
 
 - Steps on every page, from the workflow definitions: the batch, scan and photo pages each show a Steps table of the definition they are an instance of, named and linked, with each step's status, its error and what the operator can do there: *Back to* the preview, the prints, the fronts, the backs preview or the backs until a photo is packaged, *Retry* on a failed step; the parent above and the children below, each at its step. A photo refused at deposit says the cause and the next step once, the step named by its standing and the item not at all, and has a Retry of its own that ticks its scan and returns to the photo
