@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-03
+
+- Verify looks at the site as well as the archive: each held item's links on i.bytestone.uk and i.bytestone.org are tagged published, not yet or unreachable, and the summary says how many of the items each site has, a warning rather than a success while any is missing (#143). A scan can be cancelled from its own page while it is not through to its photos and no step is running; a cancelled scan is left out of its batch, which finishes and closes without it (#145). A region can be split by hand at confirm into so many parts across and down, for a contact print or prints the finder cannot tell apart; the arrows then move the cuts (#147).
+
+### Added
+
+- Verify looks at the site as well as the archive: each held item's links on i.bytestone.uk and i.bytestone.org are tagged published, not yet or unreachable, and the summary says how many of the items each site has, a warning rather than a success while any is missing (#143). (#143)
+- A scan can be cancelled from its own page while it is not through to its photos and no step is running; a cancelled scan is left out of its batch, which finishes and closes without it (#145). (#145)
+- A region can be split by hand at confirm into so many parts across and down, for a contact print or prints the finder cannot tell apart; the arrows then move the cuts (#147). (#147)
+
 ## [0.28.0] - 2026-11-03
 
 - The verify page links each deposited item to its page on i.bytestone.uk and i.bytestone.org, by its home person; the uk link works once life-weaver has published, the org link once it has promoted (#141).
