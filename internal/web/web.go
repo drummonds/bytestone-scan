@@ -330,7 +330,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 			where = err.Error()
 		} else {
 			where = s.String()
-			if !s.Through() {
+			if !s.Through() && !s.Cancelled() {
 				blocking = append(blocking, fmt.Sprintf("%s %d: %s", strings.ToLower(kind(l)), l.N, where))
 			}
 		}

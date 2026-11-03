@@ -482,22 +482,29 @@ func (b *Batch) mark(name string, at time.Time) error {
 	return os.WriteFile(b.path(name), []byte(at.UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
 
-// Finish ends the batch's scanning, once every scan is through, and ticks
-// the batch's workflow on.
+// Finish ends the batch's scanning, once every scan is through or
+// cancelled, and ticks the batch's workflow on. A cancelled scan is left
+// out: a batch of nothing but cancelled scans has nothing scanned.
 func (b *Batch) Finish(ctx context.Context, store wf.Store) (*wf.RunRecord, error) {
 	scans, err := b.Scans()
 	if err != nil {
 		return nil, err
 	}
-	if len(scans) == 0 {
-		return nil, fmt.Errorf("batch %s: nothing has been scanned", b.ID)
-	}
+	kept := 0
 	for _, l := range scans {
-		if s, err := l.Standing(ctx, store); err != nil {
+		s, err := l.Standing(ctx, store)
+		switch {
+		case err != nil:
 			return nil, err
-		} else if !s.Through() {
+		case s.Cancelled():
+			continue
+		case !s.Through():
 			return nil, fmt.Errorf("batch %s: scan %d is not through yet: %s", b.ID, l.N, s)
 		}
+		kept++
+	}
+	if kept == 0 {
+		return nil, fmt.Errorf("batch %s: nothing has been scanned", b.ID)
 	}
 	if err := os.WriteFile(b.path("finished"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644); err != nil {
 		return nil, err
@@ -506,7 +513,7 @@ func (b *Batch) Finish(ctx context.Context, store wf.Store) (*wf.RunRecord, erro
 }
 
 // Run ticks the batch's workflow once: it waits at scans until scanning
-// is finished and every scan is through, then closes.
+// is finished and every scan is through or cancelled, then closes.
 func (b *Batch) Run(ctx context.Context, store wf.Store) (*wf.RunRecord, error) {
 	date := wf.NewBusinessDate(b.Created.Year(), b.Created.Month(), b.Created.Day())
 	return wf.NewRunner(store, nil).RunPipeline(ctx, Workflow, b.ID, date, b.Stages(ctx, store))
@@ -528,7 +535,7 @@ func (b *Batch) Stages(ctx context.Context, store wf.Store) []wf.Stage {
 				return false, err
 			}
 			for _, l := range scans {
-				if s, err := l.Standing(ctx, store); err != nil || !s.Through() {
+				if s, err := l.Standing(ctx, store); err != nil || !(s.Through() || s.Cancelled()) {
 					return false, err
 				}
 			}
