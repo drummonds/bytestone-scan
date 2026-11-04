@@ -1073,3 +1073,73 @@ func TestSplitARegionByHand(t *testing.T) {
 		t.Error("split a region after confirming")
 	}
 }
+
+// Story 112: a side's turn, said at the quality check, is kept on the side
+// and its renditions made again; the other side is untouched; refused
+// once the photo is accepted.
+func TestTurnASideAtTheQualityCheck(t *testing.T) {
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 80, Y1: 60, Value: 20000}}}
+	root, b, _ := prepared(t, scanner)
+	front, _ := rendition.Load(b.Renditions(0))
+	back, _ := rendition.Load(filepath.Join(b.Renditions(0), "back"))
+	if front.Display.W <= front.Display.H {
+		t.Fatalf("front display %+v, want landscape", front.Display)
+	}
+	for _, tc := range []struct {
+		side string
+		by   int
+		want int
+	}{{"front", 90, 90}, {"front", 90, 180}, {"front", -90, 90}, {"front", -90, 0}, {"front", -90, 270}, {"back", 90, 90}} {
+		if err := b.Turn(0, tc.side, tc.by); err != nil {
+			t.Fatalf("turn %s by %d: %v", tc.side, tc.by, err)
+		}
+		p, _, _ := FindPhoto(root, 0)
+		if got := p.side(tc.side).Turn; got != tc.want {
+			t.Errorf("%s turned by %d: turn %d, want %d", tc.side, tc.by, got, tc.want)
+		}
+		r, err := rendition.Load(b.renditionsOf(0, tc.side))
+		if err != nil || r.Turn != tc.want {
+			t.Errorf("%s turned by %d: recipe %+v (%v), want turn %d", tc.side, tc.by, r, err, tc.want)
+		}
+		if (tc.want == 90 || tc.want == 270) != (r.Display.W < r.Display.H) {
+			t.Errorf("%s at turn %d: display %+v", tc.side, tc.want, r.Display)
+		}
+	}
+	// the front's turn is the front's: the back's turn left it at 270
+	if p, _, _ := FindPhoto(root, 0); p.Front.Turn != 270 || p.Back.Turn != 90 {
+		t.Errorf("front %d, back %d; want 270 and 90", p.Front.Turn, p.Back.Turn)
+	}
+	if r, _ := rendition.Load(b.Renditions(0)); r.Turn != 270 || r.Master != front.Master {
+		t.Errorf("front recipe %+v after the back was turned", r)
+	}
+	if r, _ := rendition.Load(filepath.Join(b.Renditions(0), "back")); r.Master != back.Master {
+		t.Errorf("back recipe %+v, want the same master", r)
+	}
+	// and turning the front leaves the back's renditions, which live under
+	// the front's
+	if err := b.Turn(0, "front", 90); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := rendition.Load(filepath.Join(b.Renditions(0), "back")); err != nil || r.Turn != 90 {
+		t.Errorf("back recipe %+v (%v) after the front was turned, want turn 90 kept", r, err)
+	}
+	if r, _ := rendition.Load(b.Renditions(0)); r.Turn != 0 {
+		t.Errorf("front recipe %+v, want turn 0", r)
+	}
+	if err := b.Turn(0, "front", 45); err == nil {
+		t.Error("a turn of 45° accepted")
+	}
+	if err := b.Turn(0, "top", 90); err == nil {
+		t.Error("a side called top accepted")
+	}
+	if err := b.Turn(7, "front", 90); err == nil {
+		t.Error("a photo not in the scan accepted")
+	}
+	described(t, b)
+	if err := b.Accept(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Turn(0, "front", 90); err == nil {
+		t.Error("a turn after accept accepted")
+	}
+}

@@ -24,7 +24,8 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Scan ppi | The resolution of the fronts pass: 600, 1200 or 2400; for an import, the page's own. Backs are scanned at 300 |
 | Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches; for a received side, the page's own |
 | Master | The archival image of one side, never altered after capture: a front at 16 bits per channel, a back at 8, a received side at the depth received |
-| Rendition | A display image derived from a master: cropped to the print, turned square, its levels set, scaled to fit a screen |
+| Rendition | A display image derived from a master: cropped to the print, turned square, given the side's turn, its levels set, scaled to fit a screen |
+| Turn | The quarter turns a side's rendition is given so the picture is the right way up, as the operator says at the quality check: 90, 180 or 270 degrees clockwise, kept on the side in photo.yaml and so in the bag; the master lies as scanned |
 | Recipe | How renditions are made from a master, by version; a new recipe makes new renditions and leaves the old on record |
 | Develop | The photo step that makes one side's renditions |
 | Caption | What a photo shows, in the archivist's own words: "Air Raid Wardens". Not a claim: it has no source or reading; kept in photo.yaml as caption beside the scan's description, blank meaning none |

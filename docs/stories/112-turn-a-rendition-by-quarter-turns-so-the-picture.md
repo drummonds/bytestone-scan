@@ -1,6 +1,6 @@
 # 112 — Turn a rendition by quarter turns so the picture is the right way up (#150)
 
-**Status:** proposed
+**Status:** built 2026-11-04
 
 ## Why
 
@@ -74,6 +74,6 @@ confirm, from the preview.
 
 ## Done when
 
-- [ ] tests express the acceptance table and pass
-- [ ] glossary updated; changelog fragment
+- [x] tests express the acceptance table and pass
+- [x] glossary updated; changelog fragment
 - [ ] issue closed with a link to the release

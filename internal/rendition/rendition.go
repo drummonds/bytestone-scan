@@ -64,6 +64,7 @@ type Recipe struct {
 	Print      find.Box `yaml:"print"`       // the print measured on the master, in master pixels
 	RegionSkew float64  `yaml:"region_skew"` // the angle the region recorded, degrees
 	Skew       float64  `yaml:"skew"`        // the angle the rendition was turned back by; 0 when over 10°
+	Turn       int      `yaml:"turn"`        // the side's turn applied after: quarter turns clockwise, degrees
 	Black      uint16   `yaml:"black"`       // the master level shown as black
 	White      uint16   `yaml:"white"`       // the master level shown as white
 	Display    Size     `yaml:"display"`
@@ -399,11 +400,14 @@ func Levels(m *master.Image, print find.Box, ppi int) (black, white uint16) {
 
 // Develop makes the master's renditions: the print measured from hint,
 // turned square unless it lies over 10° (then cropped square to the bed
-// within it), its levels set, scaled to fit the display size and never
-// up. The recipe says what was done; its Master is left for the caller.
-func Develop(m *master.Image, hint find.Box, ppi int) (Recipe, Images) {
+// within it), given the side's turn, quarter turns clockwise in degrees,
+// so the picture is the right way up, its levels set, scaled to fit the
+// display size and never up. The recipe says what was done; its Master
+// is left for the caller.
+func Develop(m *master.Image, hint find.Box, ppi, turn int) (Recipe, Images) {
+	turn = ((turn % 360) + 360) % 360
 	meas := Measure(m, hint, ppi)
-	r := Recipe{Version: Version, Print: meas.Print, RegionSkew: hint.Angle, Skew: meas.Print.Angle, Flags: meas.Flags}
+	r := Recipe{Version: Version, Print: meas.Print, RegionSkew: hint.Angle, Skew: meas.Print.Angle, Turn: turn, Flags: meas.Flags}
 	crop := meas.Print
 	if math.Abs(crop.Angle) > maxDeskew {
 		r.Skew = 0
@@ -412,7 +416,14 @@ func Develop(m *master.Image, hint find.Box, ppi int) (Recipe, Images) {
 	}
 	r.Black, r.White = Levels(m, meas.Print, ppi)
 
-	fit := func(b find.Box) float64 { return min(DisplayW/b.W, DisplayH/b.H, 1) }
+	// a quarter turn swaps the sides the display must fit
+	fit := func(b find.Box) float64 {
+		w, h := b.W, b.H
+		if turn == 90 || turn == 270 {
+			w, h = h, w
+		}
+		return min(DisplayW/w, DisplayH/h, 1)
+	}
 	// the master, levelled and averaged down by a whole factor so the
 	// kernel below works within a factor of two
 	k := max(1, int(1/fit(crop)))
@@ -422,7 +433,6 @@ func Develop(m *master.Image, hint find.Box, ppi int) (Recipe, Images) {
 	crop.W, crop.H = max(1, crop.W-2*inset), max(1, crop.H-2*inset)
 	scale := fit(crop)
 	outW, outH := max(1, int(math.Round(crop.W*scale))), max(1, int(math.Round(crop.H*scale)))
-	r.Display = Size{outW, outH}
 	src := levelled(m, r.Black, r.White, k)
 	ks := float64(k)
 	s, c := math.Sincos(crop.Angle * math.Pi / 180)
@@ -434,6 +444,25 @@ func Develop(m *master.Image, hint find.Box, ppi int) (Recipe, Images) {
 		scale * ks * ux, scale * ks * uy, scale * ks * (crop.W/ks/2 - cx*ux - cy*uy),
 		scale * ks * vx, scale * ks * vy, scale * ks * (crop.H/ks/2 - cx*vx - cy*vy),
 	}
+	// then the turn, about the crop's centre: where the deskewed crop's
+	// point (u, v) lands on the turned display
+	ow, oh := float64(outW), float64(outH)
+	var t f64.Aff3
+	switch turn {
+	case 90:
+		t, outW, outH = f64.Aff3{0, -1, oh, 1, 0, 0}, outH, outW
+	case 180:
+		t = f64.Aff3{-1, 0, ow, 0, -1, oh}
+	case 270:
+		t, outW, outH = f64.Aff3{0, 1, 0, -1, 0, ow}, outH, outW
+	default:
+		t = f64.Aff3{1, 0, 0, 0, 1, 0}
+	}
+	aff = f64.Aff3{
+		t[0]*aff[0] + t[1]*aff[3], t[0]*aff[1] + t[1]*aff[4], t[0]*aff[2] + t[1]*aff[5] + t[2],
+		t[3]*aff[0] + t[4]*aff[3], t[3]*aff[1] + t[4]*aff[4], t[3]*aff[2] + t[4]*aff[5] + t[5],
+	}
+	r.Display = Size{outW, outH}
 	display := image.NewRGBA(image.Rect(0, 0, outW, outH))
 	draw.CatmullRom.Transform(display, aff, src, src.Bounds(), draw.Src, nil)
 	return r, Images{Display: display, Thumb: fitLongEdge(display, ThumbEdge), Tiny: fitLongEdge(display, TinyEdge)}

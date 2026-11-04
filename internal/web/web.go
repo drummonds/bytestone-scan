@@ -684,16 +684,31 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		c.HTML(fmt.Sprintf(`<figure class="mt-4"><img src="photos/%s/crop.png?x=%d&amp;y=%d" alt="Master pixels at 1:1">
 <figcaption class="help">1:1, master pixels, %d × %d centred on %d, %d.</figcaption></figure>`, id, mx, my, CropSize, CropSize, mx, my))
 	}
+	// while the scan waits at the quality check, the margins can be moved
+	// and the renditions turned
+	var atQuality *batch.Scan
+	if l, err := batch.OpenScan(a.Staging, key); err == nil && a.running() != l.Key() {
+		if _, waiting := a.where(r.Context(), l); waiting == "check quality" {
+			atQuality = l
+		}
+	}
+	turnButtons := func(side string) string {
+		if atQuality == nil {
+			return ""
+		}
+		return `<div class="buttons are-small mt-2">` + turnForm(id, side, -90, "Turn ↺") + turnForm(id, side, 90, "Turn ↻") + `</div>`
+	}
 	// the rendition: what people will see, made from the master by the
 	// current recipe
 	if rec, err := rendition.Load(a.renditionDir(id)); err == nil {
 		c.HTML(fmt.Sprintf(`<h2 class="title is-5 mt-5">Rendition</h2>
 <figure><img src="photos/%s/renditions/%d/display.jpg" alt="The rendition" style="max-width:100%%;height:auto">
-<figcaption class="help">Rendition, recipe %d, %d × %d px: cropped to the print, turned %.1f° (the region said %.1f°), levels %d–%d.</figcaption></figure>`,
-			id, rec.Version, rec.Version, rec.Display.W, rec.Display.H, -rec.Skew, rec.RegionSkew, rec.Black, rec.White))
+<figcaption class="help">Rendition, recipe %d, %d × %d px: cropped to the print, turned %.1f° (the region said %.1f°)%s, levels %d–%d.</figcaption></figure>`,
+			id, rec.Version, rec.Version, rec.Display.W, rec.Display.H, -rec.Skew, rec.RegionSkew, turnSaid(rec.Turn), rec.Black, rec.White))
 		for _, f := range rec.Flags {
 			c.HTML(`<p class="has-text-danger">` + html.EscapeString(f) + `</p>`)
 		}
+		c.HTML(turnButtons("front"))
 	}
 	// the back, once scanned: its rendition and what the backs preview said
 	if p.BackBlank {
@@ -706,8 +721,9 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		c.HTML(`<h2 class="title is-5 mt-5">Back</h2>`)
 		if rec, err := rendition.Load(filepath.Join(a.renditionDir(id), "back")); err == nil {
 			c.HTML(fmt.Sprintf(`<figure><img src="photos/%s/renditions/%d/back/display.jpg" alt="The back" style="max-width:100%%;height:auto">
-<figcaption class="help">Back, %d ppi, 8 bits, rendition recipe %d, %d × %d px.</figcaption></figure>`,
-				id, rec.Version, p.Back.MasterPPI, rec.Version, rec.Display.W, rec.Display.H))
+<figcaption class="help">Back, %d ppi, 8 bits, rendition recipe %d, %d × %d px%s.</figcaption></figure>`,
+				id, rec.Version, p.Back.MasterPPI, rec.Version, rec.Display.W, rec.Display.H, turnSaid(rec.Turn)))
+			c.HTML(turnButtons("back"))
 		}
 		c.HTML(fmt.Sprintf(`<p class="help">Back %.1f × %.1f mm, scanned where the front lay.</p>`, p.Back.Print.W, p.Back.Print.H))
 		if p.Back.Warning != "" {
@@ -727,14 +743,11 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		corner, corner, float64(corner)*25.4/float64(s.MasterPPI)))
 	c.HTML(`</div><div class="column">`)
 
-	// while the scan waits at the quality check, the margins can be moved
-	if l, err := batch.OpenScan(a.Staging, key); err == nil && a.running() != l.Key() {
-		if _, waiting := a.where(r.Context(), l); waiting == "check quality" {
-			prints, ids, _ := l.Found()
-			for i, pid := range ids {
-				if pid == id && i < len(prints) {
-					c.HTML(rescanEditor(l, i, prints[i]))
-				}
+	if l := atQuality; l != nil {
+		prints, ids, _ := l.Found()
+		for i, pid := range ids {
+			if pid == id && i < len(prints) {
+				c.HTML(rescanEditor(l, i, prints[i]))
 			}
 		}
 	}
@@ -905,6 +918,26 @@ func orUnknown(s string) string {
 
 // histogram draws the three channels as lines, scaled to the fullest bin
 // that is not clipped, since a clipped spike would flatten the rest.
+// turnSaid is the rendition caption's word on the side's turn, after the
+// deskew; nothing for none.
+func turnSaid(turn int) string {
+	switch turn {
+	case 90:
+		return ", then turned 90° clockwise"
+	case 180:
+		return ", then turned 180°"
+	case 270:
+		return ", then turned 90° anticlockwise"
+	}
+	return ""
+}
+
+// turnForm is one Turn button: a quarter turn of the side, by degrees
+// clockwise.
+func turnForm(id pid.ID, side string, by int, label string) string {
+	return fmt.Sprintf(`<form action="photos/%s/turn" method="post"><input type="hidden" name="side" value="%s"><input type="hidden" name="by" value="%d"><button class="button is-small" type="submit">%s</button></form>`, id, side, by, label)
+}
+
 func histogram(h quality.Histogram) string {
 	const w, ht = 256, 120
 	peak := 1

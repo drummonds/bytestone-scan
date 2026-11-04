@@ -231,6 +231,10 @@ type Side struct {
 	Warning   string    `yaml:"warning,omitempty"`
 	Scanner   string    `yaml:"scanner"`
 	Settings  []string  `yaml:"settings"`
+	// Turn is the quarter turns clockwise, in degrees, the side's rendition
+	// is given so the picture is the right way up, as the operator said at
+	// the quality check; the master lies as scanned.
+	Turn int `yaml:"turn,omitempty"`
 	// A side cut from a received page: its depth as received, the page's
 	// own record, and the page item it was cut from when the page is one.
 	Depth    int       `yaml:"depth,omitempty"`
@@ -881,6 +885,67 @@ func (b *Scan) SetBackBlank(id pid.ID, blank bool) error {
 	}
 	photo.BackBlank = blank
 	return writeYAML(b.masterPath(id, "yaml"), photo)
+}
+
+// Turn adds by, a quarter turn clockwise (90) or anticlockwise (-90), to
+// the turn of photo id's side, and makes that side's renditions again.
+// The turn is the operator's word on which way up the picture is, said
+// at the quality check: once the photo is accepted its record is
+// packaged, so it is refused from then.
+func (b *Scan) Turn(id pid.ID, side string, by int) error {
+	if by != 90 && by != -90 {
+		return fmt.Errorf("turn by %d°: a turn is a quarter turn, 90 or -90", by)
+	}
+	if side != "front" && side != "back" {
+		return fmt.Errorf("no side %q: front or back", side)
+	}
+	if _, err := os.Stat(b.path("accepted")); err == nil || bag.Complete(b.bags(), id) {
+		return fmt.Errorf("photo %s is accepted; its record is no longer the scan's to change", id)
+	}
+	var photo Photo
+	if err := readYAML(b.masterPath(id, "yaml"), &photo); err != nil {
+		return fmt.Errorf("photo %s: not scanned yet: %w", id, err)
+	}
+	sd := &photo.Front
+	if side == "back" {
+		if photo.Back == nil {
+			return fmt.Errorf("photo %s has no back to turn", id)
+		}
+		sd = photo.Back
+	}
+	sd.Turn = ((sd.Turn+by)%360 + 360) % 360
+	if err := writeYAML(b.masterPath(id, "yaml"), photo); err != nil {
+		return err
+	}
+	if err := b.clearRenditions(id, side); err != nil {
+		return err
+	}
+	return b.develop(id, side)
+}
+
+// clearRenditions removes one side's renditions at the current recipe:
+// the back's directory, or the front's files around it.
+func (b *Scan) clearRenditions(id pid.ID, side string) error {
+	dir := b.renditionsOf(id, side)
+	if side == "back" {
+		return os.RemoveAll(dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		if e.Name() == "back" {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // backBlank reports whether photo id's back was declared blank.
@@ -1766,7 +1831,7 @@ func (b *Scan) develop(id pid.ID, side string) error {
 		return fmt.Errorf("photo %s %s: %w", id, side, err)
 	}
 	s := photo.side(side)
-	r, imgs := rendition.Develop(img, s.Print.InImage(s.Bounds, s.MasterPPI), s.MasterPPI)
+	r, imgs := rendition.Develop(img, s.Print.InImage(s.Bounds, s.MasterPPI), s.MasterPPI, s.Turn)
 	sum := sha256.Sum256(tif)
 	r.Master = hex.EncodeToString(sum[:])
 	if err := rendition.Save(dir, r, imgs); err != nil {
