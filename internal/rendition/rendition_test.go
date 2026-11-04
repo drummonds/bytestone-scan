@@ -134,7 +134,7 @@ func TestDevelopSizes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		m, print := synth(t, tc.wmm, tc.hmm, 0, 8000, 56000, 0)
-		r, img := Develop(m, print, ppi)
+		r, img := Develop(m, print, ppi, 0)
 		b := img.Display.Bounds()
 		if math.Abs(float64(b.Dx()-tc.w)) > 3 || math.Abs(float64(b.Dy()-tc.h)) > 3 || r.Display.W != b.Dx() || r.Display.H != b.Dy() {
 			t.Errorf("%v × %v mm: display %v, recipe %+v, want %d × %d", tc.wmm, tc.hmm, b, r.Display, tc.w, tc.h)
@@ -154,7 +154,7 @@ func TestDevelopSizes(t *testing.T) {
 // Story 003, "Crop": no margin or lid left, and the levels applied.
 func TestDevelopedPixelsAreThePrintStretched(t *testing.T) {
 	m, print := synth(t, 60, 45, 2.3, 8000, 56000, 0)
-	_, img := Develop(m, print, ppi)
+	_, img := Develop(m, print, ppi, 0)
 	d := img.Display
 	b := d.Bounds()
 	at := func(x, y int) uint8 { r, _, _, _ := d.At(x, y).RGBA(); return uint8(r >> 8) }
@@ -173,7 +173,7 @@ func TestDevelopedPixelsAreThePrintStretched(t *testing.T) {
 
 func TestOverTenDegreesIsNotRotated(t *testing.T) {
 	m, print := synth(t, 60, 45, 12, 8000, 56000, 0)
-	r, img := Develop(m, print, ppi)
+	r, img := Develop(m, print, ppi, 0)
 	if r.Skew != 0 || len(r.Flags) == 0 || !strings.Contains(strings.Join(r.Flags, ";"), "over 10°") {
 		t.Errorf("recipe %+v", r)
 	}
@@ -186,7 +186,7 @@ func TestOverTenDegreesIsNotRotated(t *testing.T) {
 
 func TestSaveWritesTheRenditions(t *testing.T) {
 	m, print := synth(t, 20, 15, 0, 8000, 56000, 0)
-	r, img := Develop(m, print, ppi)
+	r, img := Develop(m, print, ppi, 0)
 	r.Master = "abc123"
 	dir := filepath.Join(t.TempDir(), "renditions", "7", "1")
 	if err := Save(dir, r, img); err != nil {
@@ -331,5 +331,74 @@ func TestWholeShowsThePageAsSent(t *testing.T) {
 	}
 	if c, _, _, _ := imgs.Display.At(800, 500).RGBA(); c>>8 != 200 {
 		t.Errorf("display pixel = %d, want 200: not levelled", c>>8)
+	}
+}
+
+// Story 112: a side's turn, quarter turns clockwise, is applied after the
+// deskew and the display fitted to the turned print.
+func TestDevelopTurns(t *testing.T) {
+	sizes := []struct {
+		turn, w, h int
+	}{{0, 1440, 1080}, {90, 810, 1080}, {180, 1440, 1080}, {270, 810, 1080}}
+	for _, tc := range sizes {
+		m, print := synth(t, 120, 90, 0, 8000, 56000, 0)
+		r, img := Develop(m, print, ppi, tc.turn)
+		b := img.Display.Bounds()
+		if math.Abs(float64(b.Dx()-tc.w)) > 3 || math.Abs(float64(b.Dy()-tc.h)) > 3 || r.Display.W != b.Dx() || r.Display.H != b.Dy() || r.Turn != tc.turn {
+			t.Errorf("turn %d: display %v, recipe %+v, want %d × %d", tc.turn, b, r.Display, tc.w, tc.h)
+		}
+	}
+	// the gradient runs from the print's left edge (dark) to its right
+	// (light): turned, that edge is where the turn puts it
+	in := int(math.Round(1.5 / 25.4 * ppi))
+	for _, tc := range []struct {
+		angle              float64
+		turn               int
+		dark, light        [2]float64 // where on the display, as a share of its size
+		wantSkew, wantFlag bool
+	}{
+		{0, 90, [2]float64{0.5, 0}, [2]float64{0.5, 1}, false, false},
+		{0, 180, [2]float64{1, 0.5}, [2]float64{0, 0.5}, false, false},
+		{0, 270, [2]float64{0.5, 1}, [2]float64{0.5, 0}, false, false},
+		{2.3, 90, [2]float64{0.5, 0}, [2]float64{0.5, 1}, true, false},
+		{12, 90, [2]float64{0.5, 0}, [2]float64{0.5, 1}, false, true},
+	} {
+		m, print := synth(t, 40, 30, tc.angle, 8000, 56000, 0)
+		r, img := Develop(m, print, ppi, tc.turn)
+		d := img.Display
+		b := d.Bounds()
+		at := func(f [2]float64) uint8 {
+			x := min(max(int(f[0]*float64(b.Dx())), in), b.Dx()-1-in)
+			y := min(max(int(f[1]*float64(b.Dy())), in), b.Dy()-1-in)
+			v, _, _, _ := d.At(x, y).RGBA()
+			return uint8(v >> 8)
+		}
+		// over 10° the crop is square to the bed, so the gradient is tilted
+		// across it and the ends are not quite at the display's edges
+		dark, light := uint8(8), uint8(247)
+		if tc.angle > 10 {
+			dark, light = 64, 192
+		}
+		if dk, lt := at(tc.dark), at(tc.light); dk > dark || lt < light {
+			t.Errorf("angle %v turn %d: dark side %d, light side %d; want under %d and over %d", tc.angle, tc.turn, dk, lt, dark, light)
+		}
+		if tc.angle <= 10 {
+			// no lid in the corners
+			for _, p := range [][2]float64{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
+				x := min(max(int(p[0]*float64(b.Dx())), 2), b.Dx()-3)
+				y := min(max(int(p[1]*float64(b.Dy())), 2), b.Dy()-3)
+				if v, _, _, _ := d.At(x, y).RGBA(); v>>8 > 8 {
+					t.Errorf("angle %v turn %d: corner %v is %d, want the print's dark frame", tc.angle, tc.turn, p, v>>8)
+				}
+			}
+		}
+		if (r.Skew != 0) != tc.wantSkew || (len(r.Flags) > 0) != tc.wantFlag || r.Turn != tc.turn {
+			t.Errorf("angle %v turn %d: recipe %+v", tc.angle, tc.turn, r)
+		}
+		if tc.turn == 90 || tc.turn == 270 {
+			if b.Dx() >= b.Dy() {
+				t.Errorf("angle %v turn %d: display %v, want taller than wide", tc.angle, tc.turn, b)
+			}
+		}
 	}
 }

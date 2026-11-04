@@ -550,6 +550,35 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		return l.Reshape(r.Context(), a.Store, n-1, edge, by)
 	})
 
+	// Turning a side's rendition by a quarter turn, at the quality check.
+	mux.HandleFunc("POST /photos/{id}/turn", func(w http.ResponseWriter, r *http.Request) {
+		id, err := pid.Parse(r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		p, _, err := batch.FindPhoto(a.Staging, id)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		l, err := batch.OpenScan(a.Staging, fmt.Sprintf("%s/%d", p.Batch, p.Scan))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		by, err := strconv.Atoi(r.FormValue("by"))
+		if err != nil {
+			fail(w, fmt.Errorf("bad turn %q: degrees, 90 or -90", r.FormValue("by")), http.StatusBadRequest)
+			return
+		}
+		if err := l.Turn(id, r.FormValue("side"), by); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/photos/"+id.String(), http.StatusSeeOther)
+	})
+
 	// Describing a photo prepares its scan's photos to go on, then ticks them.
 	mux.HandleFunc("POST /photos/{id}/describe", func(w http.ResponseWriter, r *http.Request) {
 		id, err := pid.Parse(r.PathValue("id"))

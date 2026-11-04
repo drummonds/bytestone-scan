@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-04
+
+- A rendition can be turned by quarter turns at the quality check so the picture is the right way up: Turn buttons under the front's rendition and the back's, each side's turn its own, kept on the side in photo.yaml (`turn`, degrees clockwise) and so in the bag, applied after the deskew and recorded in the recipe; the master lies as scanned (#150)
+
+### Added
+
+- A rendition can be turned by quarter turns at the quality check so the picture is the right way up: Turn buttons under the front's rendition and the back's, each side's turn its own, kept on the side in photo.yaml (`turn`, degrees clockwise) and so in the bag, applied after the deskew and recorded in the recipe; the master lies as scanned (#150) (#150)
+
 ## [0.29.0] - 2026-11-03
 
 - Verify looks at the site as well as the archive: each held item's links on i.bytestone.uk and i.bytestone.org are tagged published, not yet or unreachable, and the summary says how many of the items each site has, a warning rather than a success while any is missing (#143). A scan can be cancelled from its own page while it is not through to its photos and no step is running; a cancelled scan is left out of its batch, which finishes and closes without it (#145). A region can be split by hand at confirm into so many parts across and down, for a contact print or prints the finder cannot tell apart; the arrows then move the cuts (#147).
