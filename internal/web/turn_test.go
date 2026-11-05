@@ -57,3 +57,40 @@ func TestTurnARenditionAtTheQualityCheck(t *testing.T) {
 		t.Error("a turn after accept accepted")
 	}
 }
+
+// Story 114: at confirm each print's close-up has Turn buttons; the
+// heading and the table say the turn; the buttons go with the arrows
+// once the prints are confirmed; the front is captured with the turn.
+func TestTurnAPrintAtConfirmFromTheEditor(t *testing.T) {
+	s := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 80, Y1: 60, Value: 40000}}}
+	a := live(t, s)
+	h := a.Handler()
+	loc := act(t, a, h, "/batches", url.Values{"title": {"one"}, "person": {"a"}, "ppi": {"600"}, "credit": {"© Example"}})
+	page(t, h, loc, `action="`+loc[1:]+`/turn"`, `name="by" value="90"`, `name="by" value="-90"`, "Turn")
+	if body := get(t, h, loc).Body.String(); strings.Contains(body, "turned 90°") {
+		t.Error("a turn said before any was made")
+	}
+	w := post(t, h, loc+"/turn", url.Values{"print": {"1"}, "by": {"90"}})
+	if w.Code != 303 || w.Header().Get("Location") != loc+"#print-1" {
+		t.Fatalf("turn: %d %s %s", w.Code, w.Header().Get("Location"), w.Body)
+	}
+	if body := get(t, h, loc).Body.String(); strings.Count(body, "turned 90° clockwise") != 2 {
+		t.Errorf("want the turn said in the table and the heading:\n%s", body)
+	}
+	if w := post(t, h, loc+"/turn", url.Values{"print": {"1"}, "by": {"45"}}); w.Code == 303 {
+		t.Error("a turn of 45° accepted")
+	}
+	act(t, a, h, loc+"/confirm", nil)
+	if body := get(t, h, loc).Body.String(); strings.Contains(body, `/turn"`) {
+		t.Error("turn buttons on confirmed prints")
+	}
+	if w := post(t, h, loc+"/turn", url.Values{"print": {"1"}, "by": {"90"}}); w.Code == 303 {
+		t.Error("a turn after confirm accepted")
+	}
+	act(t, a, h, loc+"/backs", nil)
+	act(t, a, h, loc+"/confirm-backs", nil)
+	page(t, h, "/photos/0", "then turned 90° clockwise")
+	if r, err := rendition.Load(a.renditionDir(0)); err != nil || r.Turn != 90 {
+		t.Errorf("front recipe %+v (%v), want turn 90 from confirm", r, err)
+	}
+}

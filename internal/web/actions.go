@@ -550,7 +550,8 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		return l.Reshape(r.Context(), a.Store, n-1, edge, by)
 	})
 
-	// Turning a side's rendition by a quarter turn, at the quality check.
+	// Turning a side's rendition by a quarter turn, at the quality check;
+	// the front's is said at confirm too (#154).
 	mux.HandleFunc("POST /photos/{id}/turn", func(w http.ResponseWriter, r *http.Request) {
 		id, err := pid.Parse(r.PathValue("id"))
 		if err != nil {
@@ -742,6 +743,17 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			return 0, fmt.Errorf("split down %q: not a number", r.FormValue("down"))
 		}
 		return n, l.SplitInto(n-1, across, down)
+	})
+	edit("turn", func(r *http.Request, l *batch.Scan) (int, error) {
+		n, err := strconv.Atoi(r.FormValue("print"))
+		if err != nil {
+			return 0, fmt.Errorf("no print given")
+		}
+		by, err := strconv.Atoi(r.FormValue("by"))
+		if err != nil {
+			return 0, fmt.Errorf("bad turn %q: degrees, 90 or -90", r.FormValue("by"))
+		}
+		return n, l.TurnPrint(n-1, by)
 	})
 	edit("remove", func(r *http.Request, l *batch.Scan) (int, error) {
 		n, err := strconv.Atoi(r.FormValue("print"))

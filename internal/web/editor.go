@@ -100,12 +100,16 @@ func regionEditor(b *batch.Scan, i int, p find.Print, last bool) string {
 		img = ruled(n, p, b.Bed(), f, img)
 	}
 	remove := regionButton(id, "remove", n, "Remove this region", "is-danger is-light")
+	turn := ""
+	if p.Turn != 0 {
+		turn = ", " + turnWord(p.Turn)
+	}
 	return fmt.Sprintf(`<div class="box" id="print-%d">
-<div class="level is-mobile mb-3"><div class="level-left"><h2 class="title is-5 mb-0">Print %d: %.1f × %.1f mm</h2></div><div class="level-right">%s</div></div>
+<div class="level is-mobile mb-3"><div class="level-left"><h2 class="title is-5 mb-0">Print %d: %.1f × %.1f mm%s</h2></div><div class="level-right">%s%s</div></div>
 %s
-<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm%s. Split by hand cuts the region into equal parts, for a contact print or prints that touch; the arrows then move the cuts.</p>
+<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm%s. Split by hand cuts the region into equal parts, for a contact print or prints that touch; the arrows then move the cuts. Turn says which way up the picture is for its rendition, a quarter turn at a time; the master lies as scanned.</p>
 <div class="buttons mt-3">%s%s%s%s</div>
-</div>`, n, n, p.Print.W, p.Print.H, remove,
+</div>`, n, n, p.Print.W, p.Print.H, turn, turnButtons(id, n), remove,
 		edgeGrid(id+"/adjust", n, p, b.Bed(), img),
 		turnedBack(p.Region), tick, smallStep, largeStep, hugeArrows(p.Region), confirmButton(id, last), splitButton(id, n, p), remove, splitByHand(id, n, p))
 }
@@ -225,6 +229,15 @@ func turnedBack(region find.Box) string {
 		return ""
 	}
 	return fmt.Sprintf(", turned back %.1f° so the print sits square", math.Abs(region.Angle))
+}
+
+// turnButtons turn print n's rendition by a quarter turn either way, so
+// the picture is the right way up: said at confirm, where the print is
+// first seen, and carried onto the front at capture (#154).
+func turnButtons(url string, n int) string {
+	return fmt.Sprintf(`<form action="%s/turn" method="post" style="display:inline"><input type="hidden" name="print" value="%d"><input type="hidden" name="by" value="-90"><button class="button is-small" type="submit" title="Turn the picture a quarter anticlockwise">Turn ↺</button></form> `+
+		`<form action="%s/turn" method="post" style="display:inline"><input type="hidden" name="print" value="%d"><input type="hidden" name="by" value="90"><button class="button is-small" type="submit" title="Turn the picture a quarter clockwise">Turn ↻</button></form> `,
+		url, n, url, n)
 }
 
 // regionButton posts an edit of print n to the scan at url.

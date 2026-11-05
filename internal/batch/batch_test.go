@@ -1143,3 +1143,81 @@ func TestTurnASideAtTheQualityCheck(t *testing.T) {
 		t.Error("a turn after accept accepted")
 	}
 }
+
+// Story 114: a found print's turn is said at confirm and kept through a
+// move and a split, refused once the prints are confirmed, lost with a
+// rescan of the preview, and carried onto the front at capture. A turn
+// of the front at the quality check is written back to the found print,
+// so a reshape keeps it.
+func TestTurnAPrintAtConfirm(t *testing.T) {
+	root := t.TempDir()
+	scanner := &batchtest.Scanner{Prints: []batchtest.Print{{X0: 20, Y0: 20, X1: 140, Y1: 80, Value: 20000}}}
+	store := wf.NewMemStore()
+	b := describe(t, root)
+	run(t, b, store, scanner)
+	for _, tc := range []struct{ by, want int }{{90, 90}, {-90, 0}, {-90, 270}, {90, 0}, {90, 90}} {
+		if err := b.TurnPrint(0, tc.by); err != nil {
+			t.Fatalf("turn by %d: %v", tc.by, err)
+		}
+		if prints, _, _ := b.Found(); prints[0].Turn != tc.want {
+			t.Errorf("turned by %d: turn %d, want %d", tc.by, prints[0].Turn, tc.want)
+		}
+	}
+	if err := b.TurnPrint(0, 45); err == nil {
+		t.Error("a turn of 45° accepted")
+	}
+	if err := b.TurnPrint(1, 90); err == nil {
+		t.Error("a print not on the bed accepted")
+	}
+	if err := b.Adjust(0, find.Right, 3); err != nil {
+		t.Fatal(err)
+	}
+	if prints, _, _ := b.Found(); prints[0].Turn != 90 {
+		t.Errorf("turn %d after a move, want 90 kept", prints[0].Turn)
+	}
+	if err := b.SplitInto(0, 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	prints, _, _ := b.Found()
+	if len(prints) != 2 || prints[0].Turn != 90 || prints[1].Turn != 90 {
+		t.Errorf("prints %+v after the split, want both at turn 90", prints)
+	}
+	if err := b.Confirm(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.TurnPrint(0, 90); err == nil {
+		t.Error("a turn after confirm accepted")
+	}
+	scanned(t, b, store, scanner)
+	_, ids, _ := b.Found()
+	for _, id := range ids {
+		if p, _, err := FindPhoto(root, id); err != nil || p.Front.Turn != 90 {
+			t.Errorf("photo %s: front turn %d (%v), want 90 from the found print", id, p.Front.Turn, err)
+		}
+		if r, err := rendition.Load(b.Renditions(id)); err != nil || r.Turn != 90 || r.Display.W >= r.Display.H {
+			t.Errorf("photo %s: recipe %+v (%v), want turn 90 and a portrait display of a landscape part", id, r, err)
+		}
+	}
+	// the quality check's turn of the front is the found print's too
+	if err := b.Turn(ids[0], "front", 90); err != nil {
+		t.Fatal(err)
+	}
+	if prints, _, _ := b.Found(); prints[0].Turn != 180 || prints[1].Turn != 90 {
+		t.Errorf("found turns %d and %d after the quality check turned the first, want 180 and 90", prints[0].Turn, prints[1].Turn)
+	}
+	if err := b.Reshape(context.Background(), store, 0, find.Right, -0.5); err != nil {
+		t.Fatal(err)
+	}
+	scanned(t, b, store, scanner)
+	if p, _, _ := FindPhoto(root, ids[0]); p.Front.Turn != 180 {
+		t.Errorf("front turn %d after the reshape, want 180 kept", p.Front.Turn)
+	}
+	// finding the prints again loses the turns with the regions
+	if err := b.Redo(context.Background(), store, "preview", 0); err != nil {
+		t.Fatal(err)
+	}
+	run(t, b, store, scanner)
+	if prints, _, _ := b.Found(); len(prints) != 1 || prints[0].Turn != 0 {
+		t.Errorf("prints %+v after the preview was scanned again, want one with no turn", prints)
+	}
+}
