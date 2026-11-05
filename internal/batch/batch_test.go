@@ -1163,6 +1163,10 @@ func TestTurnAPrintAtConfirm(t *testing.T) {
 			t.Errorf("turned by %d: turn %d, want %d", tc.by, prints[0].Turn, tc.want)
 		}
 	}
+	// the close-up is shown turned: a landscape print at turn 90 is portrait
+	if img, err := b.CloseUp(0); err != nil || img.Bounds().Dx() >= img.Bounds().Dy() {
+		t.Errorf("close-up %v (%v) at turn 90, want it shown turned, portrait", img.Bounds(), err)
+	}
 	if err := b.TurnPrint(0, 45); err == nil {
 		t.Error("a turn of 45° accepted")
 	}

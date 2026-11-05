@@ -31,8 +31,15 @@ first seen, and the quality check left to check.
 - The confirm page: *Turn ↺* and *Turn ↻* on each print's close-up,
   posting to `batches/{id}/scans/{n}/turn` with the print and the
   direction, beside Remove and Split. The print's heading and the prints
-  table say the turn. The close-up stays as scanned: the rulers and arrows
-  are the bed's, and the turn is a fact about the rendition.
+  table say the turn.
+- The close-up is shown turned, as the rendition will be, and its rulers
+  and arrows are laid round it as shown: the arrows at the top move the
+  edge seen at the top (the print's left edge at a quarter turn
+  clockwise) and point up and down; the top ruler runs along whichever of
+  the region's axes lies that way, backwards where the turn reverses it,
+  and sets the edges seen at its ends. The move posted still names the
+  print's own edge. The back's close-up, in the same view, turns with it;
+  so do the quality page's margin arrows, beside the turned rendition.
 - The back's turn is unchanged: set at the quality check, where the back
   is first seen.
 - The glossary's Turn says it is said at confirm or the quality check.
@@ -55,13 +62,20 @@ first seen, and the quality check left to check.
 |---|---|
 | at confirm, print deskewable | Turn ↺ and Turn ↻ on each print's close-up; the heading says the turn once there is one |
 | at confirm, print over 10° | still offered: the turn is the rendition's, not the deskew's |
+
+| Print's turn | Close-up of a landscape print | Arrows at the top | Top ruler sets |
+|---|---|---|---|
+| none | landscape, as scanned | the top edge's, ↑ out | left and right edges |
+| 90° clockwise | portrait, the print's left edge at the top | the left edge's, ↑ out | top and bottom edges, backwards |
+| 180° | landscape, upside down | the bottom edge's | left and right edges, backwards |
+| 90° anticlockwise | portrait, the right edge at the top | the right edge's | top and bottom edges |
 | confirmed | none, as the arrows |
 
 ## Out of scope
 
-Turning the close-up itself: its rulers and arrows are the print's edges
-on the bed. Telling which way up a picture is from its content. The
-back's turn at the backs preview.
+Turning the whole-bed preview: it shows the bed as it lies. Telling
+which way up a picture is from its content. The back's turn at the backs
+preview.
 
 ## Decisions
 

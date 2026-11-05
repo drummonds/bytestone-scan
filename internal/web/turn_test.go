@@ -1,6 +1,7 @@
 package web
 
 import (
+	"image/png"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -74,8 +75,28 @@ func TestTurnAPrintAtConfirmFromTheEditor(t *testing.T) {
 	if w.Code != 303 || w.Header().Get("Location") != loc+"#print-1" {
 		t.Fatalf("turn: %d %s %s", w.Code, w.Header().Get("Location"), w.Body)
 	}
-	if body := get(t, h, loc).Body.String(); strings.Count(body, "turned 90° clockwise") != 2 {
+	body := get(t, h, loc).Body.String()
+	if strings.Count(body, "turned 90° clockwise") != 2 {
 		t.Errorf("want the turn said in the table and the heading:\n%s", body)
+	}
+	// the close-up is shown turned, its arrows and rulers with it: the
+	// print's left edge is now at the top, so its arrows come first and
+	// point up and down, and the top ruler sets the top and bottom edges
+	img, err := png.Decode(get(t, h, loc+"/regions/1.png").Body)
+	if err != nil || img.Bounds().Dx() >= img.Bounds().Dy() {
+		t.Errorf("close-up %v (%v) at turn 90, want it shown turned, portrait", img.Bounds(), err)
+	}
+	if l, tp := strings.Index(body, `title="left edge`), strings.Index(body, `title="top edge`); l < 0 || tp < 0 || l > tp {
+		t.Errorf("left edge's arrows at %d, top edge's at %d: want the left edge's first, at the top", l, tp)
+	}
+	if !strings.Contains(body, `title="left edge out 0.5 mm">↑<`) || !strings.Contains(body, `title="top edge out 0.5 mm">→<`) {
+		t.Error("want the left edge's out arrow pointing up and the top edge's pointing right")
+	}
+	if l, tp := strings.Index(body, `title="top edge to `), strings.Index(body, `title="left edge to `); l < 0 || tp < 0 || l > tp {
+		t.Errorf("top ruler sets the top edge at %d, the left edge at %d: want the top and bottom edges on the top ruler", l, tp)
+	}
+	if cc := get(t, h, loc+"/regions/1.png").Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("close-up Cache-Control %q, want no-store: it is redrawn after a turn", cc)
 	}
 	if w := post(t, h, loc+"/turn", url.Values{"print": {"1"}, "by": {"45"}}); w.Code == 303 {
 		t.Error("a turn of 45° accepted")
