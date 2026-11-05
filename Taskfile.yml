@@ -25,7 +25,7 @@ tasks:
     cmds:
       - go mod tidy
   serve:
-    desc: Run the web UI on http://localhost:8080
+    desc: Run the web UI for the UAT archive instance on http://localhost:8081 (-- -instance NAME for another)
     cmds:
       - go run ./cmd/bytestone-scan serve {{.CLI_ARGS}}
   diagrams:
