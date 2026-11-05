@@ -41,7 +41,7 @@ type Service interface {
 	// without the call, or that does not know the item, is ErrUnknown.
 	Fixity(item pid.ID) (Fixity, error)
 	// Instance is which archive the service serves: production, or a
-	// scratch or scale instance. A service from before instances were
+	// UAT, scratch or scale instance. A service from before instances were
 	// reported gives an unnamed one.
 	Instance() (Instance, error)
 	// String names the service, for About.
@@ -52,7 +52,7 @@ type Service interface {
 // among several that may be served at once.
 type Instance struct {
 	Name    string `json:"name"`
-	Purpose string `json:"purpose"` // production, scratch or scale
+	Purpose string `json:"purpose"` // production, uat, scratch or scale
 	// Slot is the instance's place among the ten that may serve at once:
 	// production is 0, the others 1 to 9. Its service is at BasePort+Slot,
 	// and a scanner run for it takes its own port and staging from it.
@@ -105,12 +105,14 @@ func Discover(urls []string) []Serving {
 }
 
 // Choose picks the instance the scanner was started for among those
-// found: the one named, or production when none was named. When it is
-// not serving, the refusal says what was found and how to start it.
+// found: the one named, or the UAT instance when none was named, since
+// that is where every depositor writes (life-weaver story 026); production
+// has to be named. When it is not serving, the refusal says what was
+// found and how to start it.
 func Choose(name string, found []Serving) (Serving, error) {
 	var names []string
 	for _, f := range found {
-		if (name == "" && f.Instance.Production()) || (name != "" && f.Instance.Name == name) {
+		if (name == "" && f.Instance.UAT()) || (name != "" && f.Instance.Name == name) {
 			return f, nil
 		}
 		names = append(names, f.Instance.String()+" on "+f.URL)
@@ -120,13 +122,17 @@ func Choose(name string, found []Serving) (Serving, error) {
 		what = strings.Join(names, ", ")
 	}
 	if name == "" {
-		return Serving{}, fmt.Errorf("no production archive is serving on localhost:%d-%d (found: %s): start it with life-weaver serve, or task serve in life-weaver, or run the scanner for another with -instance", BasePort, BasePort+Slots-1, what)
+		return Serving{}, fmt.Errorf("no UAT archive is serving on localhost:%d-%d (found: %s): start it with task serve in life-weaver, or run the scanner for another with -instance", BasePort, BasePort+Slots-1, what)
 	}
 	return Serving{}, fmt.Errorf("archive instance %s is not serving on localhost:%d-%d (found: %s): start it with life-weaver serve -archive <its tree>", name, BasePort, BasePort+Slots-1, what)
 }
 
 // Production says whether the instance is the real archive.
 func (in Instance) Production() bool { return in.Purpose == "production" }
+
+// UAT says whether the instance is the one every depositor writes, from
+// which items are promoted to production.
+func (in Instance) UAT() bool { return in.Purpose == "uat" }
 
 // String is the instance as the operator reads it.
 func (in Instance) String() string {

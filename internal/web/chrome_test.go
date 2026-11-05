@@ -59,9 +59,10 @@ func TestTheNavbarSaysWhenTheScannerIsBusy(t *testing.T) {
 	page(t, h, "/workflows/", "Idle")
 }
 
-// #99: the navbar names the archive instance the scanner is on, in
-// warning colours when it is not production, so a scratch register
-// cannot be mistaken for the real one; About names it too.
+// #99, #152: the navbar names the archive instance the scanner is on, in
+// warning colours when it is not UAT, where the scanner ordinarily
+// deposits, so a scratch register or production cannot be mistaken for
+// it; About names it too.
 func TestTheNavbarNamesTheArchiveInstance(t *testing.T) {
 	a := live(t, &batchtest.Scanner{})
 	fake := a.Archive.(*archivetest.Fake)
@@ -69,7 +70,9 @@ func TestTheNavbarNamesTheArchiveInstance(t *testing.T) {
 	page(t, h, "/workflows/", `<span class="tag is-warning">archive example (scratch), slot 1</span>`)
 	page(t, h, "/about", "example (scratch), slot 1")
 	fake.Serving = archive.Instance{Name: "bytestone", Purpose: "production"}
-	page(t, h, "/workflows/", `<span class="tag is-light">archive bytestone</span>`)
+	page(t, h, "/workflows/", `<span class="tag is-warning">archive bytestone, slot 0</span>`)
+	fake.Serving = archive.Instance{Name: "bytestone-uat", Purpose: "uat", Slot: 1}
+	page(t, h, "/workflows/", `<span class="tag is-light">archive bytestone-uat</span>`)
 	fake.Down = true
 	page(t, h, "/workflows/", `<span class="tag is-danger">archive not answering</span>`)
 }

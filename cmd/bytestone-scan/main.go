@@ -5,7 +5,7 @@
 //	bytestone-scan capture -print NAME [-side front|back] [-staging DIR] [-device DEV] [-ppi 2400]
 //	bytestone-scan verify [-instance NAME] [-staging DIR] [-archive URL] BATCH[/SCAN]
 //
-// serve runs for one archive instance, production unless -instance names
+// serve runs for one archive instance, UAT unless -instance names
 // another, found among the life-weaver services on localhost:8321-8330;
 // its own port and staging root follow from the instance's slot. capture
 // records the one print on the bed into <staging>/fixtures/NAME, and
@@ -58,7 +58,7 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "serve":
-		instance := fs.String("instance", "", "the archive instance to scan for, as life-weaver names it (default production), found among those serving on localhost:8321-8330")
+		instance := fs.String("instance", "", "the archive instance to scan for, as life-weaver names it (default the UAT instance), found among those serving on localhost:8321-8330")
 		addr := fs.String("addr", "", "address to listen on (default localhost:8080, or 8080+slot for an instance other than production; a port in use is stepped past to the next free one)")
 		service := fs.String("archive", "", "the archive service's URL, instead of finding the instance (life-weaver serve): the register of people, item ids and deposits")
 		name := fs.String("recorded", "", "run on the recording of this print under <staging>/fixtures instead of the scanner")
@@ -74,7 +74,7 @@ func main() {
 		}
 		err = serve(ctx, cfg, s)
 	case "verify":
-		instance := fs.String("instance", "", "the archive instance to verify against, as life-weaver names it (default production), found among those serving on localhost:8321-8330")
+		instance := fs.String("instance", "", "the archive instance to verify against, as life-weaver names it (default the UAT instance), found among those serving on localhost:8321-8330")
 		service := fs.String("archive", "", "the archive service's URL, instead of finding the instance")
 		fs.Parse(os.Args[2:])
 		if fs.NArg() != 1 {
@@ -119,7 +119,7 @@ type settings struct {
 }
 
 // resolve fills the settings in from the instance the scanner is run for,
-// found among those serving: production unless -instance names another.
+// found among those serving: UAT unless -instance names another.
 // An -archive given explicitly is taken as it is, no instance sought. The
 // staging root is root for production and root-<instance> for any other,
 // so a scratch batch's masters never land in production's staging.

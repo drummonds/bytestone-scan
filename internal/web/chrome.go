@@ -42,14 +42,15 @@ func (a *App) archiveInstance() string {
 }
 
 // archiveTag is the navbar's word on the archive: which instance the
-// scanner is on, in warning colours when it is not production, so a
-// scratch register is never mistaken for the real one.
+// scanner is on, in warning colours when it is not UAT, where the
+// scanner ordinarily deposits, so a scratch register or production is
+// never mistaken for it.
 func (a *App) archiveTag() template.HTML {
 	in, err := a.Archive.Instance()
 	switch {
 	case err != nil:
 		return `<span class="navbar-item"><span class="tag is-danger">archive not answering</span></span>`
-	case in.Production():
+	case in.UAT():
 		return template.HTML(`<span class="navbar-item"><span class="tag is-light">archive ` + html.EscapeString(in.Name) + `</span></span>`)
 	default:
 		return template.HTML(fmt.Sprintf(`<span class="navbar-item"><span class="tag is-warning">archive %s, slot %d</span></span>`, html.EscapeString(in.String()), in.Slot))
