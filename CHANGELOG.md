@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-05
+
+- The scanner runs for the UAT archive instance unless `-instance` names another, since every depositor writes UAT now: a plain `task serve` finds `bytestone-uat` and listens on `localhost:8081`; production has to be named, and the navbar shows any instance but UAT in warning colours (#152)
+
+### Changed
+
+- The scanner runs for the UAT archive instance unless `-instance` names another, since every depositor writes UAT now: a plain `task serve` finds `bytestone-uat` and listens on `localhost:8081`; production has to be named, and the navbar shows any instance but UAT in warning colours (#152) (#152)
+
 ## [0.30.0] - 2026-11-04
 
 - A rendition can be turned by quarter turns at the quality check so the picture is the right way up: Turn buttons under the front's rendition and the back's, each side's turn its own, kept on the side in photo.yaml (`turn`, degrees clockwise) and so in the bag, applied after the deskew and recorded in the recipe; the master lies as scanned (#150)
