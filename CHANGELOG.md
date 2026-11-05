@@ -2,14 +2,6 @@
 
 ## [Unreleased]
 
-## [0.32.0] - 2026-11-05
-
-- The turn is said at confirm, where the print is first seen, not only at the quality check: Turn ↺ and Turn ↻ on each print's close-up, kept on the found print in prints.yaml (`turn`, degrees clockwise) through a move or a split, said in the heading and the prints table, and carried onto the front at capture so the first renditions are the right way up. A quality-check turn of the front is written back to the found print, so a reshape keeps it (#154)
-
-### Changed
-
-- The turn is said at confirm, where the print is first seen, not only at the quality check: Turn ↺ and Turn ↻ on each print's close-up, kept on the found print in prints.yaml (`turn`, degrees clockwise) through a move or a split, said in the heading and the prints table, and carried onto the front at capture so the first renditions are the right way up. A quality-check turn of the front is written back to the found print, so a reshape keeps it (#154) (#154)
-
 ## [0.31.0] - 2026-11-05
 
 - The scanner runs for the UAT archive instance unless `-instance` names another, since every depositor writes UAT now: a plain `task serve` finds `bytestone-uat` and listens on `localhost:8081`; production has to be named, and the navbar shows any instance but UAT in warning colours (#152)
