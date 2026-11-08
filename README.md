@@ -98,7 +98,13 @@ The words in the code, the pages and these docs are defined in
 [the glossary](internal/glossary/glossary.md), also shown on the app's
 About page. About also links to *Statistics*: batches by state, scans,
 photos by how they stand with the archive, what staging holds and the
-runs in the workflow database.
+runs in the workflow database. `GET /status` says the same as JSON for
+life-weaver's status page (story 115): `version`, `instance` (the archive
+instance the scanner runs for), `staging` (the root), `batches` by state,
+`scans`, `photos` (`held`, `pending`, `rejected`), `usage` (each entry at
+the staging root, `name` and `bytes`), `total` bytes, and `error` when
+the archive is not answering or staging cannot be read; the runs stay
+on the page.
 
 ## Links
 
