@@ -474,7 +474,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 		return c.Buffer()
 	}
 	var t strings.Builder
-	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Photo</th><th>Back</th></tr></thead><tbody>`)
+	t.WriteString(`<table class="table is-striped"><thead><tr><th>#</th><th>Print</th><th>At</th><th>Skew</th><th>Fill</th><th>Turn</th><th>Photo</th><th>Back</th></tr></thead><tbody>`)
 	backsFound, _ := l.BacksFound()
 	for i, p := range prints {
 		photo, back := "—", "—"
@@ -489,8 +489,12 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 		if p.Review {
 			review = ` <span class="tag is-danger">review</span>`
 		}
-		fmt.Fprintf(&t, `<tr><td>%d%s</td><td>%.0f × %.0f mm</td><td>%.0f, %.0f mm</td><td>%.1f°</td><td>%.3f</td><td>%s</td><td>%s</td></tr>`,
-			i+1, review, p.Print.W, p.Print.H, p.Print.Bounds().X0, p.Print.Bounds().Y0, p.Skew, p.Fill, photo, back)
+		turn := "—"
+		if p.Turn != 0 {
+			turn = turnWord(p.Turn)
+		}
+		fmt.Fprintf(&t, `<tr><td>%d%s</td><td>%.0f × %.0f mm</td><td>%.0f, %.0f mm</td><td>%.1f°</td><td>%.3f</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			i+1, review, p.Print.W, p.Print.H, p.Print.Bounds().X0, p.Print.Bounds().Y0, p.Skew, p.Fill, turn, photo, back)
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
@@ -922,13 +926,21 @@ func orUnknown(s string) string {
 // turnSaid is the rendition caption's word on the side's turn, after the
 // deskew; nothing for none.
 func turnSaid(turn int) string {
+	if turn == 0 {
+		return ""
+	}
+	return ", then " + turnWord(turn)
+}
+
+// turnWord says a turn: "turned 90° clockwise"; empty for none.
+func turnWord(turn int) string {
 	switch turn {
 	case 90:
-		return ", then turned 90° clockwise"
+		return "turned 90° clockwise"
 	case 180:
-		return ", then turned 180°"
+		return "turned 180°"
 	case 270:
-		return ", then turned 90° anticlockwise"
+		return "turned 90° anticlockwise"
 	}
 	return ""
 }
