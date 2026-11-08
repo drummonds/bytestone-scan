@@ -204,6 +204,7 @@ func (b *Scan) CloseUpFrame(n int) (CloseUpFrame, error) {
 // CloseUp is print n's region on the preview with 6 mm round it, turned
 // so the print sits square and enlarged pixel for pixel, or reduced to
 // fit the screen: the region outlined in green, the print as found in blue.
+// It is shown turned by the print's turn, as its rendition will be (#154).
 func (b *Scan) CloseUp(n int) (image.Image, error) {
 	img, err := b.Preview()
 	if err != nil {
@@ -262,5 +263,33 @@ func (b *Scan) closeUp(img image.Image, n int) (image.Image, error) {
 	}
 	outline(p.Print.Within(view), color.RGBA{30, 90, 220, 255})
 	outline(p.Region.Within(view), color.RGBA{0, 170, 0, 255})
-	return out, nil
+	return quarterTurned(out, p.Turn), nil
+}
+
+// quarterTurned is img turned clockwise by turn degrees, a multiple of 90.
+func quarterTurned(img *image.RGBA, turn int) *image.RGBA {
+	turn = ((turn % 360) + 360) % 360
+	if turn == 0 {
+		return img
+	}
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	out := image.NewRGBA(image.Rect(0, 0, h, w))
+	if turn == 180 {
+		out = image.NewRGBA(image.Rect(0, 0, w, h))
+	}
+	for y := range h {
+		for x := range w {
+			var tx, ty int
+			switch turn {
+			case 90:
+				tx, ty = h-1-y, x
+			case 180:
+				tx, ty = w-1-x, h-1-y
+			case 270:
+				tx, ty = y, w-1-x
+			}
+			out.SetRGBA(tx, ty, img.RGBAAt(x, y))
+		}
+	}
+	return out
 }

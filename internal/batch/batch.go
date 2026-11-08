@@ -741,6 +741,25 @@ func (b *Scan) SetEdge(n int, e find.Edge, pos float64) error {
 	return b.Adjust(n, e, mm)
 }
 
+// TurnPrint adds a quarter turn, by degrees clockwise or anticlockwise,
+// to the turn print n's rendition is to be given so the picture is the
+// right way up, while the prints are editable, as Adjust is. The front
+// is captured with it.
+func (b *Scan) TurnPrint(n, by int) error {
+	if by != 90 && by != -90 {
+		return fmt.Errorf("turn by %d°: a turn is a quarter turn, 90 or -90", by)
+	}
+	f, err := b.editable(n)
+	if err != nil {
+		return err
+	}
+	f.Prints[n].Turn = turned(f.Prints[n].Turn, by)
+	return writeYAML(b.path("prints.yaml"), f)
+}
+
+// turned is the turn after another by degrees, within the circle.
+func turned(turn, by int) int { return ((turn+by)%360 + 360) % 360 }
+
 // Confirmed reports whether the operator has confirmed the prints found.
 func (b *Scan) Confirmed() bool {
 	_, err := os.Stat(b.path("confirmed"))
@@ -913,14 +932,36 @@ func (b *Scan) Turn(id pid.ID, side string, by int) error {
 		}
 		sd = photo.Back
 	}
-	sd.Turn = ((sd.Turn+by)%360 + 360) % 360
+	sd.Turn = turned(sd.Turn, by)
 	if err := writeYAML(b.masterPath(id, "yaml"), photo); err != nil {
 		return err
+	}
+	if side == "front" {
+		// the found print's turn too, so a reshape captures it afresh
+		if err := b.turnFound(id, sd.Turn); err != nil {
+			return err
+		}
 	}
 	if err := b.clearRenditions(id, side); err != nil {
 		return err
 	}
 	return b.develop(id, side)
+}
+
+// turnFound sets the turn on the found print that photo id was captured
+// from, as the quality check turned its front.
+func (b *Scan) turnFound(id pid.ID, turn int) error {
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return err
+	}
+	for i, fid := range f.IDs {
+		if fid == id && i < len(f.Prints) {
+			f.Prints[i].Turn = turn
+			return writeYAML(b.path("prints.yaml"), f)
+		}
+	}
+	return nil
 }
 
 // clearRenditions removes one side's renditions at the current recipe:
@@ -1634,7 +1675,7 @@ func (b *Scan) detailPass(ctx context.Context, s Scanner, now func() time.Time) 
 				Captured: captured, Print: pr.Print, Region: pr.Region, Bounds: pr.Region.On(f.Bed),
 				ScanPPI: p.ScanPPI, MasterPPI: m.PPI, Averaging: m.Factor,
 				Skew: pr.Skew, Fill: pr.Fill, Review: pr.Review, Warning: m.Warning,
-				Scanner: s.Name(), Settings: s.Settings(),
+				Scanner: s.Name(), Settings: s.Settings(), Turn: pr.Turn,
 			},
 		}
 		if b.Import() {

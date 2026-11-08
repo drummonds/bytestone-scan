@@ -57,6 +57,10 @@ type Print struct {
 	Fill   float64 // share of its enclosing rectangle the print fills
 	Parts  int     // separate prints in the region, when they are under 5 mm apart
 	Review bool    // turned over 10°, not rectangular, or more than one print
+	// Turn is the quarter turns clockwise, in degrees, the print's rendition
+	// is to be given so the picture is the right way up, as the operator
+	// says at confirm; not the finder's, and kept through a move or a split.
+	Turn int `yaml:"turn,omitempty"`
 }
 
 // Straighten reports whether the print is turned too far to deskew: the
