@@ -19,8 +19,8 @@ type Stats struct {
 
 // Usage is the bytes under one entry at the staging root.
 type Usage struct {
-	Name  string
-	Bytes int64
+	Name  string `json:"name"`
+	Bytes int64  `json:"bytes"`
 }
 
 // Total is the bytes under every entry.
