@@ -332,6 +332,8 @@ func TestEveryStepHasADefinition(t *testing.T) {
 		{ScanWorkflow, (&Scan{batch: b}).Stages(context.Background(), Env{})},
 		{ScanWorkflow, (&Scan{batch: b, Page: &Received{}}).Stages(context.Background(), Env{})},
 		{PhotoWorkflow, (&Scan{batch: b}).photoStages(0, Env{})},
+		{FeedWorkflow, (&Scan{batch: b, Feed: &Feeding{PPI: FeedPPI}}).Stages(context.Background(), Env{})},
+		{LetterWorkflow, (&Scan{batch: b, Feed: &Feeding{PPI: FeedPPI}}).letterStages(0, Env{})},
 	} {
 		var def *wf.Definition
 		for i := range Definitions {
@@ -365,6 +367,10 @@ func TestEveryStepHasADefinition(t *testing.T) {
 				all = append((&Scan{batch: b}).Stages(context.Background(), Env{}), (&Scan{batch: b, Page: &Received{}}).Stages(context.Background(), Env{})...)
 			case PhotoWorkflow:
 				all = (&Scan{batch: b}).photoStages(0, Env{})
+			case FeedWorkflow:
+				all = (&Scan{batch: b, Feed: &Feeding{PPI: FeedPPI}}).Stages(context.Background(), Env{})
+			case LetterWorkflow:
+				all = (&Scan{batch: b, Feed: &Feeding{PPI: FeedPPI}}).letterStages(0, Env{})
 			}
 			if !slices.ContainsFunc(all, func(s wf.Stage) bool { return s.Name == step.Name }) {
 				t.Errorf("%s step %s: defined but never run", def.Type, step.Name)

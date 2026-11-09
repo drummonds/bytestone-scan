@@ -14,6 +14,7 @@ import (
 	"math"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
 )
 
 // Print is a print on the fake bed: where it lies in mm before it is
@@ -108,3 +109,36 @@ func (f *Scanner) Detail(_ context.Context, area find.Rect, ppi int) (io.ReadClo
 	}
 	return closeFails{&b, f.CloseErr}, nil
 }
+
+// Feeder is a stand-in sheet feeder: it serves Sides, one small image
+// per side at the value given, both sides of each sheet in the order fed,
+// and is empty when Sides is.
+type Feeder struct {
+	Sides   []uint8
+	Feeds   int
+	LastPPI int
+}
+
+// Feed hands each side to each, numbered from 1; an empty feeder is an
+// error that says to load the sheets, as the FF-680W's is.
+func (f *Feeder) Feed(_ context.Context, ppi int, each func(n int, img *master.Image) error) error {
+	f.Feeds++
+	f.LastPPI = ppi
+	if len(f.Sides) == 0 {
+		return errors.New("the feeder is empty: load the sheets face down, the first sheet on top, and feed again")
+	}
+	for i, v := range f.Sides {
+		// a sheet taller than wide, so a turn shows
+		img := master.NewImage(24, 32)
+		for j := range img.Pix {
+			img.Pix[j] = uint16(v)<<8 | uint16(v)
+		}
+		if err := each(i+1, img); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *Feeder) Name() string       { return "Fake Feeder" }
+func (f *Feeder) Settings() []string { return []string{"--source ADF Duplex", "--depth 8"} }

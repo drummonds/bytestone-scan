@@ -38,13 +38,17 @@ func (b *Batch) Delete(ctx context.Context, store wf.Store) error {
 		}
 		return store.DeleteRun(ctx, r.ID)
 	}
-	for _, id := range ids {
-		if err := remove(PhotoWorkflow, id.String()); err != nil {
+	for _, l := range scans {
+		items, err := l.items()
+		if err != nil {
 			return err
 		}
-	}
-	for _, l := range scans {
-		if err := remove(ScanWorkflow, l.Key()); err != nil {
+		for _, id := range items {
+			if err := remove(l.itemType(), id.String()); err != nil {
+				return err
+			}
+		}
+		if err := remove(l.Type(), l.Key()); err != nil {
 			return err
 		}
 	}

@@ -1,0 +1,31 @@
+#!/bin/sh
+# A stand-in for SANE's scanimage: records its arguments, answers -L with
+# the devices on the bench, and feeds FAKE_SIDES tiny sides into the
+# --batch files, as the FF-680W does through the epsonds backend.
+echo "$*" >> "$FAKE_ARGS"
+case "$*" in
+*-L*)
+	echo "device \`escl:https://10.0.0.81:443' is a ESCL H3-ET-2850 platen scanner"
+	[ -n "$FAKE_NO_USB" ] || echo "device \`epsonds:libusb:001:004' is a Epson FF-680W ESC/I-2"
+	[ -n "$FAKE_NO_NET" ] || echo "device \`epsonds:net:10.0.0.64' is a Epson FF-680W ESC/I-2"
+	echo "device \`epson2:net:10.0.0.81' is a Epson PID flatbed scanner"
+	exit 0 ;;
+esac
+pattern=""
+for arg in "$@"; do
+	case "$arg" in
+	--batch=*) pattern="${arg#--batch=}" ;;
+	esac
+done
+n=0
+while [ "$n" -lt "${FAKE_SIDES:-0}" ]; do
+	n=$((n + 1))
+	echo "Scanning page $n"
+	printf 'P6\n2 1\n255\n\001\002\003\004\005\006' > "$(printf "$pattern" "$n")"
+done
+if [ "$n" -eq 0 ]; then
+	echo "Scanning page 1"
+	echo "scanimage: sane_start: Document feeder out of documents" >&2
+fi
+echo "Batch terminated, $n pages scanned"
+exit 0

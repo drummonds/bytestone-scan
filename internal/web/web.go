@@ -49,6 +49,7 @@ type App struct {
 	Store   wf.Store
 	DB      *sql.DB // the workflow database the store reads, for the explorer; nil without one
 	Scanner batch.Scanner
+	Feeder  batch.Feeder // the sheet feeder, for letters (story 117); nil without one
 	Archive archive.Service
 	Sites   []site.Site // where items are published, asked by Verify; nil for site.Defaults
 	Now     func() time.Time
@@ -185,6 +186,36 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /batches/{id}/scans/{n}/backs.png", func(w http.ResponseWriter, r *http.Request) {
 		servePNG(w, r, (*batch.Scan).AnnotatedBacks)
 	})
+	// a feed's sides as fed, small, for the arrange form
+	mux.HandleFunc("GET /batches/{id}/scans/{n}/sides/{k}", func(w http.ResponseWriter, r *http.Request) {
+		l, err := batch.OpenScan(a.Staging, r.PathValue("id")+"/"+r.PathValue("n"))
+		k, kerr := strconv.Atoi(r.PathValue("k"))
+		if err != nil || kerr != nil || !l.IsFeed() || k < 1 {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		http.ServeFile(w, r, l.SidePreview(k))
+	})
+	mux.HandleFunc("GET /letters/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := pid.Parse(r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		rec, dir, err := batch.FindLetter(a.Staging, id)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		l, err := a.feedOf(rec)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		render(w, "Letter "+id.String(), a.letterPage(r, id, rec, dir, l))
+	})
+	mux.HandleFunc("GET /letters/{id}/renditions/{version}/{side}/{file}", a.letterRendition)
 	mux.HandleFunc("GET /batches/{id}/scans/{n}/regions/{print}", func(w http.ResponseWriter, r *http.Request) {
 		p, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("print"), ".png"))
 		if err != nil {
@@ -262,8 +293,14 @@ func (a *App) batchLink(_ *http.Request, run wf.RunRecord, _ []wf.StepResult, _ 
 	case batch.ScanWorkflow:
 		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="%s">Scan %s: prints and photos</a></p>`,
 			scanURL(run.Key), html.EscapeString(run.Key)))
+	case batch.FeedWorkflow:
+		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="%s">Feed %s: sheets and letters</a></p>`,
+			scanURL(run.Key), html.EscapeString(run.Key)))
 	case batch.PhotoWorkflow:
 		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="photos/%s">Photo %s</a></p>`,
+			html.EscapeString(run.Key), html.EscapeString(run.Key)))
+	case batch.LetterWorkflow:
+		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="letters/%s">Letter %s</a></p>`,
 			html.EscapeString(run.Key), html.EscapeString(run.Key)))
 	}
 	return ""
@@ -275,10 +312,12 @@ func specificHref(run wf.RunRecord) string {
 	switch run.WorkflowType {
 	case batch.Workflow:
 		return "batches/" + html.EscapeString(run.Key)
-	case batch.ScanWorkflow:
+	case batch.ScanWorkflow, batch.FeedWorkflow:
 		return scanURL(run.Key)
 	case batch.PhotoWorkflow:
 		return "photos/" + html.EscapeString(run.Key)
+	case batch.LetterWorkflow:
+		return "letters/" + html.EscapeString(run.Key)
 	}
 	return ""
 }
@@ -324,7 +363,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	c.HTML(a.batchSteps(ctx, b, scans))
 	var t strings.Builder
 	var blocking []string
-	t.WriteString(`<h2 class="title is-5">Scans and imports</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints</th><th>Photos</th><th>Where</th></tr></thead><tbody>`)
+	t.WriteString(`<h2 class="title is-5">Scans, imports and feeds</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints or sheets</th><th>Items</th><th>Where</th></tr></thead><tbody>`)
 	for _, l := range scans {
 		var where string
 		if busy, step, _ := a.busyWith(l.Key()); busy {
@@ -338,8 +377,14 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 			}
 		}
 		prints, ids, _ := l.Found()
+		count, thumbs := len(prints), a.thumbnails(ids)
+		if l.IsFeed() {
+			sheets, _ := l.Sheets()
+			ids, _ := l.Items()
+			count, thumbs = len(sheets), a.letterThumbnails(ids)
+		}
 		fmt.Fprintf(&t, `<tr><td><a href="%s">%s %d</a></td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
-			scanURL(l.Key()), kind(l), l.N, html.EscapeString(l.Description), len(prints), a.thumbnails(ids), html.EscapeString(where))
+			scanURL(l.Key()), kind(l), l.N, html.EscapeString(l.Description), count, thumbs, html.EscapeString(where))
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
@@ -364,8 +409,9 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	}
 	c.HTML(fmt.Sprintf(`<div class="buttons"><a class="button is-primary" href="batches/%s/scans/new">Do one more scan</a> `+
 		`<a class="button" href="batches/%s/imports/new">Import pages</a> `+
+		`<a class="button" href="batches/%s/feeds/new">Scan letters</a> `+
 		`<form action="batches/%s/finish" method="post" style="display:inline"><button class="button" type="submit">Finish scanning</button></form> %s</div>`,
-		html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), del))
+		html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), del))
 	return c.Buffer()
 }
 
@@ -419,27 +465,42 @@ func (a *App) thumbnails(ids []pid.ID) string {
 	return t.String()
 }
 
-// kind is what the scan is called: a scan of the bed, or an import of a page.
+// kind is what the scan is called: a scan of the bed, an import of a
+// page, or a feed of sheets.
 func kind(l *batch.Scan) string {
-	if l.Import() {
+	switch {
+	case l.Import():
 		return "Import"
+	case l.IsFeed():
+		return "Feed"
 	}
 	return "Scan"
 }
 
 // batchOutcome says how the batch's photos stand with the archive, and
-// the class that colours it.
+// the class that colours it; items, when the batch has letters too.
 func (a *App) batchOutcome(b *batch.Batch) (msg, class string) {
 	o, err := b.Outcome()
 	if err != nil {
 		return html.EscapeString(err.Error()), "is-danger"
 	}
-	return outcomeText(o)
+	noun := "photo"
+	if scans, err := b.Scans(); err == nil {
+		for _, l := range scans {
+			if l.IsFeed() {
+				noun = "item"
+			}
+		}
+	}
+	return outcomeText(o, noun)
 }
 
 // scanPage is a scan's details, where its workflow stands and what the
 // operator can do there.
 func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
+	if l.IsFeed() {
+		return a.feedPage(r, l)
+	}
 	c := lofigui.NewContext()
 	busy, waiting := a.state(r, c, l)
 	b := l.Sitting()
@@ -462,7 +523,7 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 </tbody></table>`, kind(l), l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		capture, l.Created.Local().Format("2 Jan 2006 15:04")))
-	if dots := a.runDots(r.Context(), batch.ScanWorkflow, l.Key()); dots != "" {
+	if dots := a.runDots(r.Context(), l.Type(), l.Key()); dots != "" {
 		c.HTML(`<p>` + dots + ` ` + a.scanDots(r.Context(), l) + `</p>`)
 	}
 
@@ -817,19 +878,25 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 
 // archiveSection is where the photo stands with the archive.
 func (a *App) archiveSection(ctx context.Context, id pid.ID) string {
+	return a.itemArchive(ctx, id, batch.PhotoWorkflow, "photos/"+id.String()+"/retry", "photo")
+}
+
+// itemArchive is the archive's answer for an item, a photo's or a
+// letter's: not yet deposited, held, or rejected as a duplicate.
+func (a *App) itemArchive(ctx context.Context, id pid.ID, typ wf.WorkflowType, retry, noun string) string {
 	d, err := batch.DepositOf(a.Staging, id)
 	switch {
 	case err != nil:
 		return `<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">` + html.EscapeString(err.Error()) + `</p>`
 	case d == nil:
-		if s, err := batch.PhotoStanding(ctx, a.Store, id); err == nil && (s.Status == wf.StatusFailed || s.Status == wf.StatusCancelled) {
+		if s, err := batch.ItemStanding(ctx, a.Store, typ, id); err == nil && (s.Status == wf.StatusFailed || s.Status == wf.StatusCancelled) {
 			return `<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Not deposited: ` + html.EscapeString(s.String()) + `</p>` +
-				`<div class="buttons">` + smallForm("photos/"+id.String()+"/retry", "Retry", " is-primary") + `</div>`
+				`<div class="buttons">` + smallForm(retry, "Retry", " is-primary") + `</div>`
 		}
 		return `<h2 class="title is-6 mt-4">Archive</h2><p class="help">Not yet deposited.</p>`
 	case d.Status == "duplicate":
-		return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Rejected by the archive: %s is a duplicate of item <code>%s</code> (home %s). The photo ends here; its bag stays in staging.</p>`,
-			html.EscapeString(d.File), d.DuplicateOf, d.Home)
+		return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Rejected by the archive: %s is a duplicate of item <code>%s</code> (home %s). The %s ends here; its bag stays in staging.</p>`,
+			html.EscapeString(d.File), d.DuplicateOf, d.Home, noun)
 	}
 	return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p>Held by the archive since %s: item <code>%s</code>, home %s, %d files, checksums matching.</p>`,
 		d.At.Local().Format("2 Jan 2006 15:04"), id, d.Home, len(d.Payload))

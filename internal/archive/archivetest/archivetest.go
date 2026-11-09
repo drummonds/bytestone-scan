@@ -217,7 +217,10 @@ func (f *Fake) Deposit(id pid.ID, deposit io.Reader) (archive.Receipt, error) {
 
 // renditionsMissing is the first rendition file a deposit lacks, or whose
 // recipe names a master not in the bag; "" when it has them all. The
-// renditions are at one recipe: <recipe>/<file>, the back's under back/.
+// renditions are at one recipe, a set where sets sit (life-weaver story
+// 035): the root, <recipe>/<file>, unless the bag is a letter's; the
+// back's under back/ when the bag has a back master; and every directory
+// the deposit has under the recipe, a letter's one per side.
 func renditionsMissing(payload, renditions map[string]string) string {
 	recipe := ""
 	for name := range renditions {
@@ -227,13 +230,26 @@ func renditionsMissing(payload, renditions map[string]string) string {
 	if recipe == "" {
 		return "renditions/"
 	}
-	sides := []string{""}
-	if _, ok := payload["data/back.tif"]; ok {
-		sides = append(sides, "back/")
+	sets := map[string]bool{}
+	if _, letter := payload["data/letter.yaml"]; !letter {
+		sets[""] = true
 	}
-	for _, side := range sides {
+	if _, ok := payload["data/back.tif"]; ok {
+		sets["back/"] = true
+	}
+	for name := range renditions {
+		if dir, _, ok := strings.Cut(strings.TrimPrefix(name, recipe+"/"), "/"); ok {
+			sets[dir+"/"] = true
+		}
+	}
+	names := make([]string, 0, len(sets))
+	for set := range sets {
+		names = append(names, set)
+	}
+	sort.Strings(names)
+	for _, set := range names {
 		for _, file := range []string{"display.jpg", "thumb.jpg", "tiny.jpg", "recipe.yaml"} {
-			name := recipe + "/" + side + file
+			name := recipe + "/" + set + file
 			body, ok := renditions[name]
 			if !ok {
 				return "renditions/" + name

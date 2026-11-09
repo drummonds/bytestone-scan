@@ -139,7 +139,7 @@ func (l *Scan) Keep(ctx context.Context, store wf.Store, o KeepOptions) (Diagnos
 
 // keptRuns is the scan's run and its photos' runs, each with its steps.
 func (l *Scan) keptRuns(ctx context.Context, store wf.Store) ([]keptRun, error) {
-	run, err := store.FindRunByKey(ctx, ScanWorkflow, l.Key())
+	run, err := store.FindRunByKey(ctx, l.Type(), l.Key())
 	if err != nil || run == nil {
 		return nil, err
 	}
