@@ -14,4 +14,4 @@ pages_deploy:
     site: bytestone-scan
     dir: docs
 maturity:
-  code: 1
+  code: 3
