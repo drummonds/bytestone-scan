@@ -1,5 +1,7 @@
 // Command bytestone-scan scans batches of prints on the Epson 4990 into
-// archival masters, one archived photo per print, run from a web UI.
+// archival masters, one archived photo per print, and feeds the sheets of
+// letters through the Epson FF-680W, one archived letter per letter, run
+// from a web UI.
 //
 //	bytestone-scan serve [-instance NAME] [-addr HOST:PORT] [-staging DIR] [-archive URL] [-device DEV] [-recorded NAME]
 //	bytestone-scan capture -print NAME [-side front|back] [-staging DIR] [-device DEV] [-ppi 2400]
@@ -37,6 +39,7 @@ import (
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/epson"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/fastfoto"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/recorded"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/web"
 )
@@ -164,6 +167,7 @@ func serve(ctx context.Context, cfg settings, s batch.Scanner) error {
 		Store:   store,
 		DB:      db,
 		Scanner: s,
+		Feeder:  &fastfoto.Feeder{}, // the FF-680W, found when a feed first runs
 		Archive: client,
 		Now:     time.Now,
 	}

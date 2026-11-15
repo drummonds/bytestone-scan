@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-15
+
+- Declare code level 3 (story 118): `maturity.code: 3` in `task-plus.yml`, so stories are defined, reviewed and landed with `tp story land` (task-plus agent flow)
+
+### Changed
+
+- Declare code level 3 (story 118): `maturity.code: 3` in `task-plus.yml`, so stories are defined, reviewed and landed with `tp story land` (task-plus agent flow) (#162)
+
+## [0.33.0] - 2026-11-09
+
+- Scan letters through the Epson FastFoto FF-680W's sheet feeder (story 117): *Scan letters* on the batch page feeds the sheets loaded, both sides of each at 600 ppi and 8 bits, as a feed among the batch's scans; the operator arranges the sheets into letters and their roles (sheet or envelope), turns any side that lies wrong on the letter's page, and accepts; each letter is bagged as an item of kind `letter` (`sheet-NN-front.tif`, `sheet-NN-back.tif`, `letter.yaml`, a set of renditions per side) and deposited with the archive, which needs life-weaver v0.35 or later
+
+### Added
+
+- Scan letters through the Epson FastFoto FF-680W's sheet feeder (story 117): *Scan letters* on the batch page feeds the sheets loaded, both sides of each at 600 ppi and 8 bits, as a feed among the batch's scans; the operator arranges the sheets into letters and their roles (sheet or envelope), turns any side that lies wrong on the letter's page, and accepts; each letter is bagged as an item of kind `letter` (`sheet-NN-front.tif`, `sheet-NN-back.tif`, `letter.yaml`, a set of renditions per side) and deposited with the archive, which needs life-weaver v0.35 or later (#160)
+
+## [0.32.0] - 2026-11-08
+
+- The turn is said at confirm, where the print is first seen, not only at the quality check: Turn ↺ and Turn ↻ on each print's close-up, kept on the found print in prints.yaml (`turn`, degrees clockwise) through a move or a split, said in the heading and the prints table, and carried onto the front at capture so the first renditions are the right way up. The close-up is shown turned, as the rendition will be, its rulers and arrows laid round it as shown: the arrows at the top move the edge seen at the top, and the move posted still names the print's own edge; the back's close-up and the quality page's margin arrows follow the turn. A quality-check turn of the front is written back to the found print, so a reshape keeps it (#154); The scanner answers `GET /status` with the Statistics page's figures as JSON, for life-weaver's status page (story 115): `version`, `instance`, `staging`, `batches` by state, `scans`, `photos` (`held`, `pending`, `rejected`), `usage` (each entry at the staging root with its bytes), `total`, and `error` when the archive is not answering or staging cannot be read
+
+### Added
+
+- The scanner answers `GET /status` with the Statistics page's figures as JSON, for life-weaver's status page (story 115): `version`, `instance`, `staging`, `batches` by state, `scans`, `photos` (`held`, `pending`, `rejected`), `usage` (each entry at the staging root with its bytes), `total`, and `error` when the archive is not answering or staging cannot be read (#156)
+
+### Changed
+
+- The turn is said at confirm, where the print is first seen, not only at the quality check: Turn ↺ and Turn ↻ on each print's close-up, kept on the found print in prints.yaml (`turn`, degrees clockwise) through a move or a split, said in the heading and the prints table, and carried onto the front at capture so the first renditions are the right way up. The close-up is shown turned, as the rendition will be, its rulers and arrows laid round it as shown: the arrows at the top move the edge seen at the top, and the move posted still names the print's own edge; the back's close-up and the quality page's margin arrows follow the turn. A quality-check turn of the front is written back to the found print, so a reshape keeps it (#154) (#154)
+
 ## [0.31.0] - 2026-11-05
 
 - The scanner runs for the UAT archive instance unless `-instance` names another, since every depositor writes UAT now: a plain `task serve` finds `bytestone-uat` and listens on `localhost:8081`; production has to be named, and the navbar shows any instance but UAT in warning colours (#152)

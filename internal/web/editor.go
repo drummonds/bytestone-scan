@@ -19,8 +19,8 @@ const (
 	pageSize  = 300.0
 )
 
-// arrows are each edge's buttons, outermost first: huge, large and small
-// out, then small, large and huge in.
+// arrows are the buttons on each side of the close-up as shown, outermost
+// first: huge, large and small out, then small, large and huge in.
 var arrows = map[find.Edge][6]string{
 	find.Top:    {"⤊", "⇈", "↑", "↓", "⇊", "⤋"},
 	find.Bottom: {"⤋", "⇊", "↓", "↑", "⇈", "⤊"},
@@ -37,11 +37,22 @@ func pageSized(r find.Box, e find.Edge) bool {
 	return r.W > pageSize
 }
 
-// edgeArrows are the arrows on one edge of print n's region, each a
-// button naming the move; an arrow is left out where its move cannot
-// happen. Below them is the edge's margin to the print. Edges are the
-// print's own, however it is turned.
-func edgeArrows(n int, p find.Print, bed find.Rect, e find.Edge, vertical bool) string {
+// shownEdge is the print's edge at side of its close-up as shown, the
+// close-up being turned by the print's turn: at a quarter turn clockwise
+// the print's left edge is at the top (#154). Edges run clockwise from
+// the top: top, right, bottom, left.
+func shownEdge(side find.Edge, turn int) find.Edge {
+	clockwise := []find.Edge{find.Top, find.Right, find.Bottom, find.Left}
+	at := map[find.Edge]int{find.Top: 0, find.Right: 1, find.Bottom: 2, find.Left: 3}
+	return clockwise[((at[side]-turn/90)%4+4)%4]
+}
+
+// edgeArrows are the arrows on one side of print n's close-up as shown,
+// each a button naming the move of the print's edge seen there; an arrow
+// is left out where its move cannot happen. Below them is the edge's
+// margin to the print. Edges are the print's own, however it is skewed.
+func edgeArrows(n int, p find.Print, bed find.Rect, side find.Edge, vertical bool) string {
+	e := shownEdge(side, p.Turn)
 	in := p.Print.Within(p.Region)
 	margin := map[find.Edge]float64{
 		find.Top: in.Y0, find.Bottom: p.Region.H - in.Y1,
@@ -62,14 +73,15 @@ func edgeArrows(n int, p find.Print, bed find.Rect, e find.Edge, vertical bool) 
 			dir = "in"
 		}
 		fmt.Fprintf(&s, `<button class="button" name="move" value="%d %s %g" title="%s edge %s %g mm">%s</button>`,
-			n, e, by, e, dir, max(by, -by), arrows[e][k])
+			n, e, by, e, dir, max(by, -by), arrows[side][k])
 	}
 	fmt.Fprintf(&s, `</div><p class="help has-text-centered">margin %.1f mm</p>`, margin[e])
 	return s.String()
 }
 
-// edgeGrid lays the four edges' arrows round middle, posting to action;
-// a print turned too far to deskew has none, but a note to straighten it.
+// edgeGrid lays the arrows round middle on its four sides as shown,
+// posting to action; a print turned too far to deskew has none, but a
+// note to straighten it.
 func edgeGrid(action string, n int, p find.Print, bed find.Rect, middle string) string {
 	if p.Straighten() {
 		return fmt.Sprintf(`%s<p class="notification is-warning is-light mt-2">Print %d is turned %.1f°, too far to deskew: straighten it on the bed and rescan the preview.</p>`,
@@ -100,12 +112,16 @@ func regionEditor(b *batch.Scan, i int, p find.Print, last bool) string {
 		img = ruled(n, p, b.Bed(), f, img)
 	}
 	remove := regionButton(id, "remove", n, "Remove this region", "is-danger is-light")
+	turn := ""
+	if p.Turn != 0 {
+		turn = ", " + turnWord(p.Turn)
+	}
 	return fmt.Sprintf(`<div class="box" id="print-%d">
-<div class="level is-mobile mb-3"><div class="level-left"><h2 class="title is-5 mb-0">Print %d: %.1f × %.1f mm</h2></div><div class="level-right">%s</div></div>
+<div class="level is-mobile mb-3"><div class="level-left"><h2 class="title is-5 mb-0">Print %d: %.1f × %.1f mm%s</h2></div><div class="level-right">%s%s</div></div>
 %s
-<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm%s. Split by hand cuts the region into equal parts, for a contact print or prints that touch; the arrows then move the cuts.</p>
+<p class="help">Close-up of the 150 ppi preview%s: the region in green, the print as found in blue. A tick on a ruler sets the nearer edge to it, every %.0f mm; single arrows move an edge %.1f mm, double arrows %.0f mm%s. Split by hand cuts the region into equal parts, for a contact print or prints that touch; the arrows then move the cuts. Turn says which way up the picture is for its rendition, a quarter turn at a time: the close-up is shown turned, its rulers and arrows with it; the master lies as scanned.</p>
 <div class="buttons mt-3">%s%s%s%s</div>
-</div>`, n, n, p.Print.W, p.Print.H, remove,
+</div>`, n, n, p.Print.W, p.Print.H, turn, turnButtons(id, n), remove,
 		edgeGrid(id+"/adjust", n, p, b.Bed(), img),
 		turnedBack(p.Region), tick, smallStep, largeStep, hugeArrows(p.Region), confirmButton(id, last), splitButton(id, n, p), remove, splitByHand(id, n, p))
 }
@@ -163,11 +179,13 @@ func tickFor(scale float64) float64 {
 	return 100
 }
 
-// ruled lays rulers along the top and left of print n's close-up img: a
-// tick every tickFor(f.Scale) mm of the bed (of the region's own frame for a
-// turned print), each a button that sets the nearer edge on that axis to
-// it, or a bare mark where the edge cannot go; the region's own edges
-// are marked in green.
+// ruled lays rulers along the top and left of print n's close-up img as
+// shown: a tick every tickFor(f.Scale) mm of the bed (of the region's own
+// frame for a skewed print), each a button that sets the nearer edge on
+// that axis to it, or a bare mark where the edge cannot go; the region's
+// own edges are marked in green. The close-up is shown turned by the
+// print's turn, so each ruler runs along whichever of the region's axes
+// lies that way, backwards where the turn reverses it (#154).
 func ruled(n int, p find.Print, bed find.Rect, f batch.CloseUpFrame, img string) string {
 	r := p.Region
 	// the ruler's coordinate c and the region frame's u: c = u + c0
@@ -177,12 +195,19 @@ func ruled(n int, p find.Print, bed find.Rect, f batch.CloseUpFrame, img string)
 	}
 	tick := tickFor(f.Scale)
 	var top, left strings.Builder
-	ruler := func(b *strings.Builder, vertical bool, c0, u0, size float64, px int, near, far find.Edge) {
+	ruler := func(b *strings.Builder, vertical, reversed bool, c0, u0, size float64, px int, near, far find.Edge) {
 		first := math.Ceil((u0+c0)/tick) * tick
 		last := math.Floor((u0+c0+float64(px)/f.Scale)/tick) * tick
+		pixel := func(u float64) int {
+			at := int(math.Round((u - u0) * f.Scale))
+			if reversed {
+				return px - at
+			}
+			return at
+		}
 		for c := first; c <= last+1e-9; c += tick {
 			u := c - c0
-			at := int(math.Round((u - u0) * f.Scale))
+			at := pixel(u)
 			e, mm := near, -u
 			if u > size/2 {
 				e, mm = far, u-size
@@ -204,7 +229,7 @@ func ruled(n int, p find.Print, bed find.Rect, f batch.CloseUpFrame, img string)
 		}
 		// the region's edges
 		for _, u := range []float64{0, size} {
-			at := int(math.Round((u - u0) * f.Scale))
+			at := pixel(u)
 			pos := fmt.Sprintf("left:%dpx;top:0;width:2px;height:%dpx", at-1, rulerPx)
 			if vertical {
 				pos = fmt.Sprintf("top:%dpx;left:0;height:2px;width:%dpx", at-1, rulerPx)
@@ -212,11 +237,33 @@ func ruled(n int, p find.Print, bed find.Rect, f batch.CloseUpFrame, img string)
 			fmt.Fprintf(b, `<span style="position:absolute;%s;background:#00a000"></span>`, pos)
 		}
 	}
-	ruler(&top, false, cu, f.U0, r.W, f.W, find.Left, find.Right)
-	ruler(&left, true, cv, f.V0, r.H, f.H, find.Top, find.Bottom)
+	along := func(b *strings.Builder, vertical, reversed, u bool) {
+		if u {
+			ruler(b, vertical, reversed, cu, f.U0, r.W, f.W, find.Left, find.Right)
+		} else {
+			ruler(b, vertical, reversed, cv, f.V0, r.H, f.H, find.Top, find.Bottom)
+		}
+	}
+	w, h := f.W, f.H
+	switch p.Turn {
+	case 90:
+		along(&top, false, true, false)
+		along(&left, true, false, true)
+		w, h = h, w
+	case 180:
+		along(&top, false, true, true)
+		along(&left, true, true, false)
+	case 270:
+		along(&top, false, false, false)
+		along(&left, true, true, true)
+		w, h = h, w
+	default:
+		along(&top, false, false, true)
+		along(&left, true, false, false)
+	}
 	return fmt.Sprintf(`<div style="display:grid;grid-template-columns:%dpx %dpx;grid-template-rows:%dpx %dpx">
 <div></div><div style="position:relative">%s</div>
-<div style="position:relative">%s</div><div>%s</div></div>`, rulerPx, f.W, rulerPx, f.H, top.String(), left.String(), img)
+<div style="position:relative">%s</div><div>%s</div></div>`, rulerPx, w, rulerPx, h, top.String(), left.String(), img)
 }
 
 // turnedBack says how far a close-up is turned to sit the print square.
@@ -225,6 +272,15 @@ func turnedBack(region find.Box) string {
 		return ""
 	}
 	return fmt.Sprintf(", turned back %.1f° so the print sits square", math.Abs(region.Angle))
+}
+
+// turnButtons turn print n's rendition by a quarter turn either way, so
+// the picture is the right way up: said at confirm, where the print is
+// first seen, and carried onto the front at capture (#154).
+func turnButtons(url string, n int) string {
+	return fmt.Sprintf(`<form action="%s/turn" method="post" style="display:inline"><input type="hidden" name="print" value="%d"><input type="hidden" name="by" value="-90"><button class="button is-small" type="submit" title="Turn the picture a quarter anticlockwise">Turn ↺</button></form> `+
+		`<form action="%s/turn" method="post" style="display:inline"><input type="hidden" name="print" value="%d"><input type="hidden" name="by" value="90"><button class="button is-small" type="submit" title="Turn the picture a quarter clockwise">Turn ↻</button></form> `,
+		url, n, url, n)
 }
 
 // regionButton posts an edit of print n to the scan at url.

@@ -32,20 +32,24 @@ func (a *App) scanDots(ctx context.Context, l *batch.Scan) string {
 	} else if s, err := l.Standing(ctx, a.Store); err == nil {
 		title = s.String()
 	}
-	_, ids, _ := l.Found()
+	ids, _ := l.Items()
 	if len(ids) == 0 {
-		run, _ := a.Store.FindRunByKey(ctx, batch.ScanWorkflow, l.Key())
+		run, _ := a.Store.FindRunByKey(ctx, l.Type(), l.Key())
 		return fmt.Sprintf(`<a class="dots" href="%s" title="%s">%s</a>`, scanURL(l.Key()), html.EscapeString(title), dot(runColour(run)))
+	}
+	href, noun := "photos", "photo"
+	if l.IsFeed() {
+		href, noun = "letters", "letter"
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `<span class="dots" title="%s">`, html.EscapeString(title))
 	for _, id := range ids {
-		run, _ := a.Store.FindRunByKey(ctx, batch.PhotoWorkflow, id.String())
+		run, _ := a.Store.FindRunByKey(ctx, l.ItemType(), id.String())
 		status := "not started"
 		if run != nil {
 			status = string(run.Status)
 		}
-		fmt.Fprintf(&b, `<a href="photos/%s" title="photo %s: %s">%s</a>`, id, id, status, dot(runColour(run)))
+		fmt.Fprintf(&b, `<a href="%s/%s" title="%s %s: %s">%s</a>`, href, id, noun, id, status, dot(runColour(run)))
 	}
 	b.WriteString(`</span>`)
 	return b.String()

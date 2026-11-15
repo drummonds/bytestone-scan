@@ -11,6 +11,11 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Batch | One sitting of scanning: its title, home person, provenance, credit and scan resolution, over as many scans of the bed as the shoebox needs; finished when the operator says so and every scan is through |
 | Scan | One placing of prints on the bed within a batch, previewed, confirmed, scanned front and back: its description (the batch's title unless the operator says otherwise), preview, prints, fronts pass, backs pass, masters and the photos archived from them |
 | Import | One received page brought into a batch, numbered among its scans: the page is its bed, previewed at 150 ppi, its prints found and confirmed as on a bed scan, each cut from the page at the page's own ppi; no backs. Its description, sender, date received and device are recorded |
+| Feed | One load of the sheet feeder within a batch, numbered among its scans as an import is: its description, every side of every sheet as fed, both sides in one pass at 600 ppi and 8 bits, and the letters the operator arranges the sheets into |
+| Feeder | The Epson FastFoto FF-680W as the scanner drives it: `scanimage` on the SANE `epsonds` backend, source *ADF Duplex*, colour, 8 bits, skew correction off, until the feeder is empty |
+| Sheet | One piece of paper fed, two sides, kept whole; its role is `sheet` or `envelope`. The pages a sheet holds are cut later, on renditions |
+| Arrange | The feed step where the operator says which sheets make which letter, in what order, and each sheet's role; one load is usually one letter, so every sheet starts in letter 1 |
+| Letter | An item of kind `letter`: its sheets' sides as masters, `sheet-01-front.tif`, `sheet-01-back.tif`, …, with `letter.yaml`; a set of renditions per side under the side's own name; deposited and receipted as a photo is |
 | Page | A file received from elsewhere: an image of prints captured by someone else's device, kept unaltered as sent. Holding one print, it is kept in that photo's bag; holding several, it is an item of its own with page.yaml (sender, received, device, format, ppi, the photos cut from it), deposited before them |
 | Received side | A side whose master was cut from a page, not scanned here: its ppi and depth the page's, no averaging; its record carries the page's own and, when the page is an item, names it as `cut_from` |
 | Not received | What a photo cut from a page says of its back: the page holds the front only. Not the same as blank |
@@ -25,7 +30,7 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Master ppi | The resolution of a master: 600, or 1200 for prints smaller than 6 × 4 inches; for a received side, the page's own |
 | Master | The archival image of one side, never altered after capture: a front at 16 bits per channel, a back at 8, a received side at the depth received |
 | Rendition | A display image derived from a master: cropped to the print, turned square, given the side's turn, its levels set, scaled to fit a screen |
-| Turn | The quarter turns a side's rendition is given so the picture is the right way up, as the operator says at the quality check: 90, 180 or 270 degrees clockwise, kept on the side in photo.yaml and so in the bag; the master lies as scanned |
+| Turn | The quarter turns a side's rendition is given so the picture is the right way up, as the operator says at confirm, from the close-up, or at the quality check, from the rendition: 90, 180 or 270 degrees clockwise, kept on the found print in prints.yaml and on the side in photo.yaml and so in the bag; a letter's side is turned on the letter's page before the feed is accepted, kept in letter.yaml; the master lies as scanned |
 | Recipe | How renditions are made from a master, by version; a new recipe makes new renditions and leaves the old on record |
 | Develop | The photo step that makes one side's renditions |
 | Caption | What a photo shows, in the archivist's own words: "Air Raid Wardens". Not a claim: it has no source or reading; kept in photo.yaml as caption beside the scan's description, blank meaning none |

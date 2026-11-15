@@ -60,6 +60,21 @@ it holds several, as a page item of its own that the photos name as
 `cut_from`, deposited before them. The image has to be pulled out of a
 PDF or an email first.
 
+Letters go through the Epson FastFoto FF-680W's sheet feeder, not onto
+the bed (story [117](docs/stories/117-scan-letters-through-the-ff-680w-sheet-feeder-a.md);
+the format statement's *Letters* section). *Scan letters* on the batch
+page (or *Scan letters instead* on New batch) feeds the sheets loaded,
+both sides of each in one pass at 600 ppi and 8 bits, as a *feed* among
+the batch's scans. The operator then arranges the sheets into letters,
+saying which sheet is which letter's and which is an envelope; one load
+is usually one letter. Each letter is an item of kind `letter`: every
+side kept whole as a master, `sheet-01-front.tif`, `sheet-01-back.tif`,
+…, with `letter.yaml`, a set of renditions per side, turned as the
+operator says on the letter's page before accepting. Cutting the pages
+out of a sheet, the reading-order PDF and the transcription are later,
+on renditions. The feeder is found among `scanimage -L` as the `epsonds`
+device, USB first; without it a feed fails at its first step and says so.
+
 Batches, the bags awaiting the archive, recordings and the workflow
 database live under `-staging` (default `~/.local/share/bytestone-scan`).
 The scanner runs for one archive instance, UAT unless `-instance` names
@@ -98,7 +113,13 @@ The words in the code, the pages and these docs are defined in
 [the glossary](internal/glossary/glossary.md), also shown on the app's
 About page. About also links to *Statistics*: batches by state, scans,
 photos by how they stand with the archive, what staging holds and the
-runs in the workflow database.
+runs in the workflow database. `GET /status` says the same as JSON for
+life-weaver's status page (story 115): `version`, `instance` (the archive
+instance the scanner runs for), `staging` (the root), `batches` by state,
+`scans`, `photos` (`held`, `pending`, `rejected`), `usage` (each entry at
+the staging root, `name` and `bytes`), `total` bytes, and `error` when
+the archive is not answering or staging cannot be read; the runs stay
+on the page.
 
 ## Links
 

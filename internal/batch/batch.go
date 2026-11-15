@@ -64,6 +64,7 @@ type Scanner interface {
 type Env struct {
 	Store   wf.Store
 	Scanner Scanner
+	Feeder  Feeder // the sheet feeder, for feeds (story 117); nil without one
 	Archive archive.Service
 	Now     func() time.Time
 }
@@ -114,6 +115,8 @@ type Scan struct {
 	Created     time.Time `yaml:"created"`
 	// Page makes the scan an import: a received page is its bed.
 	Page *Received `yaml:"page,omitempty"`
+	// Feed makes the scan a feed: the sheet feeder is its bed (story 117).
+	Feed *Feeding `yaml:"feed,omitempty"`
 
 	batch *Batch
 	root  string
@@ -741,6 +744,25 @@ func (b *Scan) SetEdge(n int, e find.Edge, pos float64) error {
 	return b.Adjust(n, e, mm)
 }
 
+// TurnPrint adds a quarter turn, by degrees clockwise or anticlockwise,
+// to the turn print n's rendition is to be given so the picture is the
+// right way up, while the prints are editable, as Adjust is. The front
+// is captured with it.
+func (b *Scan) TurnPrint(n, by int) error {
+	if by != 90 && by != -90 {
+		return fmt.Errorf("turn by %d°: a turn is a quarter turn, 90 or -90", by)
+	}
+	f, err := b.editable(n)
+	if err != nil {
+		return err
+	}
+	f.Prints[n].Turn = turned(f.Prints[n].Turn, by)
+	return writeYAML(b.path("prints.yaml"), f)
+}
+
+// turned is the turn after another by degrees, within the circle.
+func turned(turn, by int) int { return ((turn+by)%360 + 360) % 360 }
+
 // Confirmed reports whether the operator has confirmed the prints found.
 func (b *Scan) Confirmed() bool {
 	_, err := os.Stat(b.path("confirmed"))
@@ -843,7 +865,7 @@ func (b *Scan) Accept() error {
 	if _, err := os.Stat(b.path("masters")); err != nil {
 		return fmt.Errorf("scan %s: no masters to accept yet", b.Key())
 	}
-	if _, err := os.Stat(b.path("backs-confirmed")); err != nil && !b.BacksSkipped() && !b.Import() {
+	if _, err := os.Stat(b.path("backs-confirmed")); err != nil && !b.BacksSkipped() && !b.Import() && !b.IsFeed() {
 		return fmt.Errorf("scan %s: the backs are not scanned yet", b.Key())
 	}
 	return os.WriteFile(b.path("accepted"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
@@ -913,14 +935,36 @@ func (b *Scan) Turn(id pid.ID, side string, by int) error {
 		}
 		sd = photo.Back
 	}
-	sd.Turn = ((sd.Turn+by)%360 + 360) % 360
+	sd.Turn = turned(sd.Turn, by)
 	if err := writeYAML(b.masterPath(id, "yaml"), photo); err != nil {
 		return err
+	}
+	if side == "front" {
+		// the found print's turn too, so a reshape captures it afresh
+		if err := b.turnFound(id, sd.Turn); err != nil {
+			return err
+		}
 	}
 	if err := b.clearRenditions(id, side); err != nil {
 		return err
 	}
 	return b.develop(id, side)
+}
+
+// turnFound sets the turn on the found print that photo id was captured
+// from, as the quality check turned its front.
+func (b *Scan) turnFound(id pid.ID, turn int) error {
+	var f found
+	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
+		return err
+	}
+	for i, fid := range f.IDs {
+		if fid == id && i < len(f.Prints) {
+			f.Prints[i].Turn = turn
+			return writeYAML(b.path("prints.yaml"), f)
+		}
+	}
+	return nil
 }
 
 // clearRenditions removes one side's renditions at the current recipe:
@@ -1159,7 +1203,7 @@ func (b *Scan) Run(ctx context.Context, env Env, progress func(step string)) (*w
 	if err != nil || parent == nil {
 		return nil, fmt.Errorf("scan %s: no run for batch %s: %v", b.Key(), b.Batch, err)
 	}
-	if _, err := runner.StartChild(ctx, parent.ID, ScanWorkflow, b.Key(), date); err != nil {
+	if _, err := runner.StartChild(ctx, parent.ID, b.Type(), b.Key(), date); err != nil {
 		return nil, err
 	}
 	watched := func(stages []wf.Stage) []wf.Stage {
@@ -1178,18 +1222,18 @@ func (b *Scan) Run(ctx context.Context, env Env, progress func(step string)) (*w
 		}
 		return stages
 	}
-	rec, err := runner.RunPipeline(ctx, ScanWorkflow, b.Key(), date, watched(b.Stages(ctx, env)))
+	rec, err := runner.RunPipeline(ctx, b.Type(), b.Key(), date, watched(b.Stages(ctx, env)))
 	if err != nil {
 		return rec, err
 	}
-	// then each photo the scan has started, as far as it can go
-	_, ids, _ := b.Found()
+	// then each item the scan has started, as far as it can go
+	ids, _ := b.Items()
 	for _, id := range ids {
-		pr, err := store.FindRunByKey(ctx, PhotoWorkflow, id.String())
+		pr, err := store.FindRunByKey(ctx, b.itemType(), id.String())
 		if err != nil || pr == nil {
 			continue
 		}
-		if _, err := runner.RunPipeline(ctx, PhotoWorkflow, id.String(), date, watched(b.photoStages(id, env))); err != nil {
+		if _, err := runner.RunPipeline(ctx, b.itemType(), id.String(), date, watched(b.itemStages(id, env))); err != nil {
 			return rec, err
 		}
 	}
@@ -1266,8 +1310,8 @@ type Outcome struct {
 // Outcome is how the scan's photos stand with the archive.
 func (l *Scan) Outcome() (Outcome, error) {
 	var o Outcome
-	_, ids, err := l.Found()
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	ids, err := l.Items()
+	if err != nil {
 		return o, err
 	}
 	for _, id := range ids {
@@ -1457,8 +1501,11 @@ func (b *Scan) startPhotos(ctx context.Context, store wf.Store) error {
 	return nil
 }
 
-// Stages are the scan's workflow steps, in order.
+// Stages are the scan's workflow steps, in order: a feed's are its own.
 func (b *Scan) Stages(ctx context.Context, env Env) []wf.Stage {
+	if b.IsFeed() {
+		return b.feedStages(ctx, env)
+	}
 	store, s, now := env.Store, env.Scanner, env.Now
 	before := []wf.Stage{
 		{Name: "describe", Run: func(context.Context) error {
@@ -1634,7 +1681,7 @@ func (b *Scan) detailPass(ctx context.Context, s Scanner, now func() time.Time) 
 				Captured: captured, Print: pr.Print, Region: pr.Region, Bounds: pr.Region.On(f.Bed),
 				ScanPPI: p.ScanPPI, MasterPPI: m.PPI, Averaging: m.Factor,
 				Skew: pr.Skew, Fill: pr.Fill, Review: pr.Review, Warning: m.Warning,
-				Scanner: s.Name(), Settings: s.Settings(),
+				Scanner: s.Name(), Settings: s.Settings(), Turn: pr.Turn,
 			},
 		}
 		if b.Import() {
@@ -1959,11 +2006,12 @@ func (b *Scan) Found() ([]find.Print, []pid.ID, error) {
 	return f.Prints, f.IDs, nil
 }
 
-// items are the scan's photo ids and, after them, its page item if any.
+// items are the scan's photo ids and, after them, its page item if any;
+// a feed's letters.
 func (b *Scan) items() ([]pid.ID, error) {
-	_, ids, err := b.Found()
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+	ids, err := b.Items()
+	if err != nil || b.IsFeed() {
+		return ids, err
 	}
 	page, err := b.PageItem()
 	if err != nil {
