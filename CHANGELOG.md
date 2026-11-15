@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-15
+
+- Declare code level 3 (story 118): `maturity.code: 3` in `task-plus.yml`, so stories are defined, reviewed and landed with `tp story land` (task-plus agent flow)
+
+### Changed
+
+- Declare code level 3 (story 118): `maturity.code: 3` in `task-plus.yml`, so stories are defined, reviewed and landed with `tp story land` (task-plus agent flow) (#162)
+
 ## [0.33.0] - 2026-11-09
 
 - Scan letters through the Epson FastFoto FF-680W's sheet feeder (story 117): *Scan letters* on the batch page feeds the sheets loaded, both sides of each at 600 ppi and 8 bits, as a feed among the batch's scans; the operator arranges the sheets into letters and their roles (sheet or envelope), turns any side that lies wrong on the letter's page, and accepts; each letter is bagged as an item of kind `letter` (`sheet-NN-front.tif`, `sheet-NN-back.tif`, `letter.yaml`, a set of renditions per side) and deposited with the archive, which needs life-weaver v0.35 or later
