@@ -120,7 +120,7 @@ func (a *App) wait() { a.work.running.Wait() }
 
 // env is what the scans' workflows run with.
 func (a *App) env() batch.Env {
-	return batch.Env{Store: a.Store, Scanner: a.Scanner, Archive: a.Archive, Now: a.Now}
+	return batch.Env{Store: a.Store, Scanner: a.Scanner, Feeder: a.Feeder, Archive: a.Archive, Now: a.Now}
 }
 
 // running is the key of the scan a step is running for, or empty.
@@ -161,7 +161,7 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 <p class="help">The fronts are scanned at this ppi and averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick. The backs are scanned at 300 ppi.</p>
 <p class="help">600 ppi takes about 15 s for a 7 × 5 inch print, 1200 about 75 s, 2400 about 2½ minutes.</p></div>
 <button class="button is-primary" type="submit">Scan the preview</button>
-<button class="button" type="submit" name="then" value="import">Import pages instead</button>
+<button class="button" type="submit" name="then" value="import">Import pages instead</button> <button class="button" type="submit" name="then" value="feed">Scan letters instead</button>
 </form>
 <script>
 // Each data-insert button puts its text into the credit field at the cursor.
@@ -312,11 +312,94 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			render(w, "New batch", a.newBatch(`<div class="notification is-danger">`+html.EscapeString(err.Error())+`</div>`, e))
 			return
 		}
-		if r.FormValue("then") == "import" {
+		switch r.FormValue("then") {
+		case "import":
 			http.Redirect(w, r, "/batches/"+b.ID+"/imports/new", http.StatusSeeOther)
+			return
+		case "feed":
+			http.Redirect(w, r, "/batches/"+b.ID+"/feeds/new", http.StatusSeeOther)
 			return
 		}
 		a.startScan(w, r, b, "", fail)
+	})
+	mux.HandleFunc("GET /batches/{id}/feeds/new", func(w http.ResponseWriter, r *http.Request) {
+		b, err := batch.Open(a.Staging, r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if b.Finished() {
+			fail(w, fmt.Errorf("batch %s: scanning is finished", b.ID), http.StatusUnprocessableEntity)
+			return
+		}
+		render(w, "Scan letters", newFeed(b, "", b.Title))
+	})
+	// a feed is started as a scan is: the sheets are fed on its first tick
+	mux.HandleFunc("POST /batches/{id}/feeds", func(w http.ResponseWriter, r *http.Request) {
+		b, err := batch.Open(a.Staging, r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if key := a.running(); key != "" {
+			fail(w, fmt.Errorf("%w: the scanner is busy with scan %s", errBusy, key), http.StatusConflict)
+			return
+		}
+		l, err := b.NewFeed(r.FormValue("description"), a.Now())
+		if err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		if err := a.start(l, nil); err != nil {
+			fail(w, err, http.StatusConflict)
+			return
+		}
+		http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
+	})
+	// a letter's side is turned on its page, before the feed is accepted
+	mux.HandleFunc("POST /letters/{id}/turn", func(w http.ResponseWriter, r *http.Request) {
+		id, err := pid.Parse(r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		rec, _, err := batch.FindLetter(a.Staging, id)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		l, err := a.feedOf(rec)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		by, _ := strconv.Atoi(r.FormValue("by"))
+		if err := l.TurnSide(id, r.FormValue("side"), by); err != nil {
+			fail(w, err, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Redirect(w, r, "/letters/"+id.String(), http.StatusSeeOther)
+	})
+	// a letter's retry ticks its feed, which runs every letter of it as
+	// far as it goes, and returns to the letter
+	mux.HandleFunc("POST /letters/{id}/retry", func(w http.ResponseWriter, r *http.Request) {
+		id, err := pid.Parse(r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		rec, _, err := batch.FindLetter(a.Staging, id)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		l, err := a.feedOf(rec)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		a.tick(l)
+		http.Redirect(w, r, "/letters/"+id.String(), http.StatusSeeOther)
 	})
 	mux.HandleFunc("GET /batches/{id}/imports/new", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
@@ -444,6 +527,22 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		return l.Redo(r.Context(), a.Store, "confirm", 0)
 	})
 	act("confirm", func(r *http.Request, l *batch.Scan) error { return l.Confirm() })
+	// the arrange form: a letter number and a role per sheet fed
+	act("arrange", func(r *http.Request, l *batch.Scan) error {
+		sheets, err := l.Sheets()
+		if err != nil {
+			return err
+		}
+		choices := make([]batch.SheetChoice, len(sheets))
+		for i := range sheets {
+			n, err := strconv.Atoi(strings.TrimSpace(r.FormValue(fmt.Sprintf("letter-%d", i+1))))
+			if err != nil {
+				return fmt.Errorf("sheet %d: letter %q, want a number from 1", i+1, r.FormValue(fmt.Sprintf("letter-%d", i+1)))
+			}
+			choices[i] = batch.SheetChoice{Letter: n, Role: r.FormValue(fmt.Sprintf("role-%d", i+1))}
+		}
+		return l.Arrange(choices)
+	})
 	act("rescan", func(r *http.Request, l *batch.Scan) error {
 		ppi, _ := strconv.Atoi(r.FormValue("ppi"))
 		return l.Redo(r.Context(), a.Store, "fronts", ppi)
@@ -859,6 +958,11 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		} else {
 			c.HTML(a.outcome(l))
 		}
+	case waiting == "arrange":
+		c.HTML(`<div class="notification is-warning">Say which letter each sheet is part of and whether it is a sheet or the envelope, then arrange the sheets into letters. One load is usually one letter.</div><div class="buttons">` + cancel + `</div>`)
+	case waiting == "check quality" && l.IsFeed():
+		c.HTML(`<div class="notification is-warning">Look at each letter's sides on its page and turn any that lie wrong, then accept: the letters go to the archive.</div><div class="buttons">` +
+			button("accept", "Accept and archive ›", "is-primary") + cancel + `</div>`)
 	case waiting == "confirm" && l.Import():
 		c.HTML(`<div class="notification is-warning">Check the prints found on the page.</div><div class="buttons">` +
 			button("confirm", "Confirm and cut ›", "is-primary") + cancel + `</div>`)
@@ -917,7 +1021,11 @@ func (a *App) outcome(l *batch.Scan) string {
 	if err != nil {
 		return `<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
 	}
-	msg, class := outcomeText(o)
+	noun := "photo"
+	if l.IsFeed() {
+		noun = "letter"
+	}
+	msg, class := outcomeText(o, noun)
 	return `<div class="notification ` + class + `">Done: ` + msg + `.</div>` +
 		`<div class="buttons"><a class="button" href="` + scanURL(l.Key()) + `/verify">Verify against the archive</a></div>`
 }
@@ -925,8 +1033,8 @@ func (a *App) outcome(l *batch.Scan) string {
 // outcomeText says how photos stand with the archive, the rejected ones
 // linked, and the Bulma class that colours it: success unless any is
 // rejected or not there yet.
-func outcomeText(o batch.Outcome) (msg, class string) {
-	msg = fmt.Sprintf("%d %s held by the archive", o.Held, plural(o.Held, "photo", "photos"))
+func outcomeText(o batch.Outcome, noun string) (msg, class string) {
+	msg = fmt.Sprintf("%d %s held by the archive", o.Held, plural(o.Held, noun, noun+"s"))
 	class = "is-success"
 	if len(o.Rejected) > 0 {
 		links := make([]string, len(o.Rejected))
@@ -977,7 +1085,7 @@ func (a *App) undescribed(ctx context.Context, l *batch.Scan) []pid.ID {
 
 // where is the scan's run and the step it waits at, if it is waiting.
 func (a *App) where(ctx context.Context, l *batch.Scan) (*wf.RunRecord, string) {
-	return a.whereRun(ctx, batch.ScanWorkflow, l.Key())
+	return a.whereRun(ctx, l.Type(), l.Key())
 }
 
 // whereRun is the run of the instance key of typ and the step it waits

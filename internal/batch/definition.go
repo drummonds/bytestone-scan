@@ -8,6 +8,10 @@ const (
 	Workflow      wf.WorkflowType = "scan_batch"
 	ScanWorkflow  wf.WorkflowType = "scan"
 	PhotoWorkflow wf.WorkflowType = "scan_photo"
+	// FeedWorkflow is a feed's, one load of the sheet feeder among the
+	// batch's scans, and LetterWorkflow each letter's under it (story 117).
+	FeedWorkflow   wf.WorkflowType = "scan_feed"
+	LetterWorkflow wf.WorkflowType = "scan_letter"
 )
 
 const src = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/batch.go"
@@ -27,7 +31,7 @@ var Definitions = []wf.Definition{
 		InstanceKey: "batch id",
 		Steps: []wf.Step{
 			{Name: "describe", Description: "The batch's title, home person, provenance, credit and scan ppi are recorded", Source: src},
-			{Name: "scans", Description: "A scan of the bed at a time, each started by the operator; waits until scanning is finished and every scan is through: every photo held by the archive or rejected by it", Source: src, Child: ScanWorkflow, Mode: wf.OneAtATime, Given: "the batch id and its scan number, from which it reads the batch's home person, provenance, credit and ppi"},
+			{Name: "scans", Description: "A scan of the bed at a time, each started by the operator, or an import of a page or a feed of sheets numbered among them; waits until scanning is finished and every scan is through: every photo held by the archive or rejected by it", Source: src, Child: ScanWorkflow, Mode: wf.OneAtATime, Given: "the batch id and its scan number, from which it reads the batch's home person, provenance, credit and ppi"},
 			{Name: "close", Description: "The batch closes: its work files are redundant, and are purged 30 days later, or sooner when staging is short of space", Source: src},
 		},
 	},
@@ -78,4 +82,42 @@ var Definitions = []wf.Definition{
 			{Name: "receipt", Description: "The archive's record of the item is read and checked against the bag, checksum for checksum", Source: src},
 		},
 	},
+	{
+		Type: FeedWorkflow,
+		Purpose: wf.Purpose{
+			Name:        "Feed the sheets of letters",
+			Description: "Capture every sheet of a load of the sheet feeder, both sides, and archive each letter the sheets make as an item of its batch's home person.",
+		},
+		Description: "One load of the FF-680W's sheet feeder, numbered among the batch's scans: feeds the sheets until the feeder is empty, both sides of each in one pass, " +
+			"waits for the operator to arrange the sheets into letters, writes each letter's masters and starts a letter workflow for each, " +
+			"then waits for the letters to be accepted. A retry resumes at the first step not done; a feed gone wrong is cancelled and fed again.",
+		InstanceKey: "batch id/scan",
+		Steps: []wf.Step{
+			{Name: "describe", Description: "The feed's description is recorded, pre-filled from its batch's title", Source: feedSrc},
+			{Name: "feed", Description: "The feeder runs until empty, each side kept as fed at 600 ppi, 8 bits, with a small picture of it; the feed is duplex, so sides come in pairs", Source: feedSrc},
+			{Name: "arrange", Description: "Waits for the operator to say which sheets make which letter and each sheet's role, sheet or envelope; then reserves an id for each letter", Source: feedSrc},
+			{Name: "masters", Description: "Each letter's sides are written as its masters, the id and side in XMP, with letter.yaml beside them", Source: feedSrc},
+			{Name: "letters", Description: "A letter workflow is started for each letter", Source: feedSrc, Child: LetterWorkflow, Mode: wf.AllAtOnce, Given: "the letter id, from which it finds its feed and its masters"},
+			{Name: "check quality", Description: "Waits for the operator to accept the letters, having turned any side that lies wrong", Source: feedSrc},
+		},
+	},
+	{
+		Type: LetterWorkflow,
+		Purpose: wf.Purpose{
+			Name:        "Archive one letter",
+			Description: "Develop every side of one letter and archive them as a letter item.",
+		},
+		Description: "One letter of a feed: every side's renditions are made, the whole side fit to the screen with its turn; it waits for the feed to be accepted, " +
+			"is bagged with its letter.yaml, deposited with the archive and receipted. Final once bagged, since a bagged letter is never altered.",
+		InstanceKey: "letter id",
+		Steps: []wf.Step{
+			{Name: "develop", Description: "Every side's renditions are made: the whole side, turned as the operator said, scaled to fit a screen; a set per side under the side's own name", Source: feedSrc},
+			{Name: "accepted", Description: "Waits for the operator to accept the feed's letters", Source: feedSrc},
+			{Name: "package", Description: "The sides and letter.yaml are bagged as a letter; final, since a bagged letter is never altered", Source: feedSrc},
+			{Name: "deposit", Description: "The bag and its renditions at the current recipe are handed to the archive service; held, or refused as a duplicate, which ends the letter, or refused for the renditions, which are made again and the deposit tried again", Source: feedSrc},
+			{Name: "receipt", Description: "The archive's record of the item is read and checked against the bag, checksum for checksum", Source: feedSrc},
+		},
+	},
 }
+
+const feedSrc = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/feed.go"

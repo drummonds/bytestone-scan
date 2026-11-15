@@ -105,20 +105,26 @@ func (a *App) parentLine(ctx context.Context, href, name string, typ wf.Workflow
 
 // photoRows lists a scan's photos, each where its run stands.
 func (a *App) photoRows(ctx context.Context, ids []pid.ID) string {
+	return a.itemRows(ctx, ids, batch.PhotoWorkflow, "photos", "photo")
+}
+
+// itemRows lists a scan's items of typ, photos or letters, each where its
+// run stands, linking to its page under href.
+func (a *App) itemRows(ctx context.Context, ids []pid.ID, typ wf.WorkflowType, href, noun string) string {
 	if len(ids) == 0 {
 		return ""
 	}
 	var t strings.Builder
-	t.WriteString(`<table class="table is-narrow"><thead><tr><th>Photo</th><th>Step</th><th>Status</th><th>Error</th></tr></thead><tbody>`)
+	fmt.Fprintf(&t, `<table class="table is-narrow"><thead><tr><th>%s</th><th>Step</th><th>Status</th><th>Error</th></tr></thead><tbody>`, strings.ToUpper(noun[:1])+noun[1:])
 	for _, id := range ids {
-		step, tag := a.standsAt(ctx, batch.PhotoWorkflow, id.String())
-		s, _ := batch.PhotoStanding(ctx, a.Store, id)
+		step, tag := a.standsAt(ctx, typ, id.String())
+		s, _ := batch.ItemStanding(ctx, a.Store, typ, id)
 		errText := ""
 		if s.Status == wf.StatusFailed {
 			errText = s.Error
 		}
-		fmt.Fprintf(&t, `<tr><td><a href="photos/%s">photo %s</a></td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			id, id, html.EscapeString(step), tag, html.EscapeString(errText))
+		fmt.Fprintf(&t, `<tr><td><a href="%s/%s">%s %s</a></td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			href, id, noun, id, html.EscapeString(step), tag, html.EscapeString(errText))
 	}
 	t.WriteString(`</tbody></table>`)
 	return t.String()
@@ -151,10 +157,15 @@ func (a *App) scanAction(l *batch.Scan) func(step string, rec wf.StepResult) str
 // photoAction is what the operator can do at one of the photo's steps:
 // Retry a failed step, which ticks its scan; nothing once it is final.
 func photoAction(id pid.ID) func(step string, rec wf.StepResult) string {
+	return itemAction("photos", id)
+}
+
+// itemAction is photoAction for an item under href, a photo or a letter.
+func itemAction(href string, id pid.ID) func(step string, rec wf.StepResult) string {
 	return func(step string, rec wf.StepResult) string {
 		switch {
 		case rec.Status == wf.StatusFailed:
-			return smallForm("photos/"+id.String()+"/retry", "Retry", " is-primary")
+			return smallForm(href+"/"+id.String()+"/retry", "Retry", " is-primary")
 		case rec.Status == wf.StatusCompleted && batch.Final(step):
 			return "final"
 		}
@@ -169,9 +180,9 @@ func noAction(string, wf.StepResult) string { return "" }
 // its steps and its photos.
 func (a *App) scanSteps(ctx context.Context, l *batch.Scan) string {
 	_, ids, _ := l.Found()
-	return a.stepsHeading(ctx, batch.ScanWorkflow, l.Key()) +
+	return a.stepsHeading(ctx, l.Type(), l.Key()) +
 		a.parentLine(ctx, "batches/"+html.EscapeString(l.Batch), "batch "+l.Batch, batch.Workflow, l.Batch) +
-		a.stepsTable(ctx, batch.ScanWorkflow, l.Key(), a.scanAction(l)) +
+		a.stepsTable(ctx, l.Type(), l.Key(), a.scanAction(l)) +
 		a.photoRows(ctx, ids)
 }
 

@@ -10,8 +10,10 @@ Read the global instructions first; this file adds only what is repo-specific.
   ubiquitous language: Item, Photo, Home, Album, Batch, Print, Side, Region,
   Preview, Detail pass, Master, Rendition. Bag is the format a Photo is kept
   in, not a term. Archive model: life-weaver#19.
-- The scanner is driven through `scanimage` (SANE `epson2`). Tests never
-  touch the scanner: they use a fake that serves image files.
+- The scanner is driven through `scanimage` (SANE `epson2`); letters go
+  through the FF-680W's sheet feeder (`internal/fastfoto`, SANE
+  `epsonds`), a feed among a batch's scans. Tests never touch either:
+  they use fakes (`batchtest.Scanner`, `batchtest.Feeder`).
 - Images never go in the repo. Bags are built under the staging root
   (`staging/` locally, gitignored) and deposited with the archive service;
   staging holds a photo only until the archive receipts it.

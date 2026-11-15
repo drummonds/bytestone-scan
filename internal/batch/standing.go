@@ -76,16 +76,16 @@ func (s Standing) rank() int {
 // Standing is where the scan stands: its run's status, or, once its run
 // is through, that of the photo furthest from being held.
 func (l *Scan) Standing(ctx context.Context, store wf.Store) (Standing, error) {
-	s, err := standingOf(ctx, store, ScanWorkflow, l.Key())
+	s, err := standingOf(ctx, store, l.Type(), l.Key())
 	if err != nil || !s.Through() {
 		return s, err
 	}
-	_, ids, err := l.Found()
+	ids, err := l.Items()
 	if err != nil {
 		return Standing{}, err
 	}
 	for _, id := range ids {
-		p, err := standingOf(ctx, store, PhotoWorkflow, id.String())
+		p, err := standingOf(ctx, store, l.itemType(), id.String())
 		if err != nil {
 			return Standing{}, err
 		}
@@ -136,7 +136,7 @@ func standingOf(ctx context.Context, store wf.Store, typ wf.WorkflowType, key st
 // batch. A scan through to its photos is refused, as is one already
 // cancelled or with no run yet.
 func (l *Scan) Cancel(ctx context.Context, store wf.Store) error {
-	run, err := store.FindRunByKey(ctx, ScanWorkflow, l.Key())
+	run, err := store.FindRunByKey(ctx, l.Type(), l.Key())
 	if err != nil {
 		return fmt.Errorf("scan %s: %w", l.Key(), err)
 	}
@@ -149,6 +149,12 @@ func (l *Scan) Cancel(ctx context.Context, store wf.Store) error {
 		return fmt.Errorf("scan %s is cancelled already", l.Key())
 	}
 	return store.CancelRun(ctx, run.ID)
+}
+
+// ItemStanding is where one item's own run stands, of the type given:
+// a photo's or a letter's.
+func ItemStanding(ctx context.Context, store wf.Store, typ wf.WorkflowType, id pid.ID) (Standing, error) {
+	return standingOf(ctx, store, typ, id.String())
 }
 
 // PhotoStanding is where one photo's own run stands.
