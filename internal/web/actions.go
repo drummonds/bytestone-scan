@@ -161,7 +161,7 @@ const newBatchForm = `<h1 class="title">New batch</h1>
 <p class="help">The fronts are scanned at this ppi and averaged down to each master’s ppi: 600, or 1200 for prints smaller than 6 × 4 inches. A higher scan ppi takes longer but lowers noise, and the master is the same size whichever you pick. The backs are scanned at 300 ppi.</p>
 <p class="help">600 ppi takes about 15 s for a 7 × 5 inch print, 1200 about 75 s, 2400 about 2½ minutes.</p></div>
 <button class="button is-primary" type="submit">Scan the preview</button>
-<button class="button" type="submit" name="then" value="import">Import pages instead</button> <button class="button" type="submit" name="then" value="feed">Scan letters instead</button>
+<button class="button" type="submit" name="then" value="import">Import pages instead</button> <button class="button" type="submit" name="then" value="feed">Scan letters instead</button> <button class="button" type="submit" name="then" value="film">Import a film instead</button>
 </form>
 <script>
 // Each data-insert button puts its text into the credit field at the cursor.
@@ -319,9 +319,13 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		case "feed":
 			http.Redirect(w, r, "/batches/"+b.ID+"/feeds/new", http.StatusSeeOther)
 			return
+		case "film":
+			http.Redirect(w, r, "/batches/"+b.ID+"/films/new", http.StatusSeeOther)
+			return
 		}
 		a.startScan(w, r, b, "", fail)
 	})
+	a.filmRoutes(mux, render, fail)
 	mux.HandleFunc("GET /batches/{id}/feeds/new", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
 		if err != nil {
@@ -958,6 +962,10 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 		} else {
 			c.HTML(a.outcome(l))
 		}
+	case waiting == "confirm" && l.IsFilm():
+		c.HTML(`<div class="notification is-warning">Give the film's title, its transfer and its poster, then confirm.</div><div class="buttons">` + cancel + `</div>`)
+	case waiting == "describe" && l.IsFilm():
+		c.HTML(`<div class="notification is-warning">Say who the film names and when it was made, or that nothing is known, and it goes to the archive: bagged as received, its poster stills and play copy made.</div><div class="buttons">` + cancel + `</div>`)
 	case waiting == "arrange":
 		c.HTML(`<div class="notification is-warning">Say which letter each sheet is part of and whether it is a sheet or the envelope, then arrange the sheets into letters. One load is usually one letter.</div><div class="buttons">` + cancel + `</div>`)
 	case waiting == "check quality" && l.IsFeed():
@@ -1022,8 +1030,11 @@ func (a *App) outcome(l *batch.Scan) string {
 		return `<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
 	}
 	noun := "photo"
-	if l.IsFeed() {
+	switch {
+	case l.IsFeed():
 		noun = "letter"
+	case l.IsFilm():
+		noun = "film"
 	}
 	msg, class := outcomeText(o, noun)
 	return `<div class="notification ` + class + `">Done: ` + msg + `.</div>` +

@@ -155,7 +155,7 @@ func (f *Fake) Fixity(id pid.ID) (archive.Fixity, error) {
 func receipt(id pid.ID, it *item) archive.Receipt {
 	r := archive.Receipt{Item: id, Home: it.home, Status: archive.Reserved}
 	if it.payload != nil {
-		r.Status, r.Payload = archive.Held, it.payload
+		r.Status, r.Payload, r.Kind = archive.Held, it.payload, kindOf(it.payload)
 	}
 	return r
 }
@@ -200,7 +200,7 @@ func (f *Fake) Deposit(id pid.ID, deposit io.Reader) (archive.Receipt, error) {
 	}
 	for other, o := range f.items {
 		for file, sum := range payload {
-			if isPicture(file) && o.payload != nil && hasSum(o.payload, sum) {
+			if isPicture(file) && o.payload != nil && hasSum(o.payload, sum, false) {
 				return archive.Receipt{}, &archive.Refusal{Status: "duplicate", DuplicateOf: other, Home: o.home, File: file}
 			}
 		}
@@ -220,8 +220,15 @@ func (f *Fake) Deposit(id pid.ID, deposit io.Reader) (archive.Receipt, error) {
 // renditions are at one recipe, a set where sets sit (life-weaver story
 // 035): the root, <recipe>/<file>, unless the bag is a letter's; the
 // back's under back/ when the bag has a back master; and every directory
-// the deposit has under the recipe, a letter's one per side.
+// the deposit has under the recipe, a letter's one per side. A film's set
+// has play.mp4 beside the stills, and its recipe names the file, which is
+// no picture (life-weaver story 032).
 func renditionsMissing(payload, renditions map[string]string) string {
+	files := []string{"display.jpg", "thumb.jpg", "tiny.jpg", "recipe.yaml"}
+	_, isFilm := payload["data/film.yaml"]
+	if isFilm {
+		files = append(files, "play.mp4")
+	}
 	recipe := ""
 	for name := range renditions {
 		recipe, _, _ = strings.Cut(name, "/")
@@ -248,7 +255,7 @@ func renditionsMissing(payload, renditions map[string]string) string {
 	}
 	sort.Strings(names)
 	for _, set := range names {
-		for _, file := range []string{"display.jpg", "thumb.jpg", "tiny.jpg", "recipe.yaml"} {
+		for _, file := range files {
 			name := recipe + "/" + set + file
 			body, ok := renditions[name]
 			if !ok {
@@ -257,13 +264,24 @@ func renditionsMissing(payload, renditions map[string]string) string {
 			if file == "recipe.yaml" {
 				_, master, _ := strings.Cut(body, "master:")
 				master, _, _ = strings.Cut(master, "\n")
-				if !hasSum(payload, strings.TrimSpace(master)) {
+				if !hasSum(payload, strings.TrimSpace(master), isFilm) {
 					return "renditions/" + name
 				}
 			}
 		}
 	}
 	return ""
+}
+
+// kindOf is what a held bag is, read off the record it holds, as
+// life-weaver reads it: a photo unless it holds another record.
+func kindOf(payload map[string]string) string {
+	for _, kind := range []string{"letter", "film", "book", "page"} {
+		if _, ok := payload["data/"+kind+".yaml"]; ok {
+			return kind
+		}
+	}
+	return "photo"
 }
 
 func isPicture(name string) bool {
@@ -274,9 +292,11 @@ func isPicture(name string) bool {
 	return false
 }
 
-func hasSum(payload map[string]string, sum string) bool {
+// hasSum is whether the payload holds a picture with the checksum; any
+// file but a record, when the bag is a film's.
+func hasSum(payload map[string]string, sum string, anyFile bool) bool {
 	for file, s := range payload {
-		if isPicture(file) && s == sum {
+		if (isPicture(file) || (anyFile && !strings.HasSuffix(file, ".yaml"))) && s == sum {
 			return true
 		}
 	}
@@ -314,20 +334,28 @@ func readDeposit(id pid.ID, r io.Reader) (map[string]string, map[string]string, 
 		if strings.HasPrefix(name, "..") || path.IsAbs(name) {
 			return nil, nil, fmt.Errorf("bad bag: %s is outside the deposit", h.Name)
 		}
-		body, err := io.ReadAll(tr)
-		if err != nil {
-			return nil, nil, err
+		// read in a stream, as the service does: a film is not held in memory
+		text := func() (string, error) {
+			body, err := io.ReadAll(tr)
+			return string(body), err
 		}
 		switch {
 		case name == "bag/manifest-sha256.txt":
-			manifest = string(body)
+			manifest, err = text()
 		case name == "bag/bag-info.txt":
-			info = string(body)
+			info, err = text()
 		case strings.HasPrefix(name, "bag/data/"):
-			sum := sha256.Sum256(body)
-			sums[strings.TrimPrefix(name, "bag/")] = hex.EncodeToString(sum[:])
+			h := sha256.New()
+			_, err = io.Copy(h, tr)
+			sums[strings.TrimPrefix(name, "bag/")] = hex.EncodeToString(h.Sum(nil))
+		case strings.HasPrefix(name, "renditions/") && path.Base(name) == "recipe.yaml":
+			renditions[strings.TrimPrefix(name, "renditions/")], err = text()
 		case strings.HasPrefix(name, "renditions/"):
-			renditions[strings.TrimPrefix(name, "renditions/")] = string(body)
+			_, err = io.Copy(io.Discard, tr)
+			renditions[strings.TrimPrefix(name, "renditions/")] = ""
+		}
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 	if manifest == "" {

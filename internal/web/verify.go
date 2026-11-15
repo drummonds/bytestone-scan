@@ -126,6 +126,9 @@ func (a *App) verifyPage(l *batch.Scan) string {
 	t.WriteString(`<table class="table is-striped"><thead><tr><th>Item</th><th>Verdict</th><th>Files</th><th>Detail</th><th>Published</th></tr></thead><tbody>`)
 	for i, ch := range checks {
 		item := fmt.Sprintf(`<a href="photos/%s">%s</a>`, ch.Photo, ch.Photo)
+		if l.IsFilm() {
+			item = fmt.Sprintf(`<a href="films/%s">%s</a>`, ch.Photo, ch.Photo)
+		}
 		if ch.Page {
 			item = fmt.Sprintf(`page <code>%s</code>`, ch.Photo)
 		}

@@ -1,6 +1,6 @@
 # 116 — Import a film: one received moving picture, described and deposited as a film item, no prints to find (#157)
 
-**Status:** proposed; reviewed 2026-11-15 against life-weaver story 032 as released (the film contract, docs/archive.md) and the feed of story 117
+**Status:** built 2026-11-15; reviewed 2026-11-15 against life-weaver story 032 as released (the film contract, docs/archive.md) and the feed of story 117
 **Roadmap:** none — the format statement's *Films received* section is the spec
 
 ## Why
@@ -65,7 +65,9 @@ file:
   when the probe finds one, or a frame time. The upload is written to
   staging as it arrives, never held whole in memory (a page's import
   reads its file whole; a film's must not). The film lists among the
-  batch's scans, its one item where a scan has prints.
+  batch's scans, its one item where a scan has prints. The file comes
+  first and alone; the title, transfer and poster are asked once it is
+  probed, so that they can be pre-filled.
 - **The probe pre-fills** what the file says and no more: the title from
   its `title` tag; the transfer's date from its creation time and its
   `by` from the studio or copyright tag, since a transfer's file is
@@ -97,7 +99,9 @@ file:
   chapters and an attached picture, and one in another codec with none.
   They run the real `ffmpeg` and `ffprobe`, since a fake cannot show a
   remux from a transcode, and are skipped when `ffmpeg` is absent; the
-  archive is `archivetest`, taught the film's rendition rule.
+  archive is `archivetest`, taught the film's rendition rule. A third,
+  tagged as iTunes tags a film, names a director; ffmpeg cannot write
+  those tags and attach a picture in one file.
 
 ## Acceptance
 
@@ -115,14 +119,13 @@ file:
 | a role with no person picked | Describe, confirm | refused: a part needs its person |
 | no people and no `made` | Describe, confirm | accepted |
 | a frame time given at Describe in place of *attached* | Package | the stills are of that frame; film.yaml says `poster: {frame: …}` |
-| described | Package | the bag holds the file byte for byte as received (its sha256 in the manifest that of the file sent), film.yaml as *The record*, and at the recipe root `display.jpg`, `thumb.jpg`, `tiny.jpg`, `recipe.yaml` naming `film.<ext>`, `play.mp4` |
+| described | Package | the bag holds the file byte for byte as received (its sha256 in the manifest that of the file sent), film.yaml as *The record*, and at the recipe root `display.jpg`, `thumb.jpg`, `tiny.jpg`, `recipe.yaml` naming `film.<ext>`, `play.mp4`; the upload is gone from the import |
 | an H.264/AAC MP4 or M4V with an attached picture | Package | `play.mp4` holds the same video and audio packets, not re-encoded, and no other stream; its index is at the front |
 | another codec or container | Package | `play.mp4` is H.264/AAC, one video and one audio stream |
 | packaged | Deposit | the archive receipts it `kind: film`; the bag's checksums match; verify passes |
 | a film of 256 MiB made as it is sent | Import a film, then Deposit | the scanner's allocations stay under a quarter of the file (skipped under `-short`) |
-| the same file imported again and deposited | Deposit | the archive's `duplicate` refusal shown, as for a photo |
 | a batch holding a film, closed and past its grace | purge | the film's work files go as a scan's do |
-| a batch with one film receipted | `/status`, *Statistics* | one item counted, a film |
+| a batch with one film receipted | `/status`, *Statistics* | one more item counted held, among the photos as a letter is |
 
 ## Out of scope
 
@@ -134,8 +137,11 @@ file:
 - Cutting a film into chapters as items, subtitles, a film in several
   reels: one file, one item.
 - A quality check on the play copy beyond that it was made.
-- One copy of the file in staging rather than the upload and the bag's:
-  staging holds it twice, and the play copy, until purge.
+- A film sent twice refused as a duplicate: the archive's duplicate rule
+  is for pictures (life-weaver's `picture`: TIFF, JPEG, PNG), so the same
+  file deposited again is held as a second item. A life-weaver matter.
+- A count of films apart from photos in `/status`: its `photos` figures
+  are every item's, as they are for letters.
 
 ## Decisions
 
@@ -150,9 +156,14 @@ scanner and feeder are faked: it is software, the same on every run.
 The file's date tag is the transfer's and pre-fills that, never `made`
 (*King of Birds* is tagged 2016).
 
+Found while building, 2026-11-15, and the table changed for them: the
+duplicate row was dropped and the status row reworded (both under *Out
+of scope*); and staging holds the file once, not twice, the upload being
+cleared when the bag holds it, as a letter's masters are.
+
 ## Done when
 
-- [ ] tests express the acceptance table and pass
-- [ ] spec updated (glossary, README)
-- [ ] changelog fragment
+- [x] tests express the acceptance table and pass
+- [x] spec updated (glossary, README)
+- [x] changelog fragment
 - [ ] issue closed with a link to the release
