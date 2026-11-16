@@ -1600,6 +1600,32 @@ func (b *Scan) noBack(id pid.ID) bool {
 // holds them.
 func (b *Scan) bags() string { return filepath.Join(b.root, "bags") }
 
+// reserve takes the next item id from the archive, homed with the
+// person, and refuses it when staging holds a bag, a receipt or
+// renditions under that id already. Those are another item's: an archive
+// that gives an id out a second time has lost what it held, or is not
+// the archive staging last deposited to, and the receipt there would be
+// taken for this item's (#165). The id stays reserved with the archive
+// and is given to nothing; the next attempt takes the next.
+func reserve(svc archive.Service, root string, home pid.ID) (pid.ID, error) {
+	id, err := svc.Reserve(home)
+	if err != nil {
+		return 0, err
+	}
+	var held []string
+	for _, name := range []string{"bags/" + id.String(), "bags/" + id.String() + ".deposit.yaml", "renditions/" + id.String()} {
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(name))); err == nil {
+			held = append(held, name)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return 0, err
+		}
+	}
+	if len(held) > 0 {
+		return 0, fmt.Errorf("the archive gave out item %s, which staging holds already (%s under %s): the archive has given the id out before, so those are another item's; see that the archive holds them, move them away, and Retry takes the next id", id, strings.Join(held, ", "), root)
+	}
+	return id, nil
+}
+
 // reserveIDs gives each confirmed print its photo id, once, from the
 // archive service: the next in the collection's series, homed with the
 // batch's person.
@@ -1612,7 +1638,7 @@ func (b *Scan) reserveIDs(svc archive.Service) error {
 		return nil
 	}
 	for len(f.IDs) < len(f.Prints) {
-		id, err := svc.Reserve(b.batch.Person)
+		id, err := reserve(svc, b.root, b.batch.Person)
 		if err != nil {
 			return err
 		}
@@ -1625,7 +1651,7 @@ func (b *Scan) reserveIDs(svc archive.Service) error {
 	// a page holding several prints is an item of its own; holding one,
 	// it is kept in that photo's bag
 	if b.Import() && len(f.Prints) > 1 && f.Page == nil {
-		id, err := svc.Reserve(b.batch.Person)
+		id, err := reserve(svc, b.root, b.batch.Person)
 		if err != nil {
 			return err
 		}

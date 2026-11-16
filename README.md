@@ -89,7 +89,11 @@ batch's masters never land in production's staging. `-archive URL`,
 `-addr` and `-staging` each override their part. The navbar names the
 instance in use, in warning colours when it is not UAT. The archive service (`life-weaver
 serve`, or `task serve` in life-weaver) is where people come from, where
-photo ids are reserved and where bags are deposited.
+photo ids are reserved and where bags are deposited. An id it gives out
+that staging already holds a bag, a receipt or renditions under is
+refused, the step saying which files: the archive has given the id out
+before, so they are another item's. See that the archive holds that
+item, move the files away, and Retry takes the next id.
 
 `bytestone-scan verify BATCH[/SCAN]` asks the archive afresh whether it
 still holds each photo of the scan, or of every scan of the batch, as it
