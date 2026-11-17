@@ -3,6 +3,7 @@ package fastfoto
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -135,5 +136,20 @@ func TestAnFF680WPluggedInAfterItWasNotFoundFeeds(t *testing.T) {
 	}
 	if got := f.Status(); got != "at epsonds:libusb:001:004" {
 		t.Errorf("status %q, want the device", got)
+	}
+}
+
+// #182: the stand-in, as the real scanimage, has no source "ADF": a
+// source sent as two arguments is refused, and the feed fails with its
+// message.
+func TestASourceSentAsTwoArgumentsIsRefused(t *testing.T) {
+	_, calls := fake(t)
+	cmd, _ := filepath.Abs("testdata/scanimage")
+	out, err := exec.Command(cmd, "-d", "epsonds:libusb:001:004", "--source", "ADF", "Duplex", "--batch="+filepath.Join(t.TempDir(), "side-%d.pnm")).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "setting of option --source failed (Invalid argument)") {
+		t.Errorf("the stand-in said %q, %v, want the source refused", out, err)
+	}
+	if len(calls()) != 1 {
+		t.Errorf("calls %q", calls())
 	}
 }

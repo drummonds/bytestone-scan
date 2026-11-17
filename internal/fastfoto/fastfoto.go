@@ -96,7 +96,12 @@ func (f *Feeder) Feed(ctx context.Context, ppi int, each func(n int, img *master
 	defer os.RemoveAll(dir)
 	args := []string{"-d", dev}
 	for _, s := range fixed {
-		args = append(args, strings.Fields(s)...)
+		// an option and its one value, which may have spaces: ADF Duplex
+		option, value, valued := strings.Cut(s, " ")
+		args = append(args, option)
+		if valued {
+			args = append(args, value)
+		}
 	}
 	args = append(args, "--resolution", strconv.Itoa(ppi), "--format=pnm", "--batch="+filepath.Join(dir, pattern))
 	if f.Trace != nil {
