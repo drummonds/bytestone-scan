@@ -373,7 +373,7 @@ func (l *Scan) reserveFilmID(svc archive.Service) error {
 	if err != nil || f.ID != nil {
 		return err
 	}
-	id, err := svc.Reserve(l.batch.Person)
+	id, err := reserve(svc, l.root, l.batch.Person)
 	if err != nil {
 		return err
 	}
