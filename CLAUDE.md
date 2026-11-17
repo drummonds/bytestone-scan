@@ -8,12 +8,17 @@ Read the global instructions first; this file adds only what is repo-specific.
   belongs to a rendition.
 - The glossary (`internal/glossary/glossary.md`, shown on About) is the
   ubiquitous language: Item, Photo, Home, Album, Batch, Print, Side, Region,
-  Preview, Detail pass, Master, Rendition. Bag is the format a Photo is kept
+  Preview, Detail pass, Master, Rendition; for a film: Film import, Transfer,
+  Poster, Play copy, Probe. Bag is the format a Photo is kept
   in, not a term. Archive model: life-weaver#19.
 - The scanner is driven through `scanimage` (SANE `epson2`); letters go
   through the FF-680W's sheet feeder (`internal/fastfoto`, SANE
   `epsonds`), a feed among a batch's scans. Tests never touch either:
   they use fakes (`batchtest.Scanner`, `batchtest.Feeder`).
+- A film received is imported through `ffprobe` and `ffmpeg`
+  (`internal/film`), a film import among a batch's scans. Its tests run
+  the real tools on films made at test time (`filmtest`), skipped where
+  ffmpeg is absent: a fake cannot tell a remux from a transcode.
 - Images never go in the repo. Bags are built under the staging root
   (`staging/` locally, gitignored) and deposited with the archive service;
   staging holds a photo only until the archive receipts it.

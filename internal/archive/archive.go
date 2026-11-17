@@ -166,6 +166,9 @@ type Receipt struct {
 	Item   pid.ID `json:"item"`
 	Home   pid.ID `json:"home"`
 	Status Status `json:"status"`
+	// Kind is what the held bag is, read off its record: photo, page,
+	// film, book or letter; absent while the id is only reserved.
+	Kind string `json:"kind,omitempty"`
 	// Payload is the held bag's manifest: path within the bag → sha256.
 	Payload map[string]string `json:"payload,omitempty"`
 }

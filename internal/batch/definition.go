@@ -12,6 +12,10 @@ const (
 	// batch's scans, and LetterWorkflow each letter's under it (story 117).
 	FeedWorkflow   wf.WorkflowType = "scan_feed"
 	LetterWorkflow wf.WorkflowType = "scan_letter"
+	// FilmImportWorkflow is a film import's, one received film among the
+	// batch's scans, and FilmWorkflow the film's under it (story 116).
+	FilmImportWorkflow wf.WorkflowType = "scan_film_import"
+	FilmWorkflow       wf.WorkflowType = "scan_film"
 )
 
 const src = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/batch.go"
@@ -118,6 +122,40 @@ var Definitions = []wf.Definition{
 			{Name: "receipt", Description: "The archive's record of the item is read and checked against the bag, checksum for checksum", Source: feedSrc},
 		},
 	},
+	{
+		Type: FilmImportWorkflow,
+		Purpose: wf.Purpose{
+			Name:        "Import a film",
+			Description: "Bring one received film into a batch and archive it, kept as sent, as a film item of the batch's home person.",
+		},
+		Description: "One received moving picture, numbered among the batch's scans: the file is kept as sent and probed, " +
+			"waits for the operator to confirm its title, its transfer and its poster, then for the film to be described, and starts the film's own workflow. " +
+			"Nothing is previewed, found or cut. A retry resumes at the first step not done; an import gone wrong is cancelled and imported again.",
+		InstanceKey: "batch id/scan",
+		Steps: []wf.Step{
+			{Name: "import", Description: "The file is kept as sent under the import, with what ffprobe read off it: duration, format, chapters, the pictures attached and its tags", Source: filmSrc},
+			{Name: "confirm", Description: "Waits for the operator to give the film's title, its transfer (by, date, from) and its poster: the picture attached, or a frame at a time", Source: filmSrc},
+			{Name: "describe", Description: "Waits for the operator to say who the film names and in what part, and when it was made, nothing known being an answer; then reserves the film's id", Source: filmSrc},
+			{Name: "film", Description: "The film's workflow is started", Source: filmSrc, Child: FilmWorkflow, Mode: wf.AllAtOnce, Given: "the film's id, from which it finds its import and its file"},
+		},
+	},
+	{
+		Type: FilmWorkflow,
+		Purpose: wf.Purpose{
+			Name:        "Archive one film",
+			Description: "Bag one film as received with its record, make its poster stills and play copy, and archive it as a film item.",
+		},
+		Description: "The film of an import: the file as sent is bagged with film.yaml, its renditions made, the poster's stills and the play copy; " +
+			"it is deposited with the archive and receipted. Final once bagged, since a bagged film is never altered.",
+		InstanceKey: "film id",
+		Steps: []wf.Step{
+			{Name: "package", Description: "The file as sent and film.yaml are bagged as a film, and its renditions made: display, thumb and tiny from the poster, and play.mp4, a remux when the file is H.264 and AAC in MP4 already, a transcode otherwise; final, since a bagged film is never altered", Source: filmSrc},
+			{Name: "deposit", Description: "The bag and its renditions at the current recipe are streamed to the archive service; held, or refused for the renditions, which are made again and the deposit tried again", Source: filmSrc},
+			{Name: "receipt", Description: "The archive's record of the item is read and checked against the bag, checksum for checksum, and that it is held as a film", Source: filmSrc},
+		},
+	},
 }
 
 const feedSrc = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/feed.go"
+
+const filmSrc = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/film.go"

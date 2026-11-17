@@ -117,6 +117,8 @@ type Scan struct {
 	Page *Received `yaml:"page,omitempty"`
 	// Feed makes the scan a feed: the sheet feeder is its bed (story 117).
 	Feed *Feeding `yaml:"feed,omitempty"`
+	// Film makes the scan a film import: one received film (story 116).
+	Film *Filmed `yaml:"film,omitempty"`
 
 	batch *Batch
 	root  string
@@ -1277,7 +1279,8 @@ func (b *Scan) photoStages(id pid.ID, env Env) []wf.Stage {
 
 // Deposit is the archive's answer for a photo's bag, kept beside the bag.
 type Deposit struct {
-	Status      string            `yaml:"status"` // held, or duplicate
+	Status      string            `yaml:"status"`         // held, or duplicate
+	Kind        string            `yaml:"kind,omitempty"` // what the archive holds it as, when it says
 	Home        pid.ID            `yaml:"home"`
 	Payload     map[string]string `yaml:"payload,omitempty"` // the checksums the archive holds
 	DuplicateOf pid.ID            `yaml:"duplicate_of"`      // when a duplicate: the item that holds the picture
@@ -1390,7 +1393,7 @@ func (b *Scan) depositItem(id pid.ID, env Env, develop func(again bool) error) e
 	var refusal *archive.Refusal
 	switch {
 	case err == nil:
-		return writeYAML(b.depositPath(id), Deposit{Status: string(rec.Status), Home: rec.Home, Payload: rec.Payload, At: env.Now().UTC()})
+		return writeYAML(b.depositPath(id), Deposit{Status: string(rec.Status), Kind: rec.Kind, Home: rec.Home, Payload: rec.Payload, At: env.Now().UTC()})
 	case errors.As(err, &refusal) && refusal.Status == "duplicate":
 		return writeYAML(b.depositPath(id), Deposit{Status: "duplicate", Home: refusal.Home, DuplicateOf: refusal.DuplicateOf, File: refusal.File, At: env.Now().UTC()})
 	case errors.As(err, &refusal) && refusal.Status == "renditions":
@@ -1477,7 +1480,7 @@ func (b *Scan) receipt(id pid.ID, env Env) error {
 			return fmt.Errorf("photo %s: the archive's checksum of %s differs from the bag's", id, file)
 		}
 	}
-	d.Status, d.Home, d.Payload = string(rec.Status), rec.Home, rec.Payload
+	d.Status, d.Kind, d.Home, d.Payload = string(rec.Status), rec.Kind, rec.Home, rec.Payload
 	return writeYAML(b.depositPath(id), d)
 }
 
@@ -1505,6 +1508,9 @@ func (b *Scan) startPhotos(ctx context.Context, store wf.Store) error {
 func (b *Scan) Stages(ctx context.Context, env Env) []wf.Stage {
 	if b.IsFeed() {
 		return b.feedStages(ctx, env)
+	}
+	if b.IsFilm() {
+		return b.filmImportStages(env)
 	}
 	store, s, now := env.Store, env.Scanner, env.Now
 	before := []wf.Stage{
@@ -2036,7 +2042,7 @@ func (b *Scan) Found() ([]find.Print, []pid.ID, error) {
 // a feed's letters.
 func (b *Scan) items() ([]pid.ID, error) {
 	ids, err := b.Items()
-	if err != nil || b.IsFeed() {
+	if err != nil || b.IsFeed() || b.IsFilm() {
 		return ids, err
 	}
 	page, err := b.PageItem()
