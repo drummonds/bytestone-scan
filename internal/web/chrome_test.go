@@ -110,3 +110,17 @@ func TestTheNavbarNamesTheArchiveInstance(t *testing.T) {
 	fake.Down = true
 	page(t, h, "/workflows/", `<span class="tag is-danger">archive not answering</span>`)
 }
+
+// #186: the scanner's own icon, on every page's tab.
+func TestTheScannerHasItsOwnIcon(t *testing.T) {
+	h := live(t, &batchtest.Scanner{}).Handler()
+	for _, u := range []string{"/assets/icon.svg", "/favicon.ico"} {
+		w := get(t, h, u)
+		if w.Code != 200 || w.Header().Get("Content-Type") != "image/svg+xml" || !strings.Contains(w.Body.String(), "<svg") {
+			t.Errorf("GET %s: %d %s, want the icon as image/svg+xml", u, w.Code, w.Header().Get("Content-Type"))
+		}
+	}
+	for _, u := range []string{"/about", "/batches", "/batches/new", "/workflows/"} {
+		page(t, h, u, `<link rel="icon" type="image/svg+xml" href="assets/icon.svg">`)
+	}
+}
