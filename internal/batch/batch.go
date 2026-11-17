@@ -1640,9 +1640,6 @@ func (b *Scan) reserveIDs(svc archive.Service) error {
 	if err := readYAML(b.path("prints.yaml"), &f); err != nil {
 		return err
 	}
-	if len(f.IDs) == len(f.Prints) {
-		return nil
-	}
 	for len(f.IDs) < len(f.Prints) {
 		id, err := reserve(svc, b.root, b.batch.Person)
 		if err != nil {
@@ -1656,6 +1653,8 @@ func (b *Scan) reserveIDs(svc archive.Service) error {
 	}
 	// a page holding several prints is an item of its own; holding one,
 	// it is kept in that photo's bag
+	// (asked for again when the prints have their ids and it has none:
+	// its reservation failed, or was refused, the time before)
 	if b.Import() && len(f.Prints) > 1 && f.Page == nil {
 		id, err := reserve(svc, b.root, b.batch.Person)
 		if err != nil {

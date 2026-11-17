@@ -86,3 +86,42 @@ func TestALetterIDStagingAlreadyHoldsIsRefused(t *testing.T) {
 		t.Errorf("letters %+v, want one with no id", letters)
 	}
 }
+
+// Story 165: a page item's id is refused the same way, and, the prints
+// having theirs already, the retry still takes the page the next id.
+func TestAPageIDStagingAlreadyHoldsIsRefused(t *testing.T) {
+	root := t.TempDir()
+	store := wf.NewMemStore()
+	raw := pageOf(t, 210, 297, 300, [4]float64{20, 20, 100, 80}, [4]float64{110, 150, 190, 210})
+	l, err := sitting(t, root).NewImport(received("page.png", raw), "two from the album", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(t, l, store, nil)
+	// the prints take 0 and 1; the page would take 2
+	held := filepath.Join(root, "bags", "2")
+	if err := os.MkdirAll(held, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Confirm(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.Run(context.Background(), Env{Store: store, Archive: service(root), Now: clock}, nil)
+	if err == nil || !strings.Contains(err.Error(), "item 2") || !strings.Contains(err.Error(), "bags/2") {
+		t.Fatalf("confirm with bags/2 in staging: error %v, want one naming item 2 and the bag", err)
+	}
+	if page, _ := l.PageItem(); page != nil {
+		t.Errorf("the page was given %s, want no id", page)
+	}
+
+	if err := os.Remove(held); err != nil {
+		t.Fatal(err)
+	}
+	run(t, l, store, nil)
+	if page, err := l.PageItem(); err != nil || page == nil || *page != pid.ID(3) {
+		t.Errorf("after the bag is moved away the page has %v, %v: want the next id, 3", page, err)
+	}
+	if _, ids, _ := l.Found(); len(ids) != 2 || ids[0] != 0 || ids[1] != 1 {
+		t.Errorf("the prints have %v, want 0 and 1 kept", ids)
+	}
+}

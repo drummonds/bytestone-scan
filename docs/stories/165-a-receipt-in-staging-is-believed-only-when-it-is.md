@@ -36,7 +36,8 @@ id staging holds safe to take.
 | a print's id, retried once the files are moved away | nothing under the next id | the print has the next id; the scan goes on |
 | a letter's id | a bag | arrange fails, naming the item and the bag; the letter has no id |
 | a film's id | renditions | the film's describe fails, naming the item and `renditions/<id>`; the film has no id |
-| a page item's id | any of the three | as a print's: one `reserve` serves all four |
+| a page item's id, the prints having theirs | a bag | confirm fails, naming the item and the bag; the page has no id; the prints keep theirs |
+| a page item's id, retried once the bag is moved away | nothing under the next id | the page has the next id; the import goes on with its page item |
 
 ## Out of scope
 
