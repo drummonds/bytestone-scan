@@ -40,8 +40,8 @@ format, anywhere in the header before the maxval.
   feed path with the sheet at its top, `--adf-crp` on or not. Cutting
   the capture to the sheet is a rule for the statement first, and its
   own story.
-- The 4990's reader (`internal/master`), which this story does not
-  touch.
+- The 4990's reader (`internal/detailpass`), which already passes over
+  comments and is not touched.
 
 ## Decisions
 
