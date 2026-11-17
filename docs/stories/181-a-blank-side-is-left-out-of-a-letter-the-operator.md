@@ -5,7 +5,8 @@
 The feeder scans both sides of every sheet, and most sheets of most
 letters are written on one side. As the statement stands every side is
 kept, "blank backs included": a four-sheet letter is eight masters, four
-of them empty paper at 30 to 60 MB each, and its page and any PDF or
+of them empty paper (36 MB a side for the first letter card fed, about
+100 MB for A4), and its page and any PDF or
 transcription made later carry four empty sides between the written
 ones.
 
@@ -44,7 +45,7 @@ the side was looked at". The record can say that without the picture.
 |---|---|
 | the letter's page | a side left out is named and said to be blank; no picture, no turn offered |
 | the letter accepted | the bag holds the kept sides' masters and `letter.yaml` only; a set of renditions per kept side |
-| deposited with the archive | receipted; the archive's page shows the kept sides in order (life-weaver passes over a side with no file already) |
+| deposited with the archive | receipted; the archive's page shows the kept sides in order (life-weaver's site passes over a side with no file already; its deposit check is untried) |
 | the feed's page | says how many sides were fed and how many left out |
 | the feed's work files | still hold every side as fed until the batch is purged, as now |
 
