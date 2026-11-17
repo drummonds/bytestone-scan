@@ -36,7 +36,7 @@ func TestStepsErrorsAndGoBacksOnEveryPage(t *testing.T) {
 		`<td>find prints</td><td><span class="tag is-success">completed</span></td><td></td><td></td>`,
 		`<td>confirm</td><td><span class="tag is-info">waiting</span></td><td></td><td></td>`)
 	page(t, h, "/batches/20261020-1",
-		`Steps of <a href="workflows/definitions/scan_batch">Archive photographs</a> `,
+		`Steps of <a href="workflows/definitions/scan_batch">Archive a batch</a> `,
 		`<td>scans</td><td><span class="tag is-info">waiting</span></td><td></td><td></td>`)
 	// back to the preview from the table finds the print added since
 	s.Prints = append(s.Prints, batchtest.Print{X0: 20, Y0: 70, X1: 60, Y1: 100, Value: 30000})

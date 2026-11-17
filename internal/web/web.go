@@ -370,12 +370,13 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 <tr><th>Home</th><td>%s (%s)</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
-<tr><th>Scanned at</th><td>%d ppi</td></tr>
+<tr><th>Prints scanned at</th><td>%d ppi</td></tr>
+<tr><th>Letters fed at</th><td>%d ppi, %d bits</td></tr>
 <tr><th>Started</th><td>%s</td></tr>
 <tr><th>Files</th><td><code>%s</code></td></tr>
 </tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
-		b.ScanPPI, b.Created.Local().Format("2 Jan 2006 15:04"), html.EscapeString(b.Dir())))
+		b.ScanPPI, batch.FeedPPI, batch.FeedDepth, b.Created.Local().Format("2 Jan 2006 15:04"), html.EscapeString(b.Dir())))
 	scans, err := b.Scans()
 	if err != nil {
 		c.HTML(`<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`)
