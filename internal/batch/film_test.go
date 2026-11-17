@@ -470,3 +470,28 @@ func TestALargeFilmIsNeverHeldInMemory(t *testing.T) {
 		t.Errorf("allocated %d MiB importing and depositing a %d MiB film, want under a quarter of it", spent>>20, size>>20)
 	}
 }
+
+// Story 165: a film's id is refused when staging holds something under
+// it already, as a print's is.
+func TestAFilmIDStagingAlreadyHoldsIsRefused(t *testing.T) {
+	root, store := t.TempDir(), wf.NewMemStore()
+	l := importFilm(t, sitting(t, root), filmtest.Plays(t, t.TempDir()))
+	runFilm(t, l, store)
+	if err := os.MkdirAll(filepath.Join(root, "renditions", "0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.ConfirmFilm(t.Context(), FilmDetails{Title: "A Test Film", Transfer: transfer, Poster: Poster{Attached: true}}); err != nil {
+		t.Fatal(err)
+	}
+	runFilm(t, l, store)
+	if err := l.DescribeFilm(t.Context(), service(root), FilmDescription{}, now); err != nil {
+		t.Fatal(err)
+	}
+	_, err := l.Run(t.Context(), Env{Store: store, Archive: service(root), Now: clock}, nil)
+	if err == nil || !strings.Contains(err.Error(), "item 0") || !strings.Contains(err.Error(), "renditions/0") {
+		t.Fatalf("describe with renditions/0 in staging: error %v, want one naming item 0 and the renditions", err)
+	}
+	if f, _ := l.filmed(); f == nil || f.ID != nil {
+		t.Errorf("film %+v, want no id", f)
+	}
+}

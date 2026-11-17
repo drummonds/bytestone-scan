@@ -19,9 +19,9 @@ id staging holds safe to take.
 ## What changes
 
 - `internal/batch`: an id taken from the archive for a print, a page
-  item or a letter is refused when staging holds `bags/<id>`,
+  item, a letter or a film is refused when staging holds `bags/<id>`,
   `bags/<id>.deposit.yaml` or `renditions/<id>`. The step that asked
-  (confirm, arrange) fails and says which files; the item is given no
+  (confirm, arrange, a film's describe) fails and says which files; the item is given no
   id, so nothing is scanned, bagged or deposited under it.
 - README, under staging: what the refusal means and what to do.
 
@@ -35,7 +35,8 @@ id staging holds safe to take.
 | a print's id | renditions alone | the same, naming `renditions/<id>` |
 | a print's id, retried once the files are moved away | nothing under the next id | the print has the next id; the scan goes on |
 | a letter's id | a bag | arrange fails, naming the item and the bag; the letter has no id |
-| a page item's id | any of the three | as a print's: one `reserve` serves all three |
+| a film's id | renditions | the film's describe fails, naming the item and `renditions/<id>`; the film has no id |
+| a page item's id | any of the three | as a print's: one `reserve` serves all four |
 
 ## Out of scope
 
@@ -45,8 +46,6 @@ id staging holds safe to take.
   read (#165's other suggestion). Refusing the id comes before the
   master is scanned, and is the one that keeps packaging from removing
   it; with the id refused no later step meets a receipt not its own.
-- A film's id (story 116, #157, not landed): its reservation takes
-  `reserve` when the two meet.
 - Why the archive gave the id out again, and UAT's trees agreeing:
   life-weaver's.
 - Ids staging holds that the archive has *not* given out again: old
