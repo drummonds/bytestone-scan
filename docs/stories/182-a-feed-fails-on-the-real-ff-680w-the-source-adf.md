@@ -42,7 +42,7 @@ None.
 
 ## Done when
 
-- [ ] tests express the acceptance table and pass
-- [ ] changelog fragment
+- [x] tests express the acceptance table and pass
+- [x] changelog fragment
 - [ ] a real sheet fed through *Scan letters*
 - [ ] issue closed with a link to the release
