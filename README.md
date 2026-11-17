@@ -77,7 +77,12 @@ the bed (story [117](docs/stories/117-scan-letters-through-the-ff-680w-sheet-fee
 the format statement's *Letters* section). *Scan letters* on the batch
 page (or *Scan letters instead* on New batch) feeds the sheets loaded,
 both sides of each in one pass at 600 ppi and 8 bits, as a *feed* among
-the batch's scans. The operator then arranges the sheets into letters,
+the batch's scans. The feeder scans the full width of its path, so each
+side is cut at capture to the sheet and 3 mm either side, and the white
+the driver fills below the paper's end is left off (story
+[177](docs/stories/177-a-feed-on-the-real-ff-680w-fails-scanimage-s-pnm.md));
+the feeder hands its pictures over as JPEG, quality 90, which the master
+holds decoded. The operator then arranges the sheets into letters,
 saying which sheet is which letter's and which is an envelope; one load
 is usually one letter. Each letter is an item of kind `letter`: every
 side kept whole as a master, `sheet-01-front.tif`, `sheet-01-back.tif`,

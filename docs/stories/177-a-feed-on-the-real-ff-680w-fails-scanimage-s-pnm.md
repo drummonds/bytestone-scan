@@ -99,9 +99,9 @@ Cut in software at capture, not by `-x`: a load may mix sheet sizes
 
 ## Done when
 
-- [ ] tests express the acceptance tables and pass
-- [ ] README updated
-- [ ] changelog fragment
+- [x] tests express the acceptance tables and pass
+- [x] README updated
+- [x] changelog fragment
 - [ ] a real coloured sheet and a real white sheet fed through the
       built scanner, the masters looked at
 - [ ] issue closed with a link to the release
