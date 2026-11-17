@@ -1,7 +1,9 @@
 #!/bin/sh
 # A stand-in for SANE's scanimage: records its arguments, answers -L with
 # the devices on the bench, and feeds FAKE_SIDES tiny sides into the
-# --batch files, as the FF-680W does through the epsonds backend.
+# --batch files, as the FF-680W does through the epsonds backend, each
+# with the comment line scanimage writes in its header; FAKE_SIDE names a
+# PNM to serve as every side instead.
 echo "$*" >> "$FAKE_ARGS"
 case "$*" in
 *-L*)
@@ -21,7 +23,11 @@ n=0
 while [ "$n" -lt "${FAKE_SIDES:-0}" ]; do
 	n=$((n + 1))
 	echo "Scanning page $n"
-	printf 'P6\n2 1\n255\n\001\002\003\004\005\006' > "$(printf "$pattern" "$n")"
+	if [ -n "$FAKE_SIDE" ]; then
+		cp "$FAKE_SIDE" "$(printf "$pattern" "$n")"
+	else
+		printf 'P6\n# SANE data follows\n2 1\n255\n\001\002\003\004\005\006' > "$(printf "$pattern" "$n")"
+	fi
 done
 if [ "$n" -eq 0 ]; then
 	echo "Scanning page 1"
