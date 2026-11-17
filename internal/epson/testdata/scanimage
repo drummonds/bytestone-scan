@@ -4,6 +4,7 @@
 echo "$*" >> "$FAKE_ARGS"
 case "$*" in
 *-L*)
+	while [ -n "$FAKE_HOLD" ] && [ ! -e "$FAKE_HOLD" ]; do sleep 0.02; done
 	echo "device \`escl:https://10.0.0.81:443' is a ESCL H3-ET-2850 platen scanner"
 	echo "device \`epson2:net:10.0.0.81' is a Epson PID flatbed scanner"
 	[ -n "$FAKE_NO_4990" ] || echo "device \`epson2:libusb:001:042' is a Epson GT-X800 flatbed scanner"

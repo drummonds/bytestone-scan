@@ -19,9 +19,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/master"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/sane"
 )
 
 // Feeder is the FF-680W.
@@ -30,9 +30,7 @@ type Feeder struct {
 	Device  string    // SANE device; found from scanimage -L if empty
 	Trace   io.Writer // each feed's command line is written here, if set
 
-	once sync.Once
-	dev  string
-	err  error
+	found sane.Finder
 }
 
 // fixed are the settings of every feed, as sent and as recorded.
@@ -56,27 +54,21 @@ var (
 	netDevice = regexp.MustCompile("`(epsonds:net:[^']+)'")
 )
 
-// device is the FF-680W's SANE name: the USB one when it is plugged in,
+// Find is the FF-680W's SANE name: the USB one when it is plugged in,
 // since its address changes with each plugging, else the network one.
-func (f *Feeder) device(ctx context.Context) (string, error) {
+func (f *Feeder) Find(ctx context.Context) (string, error) {
 	if f.Device != "" {
 		return f.Device, nil
 	}
-	f.once.Do(func() {
-		out, err := exec.CommandContext(ctx, f.command(), "-L").Output()
-		if err != nil {
-			f.err = fmt.Errorf("listing scanners: %w", err)
-			return
-		}
-		for _, re := range []*regexp.Regexp{usbDevice, netDevice} {
-			if m := re.FindSubmatch(out); m != nil {
-				f.dev = string(m[1])
-				return
-			}
-		}
-		f.err = errors.New("the Epson FF-680W is not connected: no epsonds scanner in scanimage -L")
-	})
-	return f.dev, f.err
+	return f.found.Find(ctx, f.command(), "the Epson FF-680W is not connected: no epsonds scanner in scanimage -L", usbDevice, netDevice)
+}
+
+// Status is where the FF-680W was last found, in words.
+func (f *Feeder) Status() string {
+	if f.Device != "" {
+		return sane.At(f.Device)
+	}
+	return f.found.Status()
 }
 
 // pattern is the name the sides are written under in the feed's temporary
@@ -88,7 +80,7 @@ const pattern = "side-%d.pnm"
 // a sheet's front, then its back. An empty feeder is an error that says
 // to load the sheets.
 func (f *Feeder) Feed(ctx context.Context, ppi int, each func(n int, img *master.Image) error) error {
-	dev, err := f.device(ctx)
+	dev, err := f.Find(ctx)
 	if err != nil {
 		return err
 	}

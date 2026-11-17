@@ -78,14 +78,27 @@ func version() string {
 	return v.String()
 }
 
+// connection is a scanner's make and model and, for one that is looked
+// for, where it was last found (story 174); "none" without one.
+func connection(s interface{ Name() string }) string {
+	if s == nil {
+		return "none"
+	}
+	if f, ok := s.(interface{ Status() string }); ok {
+		return s.Name() + ", " + f.Status()
+	}
+	return s.Name()
+}
+
 func (a *App) about() string {
 	row := func(k, v string) string { return "<tr><th>" + k + "</th><td>" + v + "</td></tr>" }
 	link := func(u string) string { return fmt.Sprintf(`<a href="%s">%s</a>`, u, u) }
 	return `<h1 class="title">About</h1>
-<p class="subtitle">Scans family photographs on the Epson 4990 into archival masters, one archived photo per print, for i.bytestone.uk.</p>
+<p class="subtitle">Scans family photographs on the Epson 4990 and letters through the Epson FF-680W's sheet feeder into archival masters, one archived item per print or letter, for i.bytestone.uk.</p>
 <table class="table"><tbody>` +
 		row("Version", html.EscapeString(version())) +
-		row("Scanner", html.EscapeString(a.Scanner.Name())) +
+		row("Bed scanner", html.EscapeString(connection(a.Scanner))) +
+		row("Feeder", html.EscapeString(connection(a.Feeder))) +
 		row("Staging", "<code>"+html.EscapeString(a.Staging)+"</code>") +
 		row("Archive service", "<code>"+html.EscapeString(a.Archive.String())+"</code>") +
 		row("Archive instance", html.EscapeString(a.archiveInstance())) +

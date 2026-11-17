@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
 )
@@ -26,9 +27,15 @@ func fake(t *testing.T) (*Scanner, func() []string) {
 
 func TestFindsThe4990AmongTheScanners(t *testing.T) {
 	s, _ := fake(t)
-	dev, err := s.device(context.Background())
+	if got := s.Status(); got != "not yet looked for" {
+		t.Errorf("status %q before any look", got)
+	}
+	dev, err := s.Find(context.Background())
 	if err != nil || dev != "epson2:libusb:001:042" {
 		t.Errorf("device %q, %v, want the USB epson2 one", dev, err)
+	}
+	if got := s.Status(); got != "at epson2:libusb:001:042" {
+		t.Errorf("status %q, want the device", got)
 	}
 }
 
@@ -37,6 +44,89 @@ func TestNo4990(t *testing.T) {
 	t.Setenv("FAKE_NO_4990", "1")
 	if _, err := s.Preview(context.Background()); err == nil || !strings.Contains(err.Error(), "4990") {
 		t.Errorf("error %v, want one saying the 4990 was not found", err)
+	} else if got, want := err.Error(), "the Epson 4990 is not connected: no epson2 USB scanner in scanimage -L"; !strings.HasSuffix(got, want) {
+		t.Errorf("error %q, want it to end %q", got, want)
+	}
+	if got := s.Status(); got != "not connected" {
+		t.Errorf("status %q, want not connected", got)
+	}
+}
+
+// #174: a 4990 not found is looked for again the next time it is wanted.
+func TestA4990PluggedInAfterARefusedPreviewIsFound(t *testing.T) {
+	s, _ := fake(t)
+	t.Setenv("FAKE_NO_4990", "1")
+	if _, err := s.Preview(context.Background()); err == nil {
+		t.Fatal("a preview with no 4990")
+	}
+	t.Setenv("FAKE_NO_4990", "")
+	if _, err := s.Preview(context.Background()); err != nil {
+		t.Fatalf("the preview once the 4990 is plugged in: %v", err)
+	}
+	if got := s.Status(); got != "at epson2:libusb:001:042" {
+		t.Errorf("status %q, want the device", got)
+	}
+}
+
+// #174: once found the 4990 is kept, not listed for again.
+func TestA4990FoundIsNotLookedForAgain(t *testing.T) {
+	s, calls := fake(t)
+	for range 2 {
+		if _, err := s.Find(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := calls(); len(got) != 1 {
+		t.Errorf("scanimage ran %d times, want the one listing: %q", len(got), got)
+	}
+}
+
+func TestScanimageThatCannotBeRun(t *testing.T) {
+	s := &Scanner{Command: filepath.Join(t.TempDir(), "no-scanimage")}
+	if _, err := s.Find(context.Background()); err == nil {
+		t.Fatal("found a scanner with no scanimage")
+	}
+	if got := s.Status(); !strings.HasPrefix(got, "the scanners could not be listed: ") || !strings.Contains(got, "no-scanimage") {
+		t.Errorf("status %q, want that the scanners could not be listed and why", got)
+	}
+}
+
+// #174: the status is what the last look found; it does not wait for one
+// still running.
+func TestStatusDoesNotWaitForALook(t *testing.T) {
+	s, calls := fake(t)
+	hold := filepath.Join(t.TempDir(), "go")
+	t.Setenv("FAKE_HOLD", hold)
+	done := make(chan error, 1)
+	go func() { _, err := s.Find(context.Background()); done <- err }()
+	for calls()[0] == "" { // until scanimage -L is running
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := s.Status(); got != "not yet looked for" {
+		t.Errorf("status %q during the first look", got)
+	}
+	if err := os.WriteFile(hold, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Status(); got != "at epson2:libusb:001:042" {
+		t.Errorf("status %q after the look", got)
+	}
+}
+
+func TestADeviceGivenIsNotLookedFor(t *testing.T) {
+	s, calls := fake(t)
+	s.Device = "epson2:libusb:009:009"
+	if dev, err := s.Find(context.Background()); err != nil || dev != s.Device {
+		t.Errorf("device %q, %v", dev, err)
+	}
+	if got := s.Status(); got != "at epson2:libusb:009:009" {
+		t.Errorf("status %q", got)
+	}
+	if got := calls(); got[0] != "" {
+		t.Errorf("scanimage ran: %q", got)
 	}
 }
 
@@ -84,7 +174,7 @@ func TestDetailScansTheAreaAt16Bit(t *testing.T) {
 
 func TestScanimageFailingIsAnErrorWithItsMessage(t *testing.T) {
 	s, _ := fake(t)
-	s.device(context.Background()) // find the device before the failures start
+	s.Find(context.Background()) // find the device before the failures start
 	t.Setenv("FAKE_EXIT", "9")
 	rc, err := s.Detail(context.Background(), find.Rect{X1: 10, Y1: 10}, 600)
 	if err != nil {

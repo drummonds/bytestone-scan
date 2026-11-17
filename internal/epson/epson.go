@@ -7,7 +7,6 @@ package epson
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -15,9 +14,9 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"sync"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/find"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/sane"
 )
 
 // Scanner is the 4990.
@@ -26,9 +25,7 @@ type Scanner struct {
 	Device  string    // SANE device; found from scanimage -L if empty
 	Trace   io.Writer // each pass's command line is written here, if set
 
-	once sync.Once
-	dev  string
-	err  error
+	found sane.Finder
 }
 
 // fixed are the settings of every pass, as sent and as recorded.
@@ -47,27 +44,22 @@ func (s *Scanner) command() string {
 
 var usbDevice = regexp.MustCompile("`(epson2:libusb:[0-9:]+)'")
 
-// device is the 4990's SANE name. Its USB address changes when it is
+// Find is the 4990's SANE name. Its USB address changes when it is
 // plugged in again, and the plain "epson2" would also match Epson network
 // scanners, so it is found from the device list.
-func (s *Scanner) device(ctx context.Context) (string, error) {
+func (s *Scanner) Find(ctx context.Context) (string, error) {
 	if s.Device != "" {
 		return s.Device, nil
 	}
-	s.once.Do(func() {
-		out, err := exec.CommandContext(ctx, s.command(), "-L").Output()
-		if err != nil {
-			s.err = fmt.Errorf("listing scanners: %w", err)
-			return
-		}
-		m := usbDevice.FindSubmatch(out)
-		if m == nil {
-			s.err = errors.New("the Epson 4990 is not connected: no epson2 USB scanner in scanimage -L")
-			return
-		}
-		s.dev = string(m[1])
-	})
-	return s.dev, s.err
+	return s.found.Find(ctx, s.command(), "the Epson 4990 is not connected: no epson2 USB scanner in scanimage -L", usbDevice)
+}
+
+// Status is where the 4990 was last found, in words.
+func (s *Scanner) Status() string {
+	if s.Device != "" {
+		return sane.At(s.Device)
+	}
+	return s.found.Status()
 }
 
 func (s *Scanner) args(dev string, extra ...string) []string {
@@ -84,7 +76,7 @@ func (s *Scanner) args(dev string, extra ...string) []string {
 
 // Preview scans the whole bed at 150 ppi.
 func (s *Scanner) Preview(ctx context.Context) (image.Image, error) {
-	dev, err := s.device(ctx)
+	dev, err := s.Find(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +93,7 @@ func (s *Scanner) Preview(ctx context.Context) (image.Image, error) {
 // Detail scans area at ppi in 16-bit colour, streaming PNM. Closing the
 // stream waits for scanimage and reports its failure.
 func (s *Scanner) Detail(ctx context.Context, area find.Rect, ppi int) (io.ReadCloser, error) {
-	dev, err := s.device(ctx)
+	dev, err := s.Find(ctx)
 	if err != nil {
 		return nil, err
 	}
