@@ -6,6 +6,7 @@ package web
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"errors"
 	"fmt"
 	"html"
@@ -62,12 +63,18 @@ type App struct {
 	views *view.Views // the engine's pages, set by Handler; its Progress draws the dots
 }
 
+// icon is a flatbed scanner, its lid up over a picture.
+//
+//go:embed icon.svg
+var icon []byte
+
 const layout = `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="/">
 <title>{{.title}} — bytestone-scan</title>
 <link rel="stylesheet" href="assets/bulma.min.css">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
 </head><body>
 <nav class="navbar is-primary"><div class="navbar-brand">
 <a class="navbar-item has-text-weight-bold" href="workflows/">bytestone-scan</a>
@@ -109,7 +116,13 @@ func (a *App) Handler() http.Handler {
 		http.Redirect(w, r, "/workflows/", http.StatusSeeOther)
 	})
 	mux.HandleFunc("GET /assets/bulma.min.css", lofigui.ServeBulma)
-	mux.HandleFunc("GET /favicon.ico", lofigui.ServeFavicon)
+	// the scanner's own icon (story 186); browsers ask for /favicon.ico unprompted
+	serveIcon := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Write(icon)
+	}
+	mux.HandleFunc("GET /assets/icon.svg", serveIcon)
+	mux.HandleFunc("GET /favicon.ico", serveIcon)
 	mux.Handle("/workflows/", http.StripPrefix("/workflows", a.views.Handler()))
 	// the workflow database, browsed read-only through go-dbexplorer in
 	// the app's own layout; its links are relative to db/

@@ -33,6 +33,6 @@ None.
 
 ## Done when
 
-- [ ] tests express the acceptance table and pass
-- [ ] changelog fragment
+- [x] tests express the acceptance table and pass
+- [x] changelog fragment
 - [ ] issue closed with a link to the release
