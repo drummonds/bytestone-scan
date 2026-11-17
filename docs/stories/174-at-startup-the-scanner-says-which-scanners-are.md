@@ -59,7 +59,7 @@ None.
 
 ## Done when
 
-- [ ] tests express the acceptance table and pass
-- [ ] README updated
-- [ ] changelog fragment
+- [x] tests express the acceptance table and pass
+- [x] README updated
+- [x] changelog fragment
 - [ ] issue closed with a link to the release

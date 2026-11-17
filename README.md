@@ -20,6 +20,18 @@ run from a web UI: stories [001](docs/stories/001-capture-fronts.md) and
 task serve      # or: bytestone-scan serve, then open http://localhost:8080
 ```
 
+At startup it says where it serves, then which scanners it found:
+
+```
+bytestone-scan: http://localhost:8081/ (staging …)
+bytestone-scan: bed scanner: Epson Perfection 4990 Photo (SANE epson2), not connected
+bytestone-scan: feeder: Epson FastFoto FF-680W (SANE epsonds), at epsonds:libusb:001:012
+```
+
+About shows the same. A scanner not connected is looked for again each
+time a scan or a feed wants it, so it may be plugged in later; one
+unplugged after it was found needs a restart.
+
 A batch is one sitting of scanning, over as many scans of the bed as the
 shoebox needs. Start one from *New batch*: a title, the home person
 (chosen by name from the register), the prints' provenance and credit

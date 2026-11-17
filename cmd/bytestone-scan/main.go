@@ -162,12 +162,13 @@ func serve(ctx context.Context, cfg settings, s batch.Scanner) error {
 	if err != nil {
 		return err
 	}
+	feeder := &fastfoto.Feeder{} // the FF-680W
 	app := &web.App{
 		Staging: staging,
 		Store:   store,
 		DB:      db,
 		Scanner: s,
-		Feeder:  &fastfoto.Feeder{}, // the FF-680W, found when a feed first runs
+		Feeder:  feeder,
 		Archive: client,
 		Now:     time.Now,
 	}
@@ -196,11 +197,35 @@ func serve(ctx context.Context, cfg settings, s batch.Scanner) error {
 			}
 		}
 	}()
-	fmt.Printf("bytestone-scan: http://%s/ (staging %s, %s)\n", addr, staging, s.Name())
+	fmt.Printf("bytestone-scan: http://%s/ (staging %s)\n", addr, staging)
+	go announce(ctx, os.Stdout, s, feeder) // the server does not wait for the look
 	if err := srv.Serve(l); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// named is a scanner by its make and model.
+type named interface{ Name() string }
+
+// announce looks for the bed scanner and then the feeder, and says on
+// out where each was found (story 174). A scanner that is not looked
+// for, as a recording, is named alone.
+func announce(ctx context.Context, out io.Writer, bed, feeder named) {
+	for _, s := range []struct {
+		what    string
+		scanner named
+	}{{"bed scanner", bed}, {"feeder", feeder}} {
+		line := s.scanner.Name()
+		if f, ok := s.scanner.(interface {
+			Find(context.Context) (string, error)
+			Status() string
+		}); ok {
+			f.Find(ctx) // what it found is the status
+			line += ", " + f.Status()
+		}
+		fmt.Fprintf(out, "bytestone-scan: %s: %s\n", s.what, line)
+	}
 }
 
 // portsTried bounds listen's search: the instance slots span ten ports.

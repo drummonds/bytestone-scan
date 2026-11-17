@@ -99,3 +99,41 @@ func TestNameAndSettings(t *testing.T) {
 		t.Errorf("settings %v", f.Settings())
 	}
 }
+
+// #174: where the feeder was last found, in words.
+func TestStatusSaysWhereTheFF680WWasFound(t *testing.T) {
+	for _, c := range []struct{ noUSB, noNet, want string }{
+		{"", "", "at epsonds:libusb:001:004"},
+		{"1", "", "at epsonds:net:10.0.0.64"},
+		{"1", "1", "not connected"},
+	} {
+		f, _ := fake(t)
+		t.Setenv("FAKE_NO_USB", c.noUSB)
+		t.Setenv("FAKE_NO_NET", c.noNet)
+		if got := f.Status(); got != "not yet looked for" {
+			t.Errorf("status %q before any look", got)
+		}
+		f.Find(context.Background())
+		if got := f.Status(); got != c.want {
+			t.Errorf("USB absent %q, network absent %q: status %q, want %q", c.noUSB, c.noNet, got, c.want)
+		}
+	}
+}
+
+// #174: an FF-680W not found is looked for again the next time it is wanted.
+func TestAnFF680WPluggedInAfterItWasNotFoundFeeds(t *testing.T) {
+	f, _ := fake(t)
+	t.Setenv("FAKE_NO_USB", "1")
+	t.Setenv("FAKE_NO_NET", "1")
+	if _, err := f.Find(context.Background()); err == nil {
+		t.Fatal("found an FF-680W that is not there")
+	}
+	t.Setenv("FAKE_NO_USB", "")
+	t.Setenv("FAKE_SIDES", "2")
+	if sides, err := feed(t, f, 600); err != nil || len(sides) != 2 {
+		t.Fatalf("%d sides, %v, want the feed to run once the FF-680W is plugged in", len(sides), err)
+	}
+	if got := f.Status(); got != "at epsonds:libusb:001:004" {
+		t.Errorf("status %q, want the device", got)
+	}
+}

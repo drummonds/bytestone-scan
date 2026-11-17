@@ -33,6 +33,40 @@ func TestAbout(t *testing.T) {
 		"https://git.bytestone.uk/hum3/bytestone-scan", "archiving-family-photographs")
 }
 
+// #174: About says where each scanner was last found.
+type foundScanner struct {
+	*batchtest.Scanner
+	status string
+}
+
+func (s foundScanner) Status() string { return s.status }
+
+type foundFeeder struct {
+	*batchtest.Feeder
+	status string
+}
+
+func (f foundFeeder) Status() string { return f.status }
+
+func TestAboutSaysWhereEachScannerWasFound(t *testing.T) {
+	a := live(t, &batchtest.Scanner{})
+	a.Scanner = foundScanner{&batchtest.Scanner{}, "not connected"}
+	a.Feeder = foundFeeder{&batchtest.Feeder{}, "at epsonds:libusb:001:012"}
+	page(t, a.Handler(), "/about",
+		"<th>Bed scanner</th><td>"+a.Scanner.Name()+", not connected</td>",
+		"<th>Feeder</th><td>"+a.Feeder.Name()+", at epsonds:libusb:001:012</td>",
+		"letters")
+}
+
+// A scanner that is not looked for, as a recording, is named alone; no
+// feeder is said so.
+func TestAboutWithoutAFeeder(t *testing.T) {
+	a := live(t, &batchtest.Scanner{})
+	page(t, a.Handler(), "/about",
+		"<th>Bed scanner</th><td>"+a.Scanner.Name()+"</td>",
+		"<th>Feeder</th><td>none</td>")
+}
+
 func TestAboutHasTheGlossary(t *testing.T) {
 	h := live(t, &batchtest.Scanner{}).Handler()
 	want := []string{"Glossary"}
