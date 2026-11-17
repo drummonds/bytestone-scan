@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-17
+
+- At startup `bytestone-scan serve` says which scanners are connected (story 174): a line each for the bed scanner (the 4990) and the feeder (the FF-680W) with the SANE device it was found at or "not connected", where before it named the 4990 whether or not it was there; About shows the same; a scanner not found is looked for again the next time a scan or a feed wants it, where before it needed a restart
+
+### Changed
+
+- At startup `bytestone-scan serve` says which scanners are connected (story 174): a line each for the bed scanner (the 4990) and the feeder (the FF-680W) with the SANE device it was found at or "not connected", where before it named the 4990 whether or not it was there; About shows the same; a scanner not found is looked for again the next time a scan or a feed wants it, where before it needed a restart (#174)
+
 ## [0.35.0] - 2026-11-17
 
 - Import a film (story 116): a received moving picture joins a batch as one of its scans, is probed with `ffprobe`, described with its transfer, people and poster, packaged as a `film` item with its poster stills and `play.mp4`, and deposited; needs `ffmpeg`; An item id the archive gives out is refused when staging already holds a bag, a receipt or renditions under it (story 165): the step that asked for it (a scan's confirm, a feed's arrange, a film's describe) fails and names the files, where before the old receipt was taken for the new item and its masters would have been removed undeposited
