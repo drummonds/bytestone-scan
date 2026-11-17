@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-11-17
+
+- Import a film (story 116): a received moving picture joins a batch as one of its scans, is probed with `ffprobe`, described with its transfer, people and poster, packaged as a `film` item with its poster stills and `play.mp4`, and deposited; needs `ffmpeg`; An item id the archive gives out is refused when staging already holds a bag, a receipt or renditions under it (story 165): the step that asked for it (a scan's confirm, a feed's arrange, a film's describe) fails and names the files, where before the old receipt was taken for the new item and its masters would have been removed undeposited
+
+### Added
+
+- Import a film (story 116): a received moving picture joins a batch as one of its scans, is probed with `ffprobe`, described with its transfer, people and poster, packaged as a `film` item with its poster stills and `play.mp4`, and deposited; needs `ffmpeg` (#157)
+
+### Fixed
+
+- An item id the archive gives out is refused when staging already holds a bag, a receipt or renditions under it (story 165): the step that asked for it (a scan's confirm, a feed's arrange, a film's describe) fails and names the files, where before the old receipt was taken for the new item and its masters would have been removed undeposited (#165)
+
 ## [0.34.0] - 2026-11-15
 
 - Declare code level 3 (story 118): `maturity.code: 3` in `task-plus.yml`, so stories are defined, reviewed and landed with `tp story land` (task-plus agent flow)
