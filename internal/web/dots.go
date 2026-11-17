@@ -38,8 +38,11 @@ func (a *App) scanDots(ctx context.Context, l *batch.Scan) string {
 		return fmt.Sprintf(`<a class="dots" href="%s" title="%s">%s</a>`, scanURL(l.Key()), html.EscapeString(title), dot(runColour(run)))
 	}
 	href, noun := "photos", "photo"
-	if l.IsFeed() {
+	switch {
+	case l.IsFeed():
 		href, noun = "letters", "letter"
+	case l.IsFilm():
+		href, noun = "films", "film"
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `<span class="dots" title="%s">`, html.EscapeString(title))

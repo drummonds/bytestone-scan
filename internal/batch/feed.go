@@ -198,8 +198,11 @@ func (l *Scan) IsFeed() bool { return l.Feed != nil }
 // Type is the scan's workflow type: a feed's is its own, since none of
 // its steps is a bed scan's.
 func (l *Scan) Type() wf.WorkflowType {
-	if l.IsFeed() {
+	switch {
+	case l.IsFeed():
 		return FeedWorkflow
+	case l.IsFilm():
+		return FilmImportWorkflow
 	}
 	return ScanWorkflow
 }
@@ -209,16 +212,22 @@ func (l *Scan) Type() wf.WorkflowType {
 func (l *Scan) ItemType() wf.WorkflowType { return l.itemType() }
 
 func (l *Scan) itemType() wf.WorkflowType {
-	if l.IsFeed() {
+	switch {
+	case l.IsFeed():
 		return LetterWorkflow
+	case l.IsFilm():
+		return FilmWorkflow
 	}
 	return PhotoWorkflow
 }
 
 // itemStages are one item's workflow steps, by the scan's kind.
 func (l *Scan) itemStages(id pid.ID, env Env) []wf.Stage {
-	if l.IsFeed() {
+	switch {
+	case l.IsFeed():
 		return l.letterStages(id, env)
+	case l.IsFilm():
+		return l.filmStages(id, env)
 	}
 	return l.photoStages(id, env)
 }
@@ -688,6 +697,12 @@ func (l *Scan) Items() ([]pid.ID, error) {
 			}
 		}
 		return ids, nil
+	}
+	if l.IsFilm() {
+		if l.Film.ID == nil {
+			return nil, nil
+		}
+		return []pid.ID{*l.Film.ID}, nil
 	}
 	_, ids, err := l.Found()
 	if errors.Is(err, os.ErrNotExist) {

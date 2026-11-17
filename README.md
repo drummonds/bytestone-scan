@@ -75,6 +75,28 @@ out of a sheet, the reading-order PDF and the transcription are later,
 on renditions. The feeder is found among `scanimage -L` as the `epsonds`
 device, USB first; without it a feed fails at its first step and says so.
 
+A film received, one file digitised by someone else, is imported
+(story [116](docs/stories/116-import-a-film-one-received-moving-picture.md);
+the format statement's *Films received* section). *Import a film* on the
+batch page (or *Import a film instead* on New batch) takes one `.m4v`,
+`.mp4`, `.mov`, `.avi` or `.mkv`, written to staging as it arrives, as a
+*film import* among the batch's scans; nothing is previewed, found or
+cut. What `ffprobe` reads off the file is shown, and its tags pre-fill
+the title and the *transfer* (who digitised it, and when: the film's
+provenance), since a transfer's file is dated and signed by the transfer;
+when the film was made is never taken from them. The operator confirms
+those and the *poster*, the picture attached in the file (the largest of
+several) or a frame at a time, then says who the film names and in what
+part (director, producer, camera, cast, narrator, subject), each a person
+of the register, and when it was made; nothing known is an answer. The
+names the file gives are shown beside the picker, not matched. The film
+is an item of kind `film`: the file byte for byte as `film.<ext>` with
+`film.yaml`, and as renditions the poster's `display.jpg`, `thumb.jpg`
+and `tiny.jpg` and the play copy `play.mp4`, H.264 and AAC with its
+index at the front, a remux when the file is that already and a
+transcode otherwise. It needs `ffmpeg` and `ffprobe` on the path;
+without them *Import a film* says so and refuses.
+
 Batches, the bags awaiting the archive, recordings and the workflow
 database live under `-staging` (default `~/.local/share/bytestone-scan`).
 The scanner runs for one archive instance, UAT unless `-instance` names
@@ -116,7 +138,8 @@ photos by how they stand with the archive, what staging holds and the
 runs in the workflow database. `GET /status` says the same as JSON for
 life-weaver's status page (story 115): `version`, `instance` (the archive
 instance the scanner runs for), `staging` (the root), `batches` by state,
-`scans`, `photos` (`held`, `pending`, `rejected`), `usage` (each entry at
+`scans`, `photos` (`held`, `pending`, `rejected`: every item, a letter
+or a film among them), `usage` (each entry at
 the staging root, `name` and `bytes`), `total` bytes, and `error` when
 the archive is not answering or staging cannot be read; the runs stay
 on the page.

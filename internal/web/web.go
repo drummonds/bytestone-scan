@@ -302,6 +302,12 @@ func (a *App) batchLink(_ *http.Request, run wf.RunRecord, _ []wf.StepResult, _ 
 	case batch.LetterWorkflow:
 		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="letters/%s">Letter %s</a></p>`,
 			html.EscapeString(run.Key), html.EscapeString(run.Key)))
+	case batch.FilmImportWorkflow:
+		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="%s">Film import %s</a></p>`,
+			scanURL(run.Key), html.EscapeString(run.Key)))
+	case batch.FilmWorkflow:
+		return template.HTML(fmt.Sprintf(`<p><a class="button is-link" href="films/%s">Film %s</a></p>`,
+			html.EscapeString(run.Key), html.EscapeString(run.Key)))
 	}
 	return ""
 }
@@ -312,8 +318,10 @@ func specificHref(run wf.RunRecord) string {
 	switch run.WorkflowType {
 	case batch.Workflow:
 		return "batches/" + html.EscapeString(run.Key)
-	case batch.ScanWorkflow, batch.FeedWorkflow:
+	case batch.ScanWorkflow, batch.FeedWorkflow, batch.FilmImportWorkflow:
 		return scanURL(run.Key)
+	case batch.FilmWorkflow:
+		return "films/" + html.EscapeString(run.Key)
 	case batch.PhotoWorkflow:
 		return "photos/" + html.EscapeString(run.Key)
 	case batch.LetterWorkflow:
@@ -363,7 +371,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	c.HTML(a.batchSteps(ctx, b, scans))
 	var t strings.Builder
 	var blocking []string
-	t.WriteString(`<h2 class="title is-5">Scans, imports and feeds</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints or sheets</th><th>Items</th><th>Where</th></tr></thead><tbody>`)
+	t.WriteString(`<h2 class="title is-5">Scans, imports and feeds</h2><table class="table is-striped"><thead><tr><th>#</th><th>Description</th><th>Prints, sheets or films</th><th>Items</th><th>Where</th></tr></thead><tbody>`)
 	for _, l := range scans {
 		var where string
 		if busy, step, _ := a.busyWith(l.Key()); busy {
@@ -382,6 +390,10 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 			sheets, _ := l.Sheets()
 			ids, _ := l.Items()
 			count, thumbs = len(sheets), a.letterThumbnails(ids)
+		}
+		if l.IsFilm() {
+			ids, _ := l.Items()
+			count, thumbs = 1, a.filmThumbnails(ids)
 		}
 		fmt.Fprintf(&t, `<tr><td><a href="%s">%s %d</a></td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
 			scanURL(l.Key()), kind(l), l.N, html.EscapeString(l.Description), count, thumbs, html.EscapeString(where))
@@ -410,8 +422,9 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	c.HTML(fmt.Sprintf(`<div class="buttons"><a class="button is-primary" href="batches/%s/scans/new">Do one more scan</a> `+
 		`<a class="button" href="batches/%s/imports/new">Import pages</a> `+
 		`<a class="button" href="batches/%s/feeds/new">Scan letters</a> `+
+		`<a class="button" href="batches/%s/films/new">Import a film</a> `+
 		`<form action="batches/%s/finish" method="post" style="display:inline"><button class="button" type="submit">Finish scanning</button></form> %s</div>`,
-		html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), del))
+		html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.ID), del))
 	return c.Buffer()
 }
 
@@ -473,6 +486,8 @@ func kind(l *batch.Scan) string {
 		return "Import"
 	case l.IsFeed():
 		return "Feed"
+	case l.IsFilm():
+		return "Film"
 	}
 	return "Scan"
 }
@@ -487,7 +502,7 @@ func (a *App) batchOutcome(b *batch.Batch) (msg, class string) {
 	noun := "photo"
 	if scans, err := b.Scans(); err == nil {
 		for _, l := range scans {
-			if l.IsFeed() {
+			if l.IsFeed() || l.IsFilm() {
 				noun = "item"
 			}
 		}
@@ -500,6 +515,9 @@ func (a *App) batchOutcome(b *batch.Batch) (msg, class string) {
 func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 	if l.IsFeed() {
 		return a.feedPage(r, l)
+	}
+	if l.IsFilm() {
+		return a.filmImportPage(r, l)
 	}
 	c := lofigui.NewContext()
 	busy, waiting := a.state(r, c, l)
