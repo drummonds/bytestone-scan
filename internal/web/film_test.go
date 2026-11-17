@@ -136,8 +136,9 @@ func TestImportingAFilm(t *testing.T) {
 	}
 	// the stills are of the frame chosen at describe: the film's own size
 	if w := get(t, h, "/films/0/renditions/"+v+"/display.jpg"); w.Code == http.StatusOK {
-		if img, err := jpeg.Decode(w.Body); err != nil || img.Bounds().Dx()*3 != img.Bounds().Dy()*4 {
-			t.Errorf("display.jpg %v, %v: want the frame, 4 by 3", img.Bounds(), err)
+		// 320 wide, where the picture attached, offered until then, is 640
+		if img, err := jpeg.Decode(w.Body); err != nil || img.Bounds().Dx() != 320 || img.Bounds().Dy() != 240 {
+			t.Errorf("display.jpg %v, %v: want the frame, 320 by 240, not the picture attached", img.Bounds(), err)
 		}
 	}
 	if rec, _, err := batch.FindFilm(a.Staging, 0); err != nil || rec.Poster.Frame != "00:00:01" || rec.Poster.Attached || len(rec.People) != 2 || rec.Made == nil {
