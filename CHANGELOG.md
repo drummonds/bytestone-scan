@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-11-17
+
+- A feed on the real FF-680W works (story 177): the comment line `scanimage` writes in each side's header is read past, where before every real feed failed with "PNM header: expected integer"; each side is cut at capture to the sheet and 3 mm of the feed path either side, and the white the driver fills below the paper's end is left off, where before a master would have been the whole 215.9 × 393.7 mm path; the settings recorded with a master name the cut and the feeder's JPEG quality 90 transfer
+
+### Fixed
+
+- A feed on the real FF-680W works (story 177): the comment line `scanimage` writes in each side's header is read past, where before every real feed failed with "PNM header: expected integer"; each side is cut at capture to the sheet and 3 mm of the feed path either side, and the white the driver fills below the paper's end is left off, where before a master would have been the whole 215.9 × 393.7 mm path; the settings recorded with a master name the cut and the feeder's JPEG quality 90 transfer (#177)
+
 ## [0.36.0] - 2026-11-17
 
 - At startup `bytestone-scan serve` says which scanners are connected (story 174): a line each for the bed scanner (the 4990) and the feeder (the FF-680W) with the SANE device it was found at or "not connected", where before it named the 4990 whether or not it was there; About shows the same; a scanner not found is looked for again the next time a scan or a feed wants it, where before it needed a restart
