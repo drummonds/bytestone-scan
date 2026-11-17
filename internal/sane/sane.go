@@ -22,26 +22,29 @@ type Finder struct {
 	err    error
 }
 
-// errAbsent marks a look that listed the scanners and found none of ours.
-var errAbsent = errors.New("not connected")
+// absent is the error of a look that listed the scanners and found
+// none of ours; it reads as the driver worded it.
+type absent string
+
+func (a absent) Error() string { return string(a) }
 
 // Find is the SANE device of the first of patterns to match a line of
 // command -L, each pattern's first group being the device. With no
-// match the error is absent, which says the scanner is not connected.
-func (f *Finder) Find(ctx context.Context, command, absent string, patterns ...*regexp.Regexp) (string, error) {
+// match the error is missing, which says the scanner is not connected.
+func (f *Finder) Find(ctx context.Context, command, missing string, patterns ...*regexp.Regexp) (string, error) {
 	f.look.Lock()
 	defer f.look.Unlock()
 	if dev, _, _ := f.last(); dev != "" {
 		return dev, nil
 	}
-	dev, err := find(ctx, command, absent, patterns)
+	dev, err := find(ctx, command, missing, patterns)
 	f.mu.Lock()
 	f.looked, f.dev, f.err = true, dev, err
 	f.mu.Unlock()
 	return dev, err
 }
 
-func find(ctx context.Context, command, absent string, patterns []*regexp.Regexp) (string, error) {
+func find(ctx context.Context, command, missing string, patterns []*regexp.Regexp) (string, error) {
 	out, err := exec.CommandContext(ctx, command, "-L").Output()
 	if err != nil {
 		return "", fmt.Errorf("the scanners could not be listed: %w", err)
@@ -51,7 +54,7 @@ func find(ctx context.Context, command, absent string, patterns []*regexp.Regexp
 			return string(m[1]), nil
 		}
 	}
-	return "", fmt.Errorf("%s: %w", absent, errAbsent)
+	return "", absent(missing)
 }
 
 func (f *Finder) last() (dev string, err error, looked bool) {
@@ -65,12 +68,13 @@ func (f *Finder) last() (dev string, err error, looked bool) {
 // does not wait for a look still running.
 func (f *Finder) Status() string {
 	dev, err, looked := f.last()
-	switch {
-	case !looked:
+	if !looked {
 		return "not yet looked for"
-	case errors.Is(err, errAbsent):
+	}
+	if errors.As(err, new(absent)) {
 		return "not connected"
-	case err != nil:
+	}
+	if err != nil {
 		return err.Error()
 	}
 	return At(dev)

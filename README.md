@@ -23,7 +23,7 @@ task serve      # or: bytestone-scan serve, then open http://localhost:8080
 At startup it says where it serves, then which scanners it found:
 
 ```
-bytestone-scan: http://localhost:8081/ (staging …)
+bytestone-scan: http://localhost:8080/ (staging …)
 bytestone-scan: bed scanner: Epson Perfection 4990 Photo (SANE epson2), not connected
 bytestone-scan: feeder: Epson FastFoto FF-680W (SANE epsonds), at epsonds:libusb:001:012
 ```

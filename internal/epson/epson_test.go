@@ -44,6 +44,8 @@ func TestNo4990(t *testing.T) {
 	t.Setenv("FAKE_NO_4990", "1")
 	if _, err := s.Preview(context.Background()); err == nil || !strings.Contains(err.Error(), "4990") {
 		t.Errorf("error %v, want one saying the 4990 was not found", err)
+	} else if got, want := err.Error(), "the Epson 4990 is not connected: no epson2 USB scanner in scanimage -L"; !strings.HasSuffix(got, want) {
+		t.Errorf("error %q, want it to end %q", got, want)
 	}
 	if got := s.Status(); got != "not connected" {
 		t.Errorf("status %q, want not connected", got)
