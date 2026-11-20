@@ -1,6 +1,10 @@
 # 190 — Import a written account received as a Word document or plain text: kept as an item as received, shown as an HTML page with a footnote, the people linked to it and its transmission recorded, and found by a search that starts from a person (#190)
 
-**Roadmap:** none — the format statement's *Accounts received* section, to be written first, is the spec; needs life-weaver story 288 (account items) released
+**Roadmap:** none — the format statement's *Accounts received* section is the spec; needs life-weaver story 288 (account items) released
+
+Rewritten 2026-11-20: the Word document is converted to safe Markdown
+at import and not kept (the title is the issue's and still says *as
+received*).
 
 ## Why
 
@@ -10,21 +14,26 @@ one tool that describes and deposits items, with the person picker,
 provenance and credit already built, but everything it takes in is a
 picture or a film. A text that arrives as text has nowhere to go.
 
-An account joins a batch as a film does: one file, kept as sent, with a
-record, straight to describe, package, deposit and receipt. It has
-nothing to preview, find, cut or develop, and unlike a film nothing to
-render: life-weaver makes the page, its footnotes and its search from
-the file it holds (its stories 288 and 289). What the scanner adds is
-who: the author and subjects, and each hand the text passed through.
+A Word document cannot be kept as a film's file is. It is a container
+that can attach a remote template, embed objects and carry fields that
+act when it is opened, and the archive should hold nothing unsafe to
+open. So this is the one import that converts: the scanner reads the
+words out into Markdown, carrying across only what it knows to be text,
+and the Markdown is the master. The document is deleted once the bag is
+written; its name, size and sha256 stay in the record. Nothing in the
+scanner opens the document with Word or any office program: it is read
+as a zip of XML, and only for its text.
 
 ## Vocabulary
 
 | Term | Meaning |
 |---|---|
-| Account import | One received piece of writing brought into a batch, numbered among its scans as an import, a feed and a film import are: the file as received, read, described, then packaged and deposited as one account item. Its home, provenance and credit are its batch's. No preview, prints, regions, backs, develop or renditions |
-| Account | An item of kind `account` (life-weaver story 288): the file as received as `data/account.docx` or `data/account.txt`, with `account.yaml`; deposited and receipted as a photo is |
-| Reading | The text as life-weaver reads it off the file, by its own package: headings, paragraphs, list items and the author's notes. Shown to the operator before describing; never kept |
-| Transmission | The hands the text passed through to reach the archive, in order: each a part (transcribed, typed, edited, kept, sent), by whom, when, with a note. By whom is a person picked from the register, or a name as written. The account's provenance as a film's transfer is, kept in account.yaml beside the batch's |
+| Account import | One received piece of writing brought into a batch, numbered among its scans as an import, a feed and a film import are: the file received, converted, read by the operator, described, then packaged and deposited as one account item. Its home, provenance and credit are its batch's. No preview, prints, regions, backs, develop or renditions |
+| Account | An item of kind `account` (life-weaver story 288): `data/account.md`, the master, with `account.yaml`, and no other file; deposited and receipted as a photo is |
+| Convert | The import step that writes the master from the received file: an allowlist, so that what is not named here has no way across. From `.docx`: headings, paragraphs, bold and italic, list items, line breaks, links to `http`, `https` and `mailto`, footnotes and endnotes. From `.txt`: its paragraphs. Every character of the text is escaped so that it means itself in Markdown |
+| Left out | What Convert met and did not carry: counted as pictures, tables (their cells' text is kept, as paragraphs) and objects (anything embedded or linked from outside: OLE objects, attached templates, external targets other than a web link). Shown to the operator and kept in the record |
+| Received | The file as it came, for the record only: its name, format, size and sha256. Held in staging until the bag is written, then deleted |
+| Transmission | The hands the text passed through to reach the archive, in order: each a part (transcribed, typed, edited, kept, sent), by whom, when, with a note. By whom is a person picked from the register, or a name as written. Kept in account.yaml beside the batch's provenance |
 | Written | When the account was written: one claim with its source and how it was read, as a film's made is; never taken from the file's own dates |
 
 ## The record
@@ -47,7 +56,12 @@ written: {value: 1974, approximate: true, source: <who says>, read: ""}
 transmission:
   - {part: typed, by: 2, date: 1998, note: from the manuscript}
   - {part: sent, by: Jane Smith, date: 2026-11-02, note: by email}
-file: {name: Recollections.docx, format: docx, size: 48213}
+received:
+  name: Recollections.docx
+  format: docx
+  size: 48213
+  sha256: <of the file as received>
+  left_out: {pictures: 2, tables: 1, objects: 0}
 ```
 
 ## What changes
@@ -56,35 +70,78 @@ file: {name: Recollections.docx, format: docx, size: 48213}
   and *Import a film*: the file (`.docx`, `.txt`) and the title, which
   starts as the file's name without its extension. The account lists
   among the batch's scans, its one item where a scan has prints.
-- **Read** shows the reading, as the site will show it, with its notes
-  at the foot, and a count of words and notes, so the operator sees
-  that the right file came and came whole. The reading is life-weaver's
-  package, the module a dependency from here on, so that the scanner
-  never accepts what the archive will refuse. A file the reading
-  refuses is refused with its reason and nothing is kept.
+- **Convert** (`internal/account`) writes the Markdown. A `.docx` is
+  opened as a zip and only `word/document.xml`, its styles, its
+  relationships and its footnotes and endnotes are read, each up to a
+  fixed size, so a zip made to swell cannot fill the machine. Tracked
+  changes are read as accepted. A `.txt` is UTF-8 when its bytes are
+  valid UTF-8 and Windows-1252 otherwise; paragraphs part at blank
+  lines. A `.docm`, or a `.docx` holding a macro project, is refused
+  outright: it was not sent as a plain document and the operator should
+  know.
+- **Read** shows the page as the site will make it from the Markdown
+  (life-weaver's `account` package, the module a dependency from here
+  on), the count of words and notes, and what was left out, so the
+  operator sees that the right file came, came whole, and what it has
+  lost. The operator goes on or cancels; the Markdown is not edited
+  here.
 - **Describe** asks, through the person picker, for the people and
   their roles (author, subject); when it was written, one claim,
   optional; and the transmission, a row a hand: the part, a person
   picked or a name typed, a date, a note; rows added, removed and
-  reordered. Nothing is required: an account of unknown hand is still
-  an account.
-- **Package** writes the bag: `data/account.<ext>` as sent and
-  `data/account.yaml`. No renditions and no recipe.
+  reordered. Nothing is required.
+- **Package** writes the bag: `data/account.md` and
+  `data/account.yaml`, no renditions and no recipe; then deletes the
+  received file from staging.
 - **Deposit**, receipt, reject, close and verify as for a photo; verify
-  looks for the account's page on the site. Staging holds the file
-  until the receipt, and purge treats it as any scan's work files.
+  looks for the account's page on the site. Purge treats the account
+  as any scan's work files.
 - `/status` and *Statistics* count an account among the items; the
-  glossary gains Account import, Account, Reading, Transmission,
-  Written; README; `archivetest` is taught the account's rule.
+  glossary gains Account import, Account, Convert, Left out, Received,
+  Transmission, Written; README; `archivetest` is taught the account's
+  rule. No Word document is kept in the repo: the tests zip theirs from
+  XML at test time.
 
 ## Acceptance
 
+Convert, a `.docx`:
+
+| The document holds | The Markdown, rendered, has | Left out |
+|---|---|---|
+| a *Heading 1*, two paragraphs, a word in italic and one in bold | a heading, two paragraphs, the words emphasised and strong | nothing |
+| a heading in a style whose id is another language's and whose name is `heading 2` | a heading at level 2 | nothing |
+| a footnote in one paragraph, an endnote in a later one, a footnote never referred to | notes 1 and 2 in the order referred to; the third not there | nothing |
+| a note referred to twice | one note, two references | nothing |
+| three list paragraphs | one list of three items | nothing |
+| text holding `<script>`, `&`, `*`, `_`, `[x](y)`, a line starting `# ` and one starting `1. ` | those characters as text: no element, emphasis, link, heading or list made of them | nothing |
+| a link to `https://…` and one to `mailto:…` | both links | nothing |
+| a link to `javascript:…`, one to `file://…`, one to a bookmark in the document | each its text alone | nothing |
+| an insertion and a deletion tracked, a passage moved | the inserted words and the passage where it was moved to; not the deleted | nothing |
+| a picture, and a text box | neither, nor the text box's words | pictures: 1 (the text box is not counted) |
+| a table of two rows of two cells | four paragraphs, row by row | tables: 1 |
+| an embedded spreadsheet (OLE), an attached template at a URL | neither | objects: 2 |
+| a comment, a header and a footer | none of them | nothing |
+| a line break and a tab within a paragraph | the break as a break, the tab as a space | nothing |
+
+Convert, other files:
+
+| The file | Then |
+|---|---|
+| `.txt`, UTF-8, three blocks parted by blank lines, a line break inside one, text holding `<b>` and `*` | three paragraphs, the break kept, those characters as text |
+| `.txt`, UTF-8 with a byte-order mark | the mark not in the Markdown |
+| `.txt`, not valid UTF-8, holding byte `0xE9` | the Markdown is UTF-8 and has `é` |
+| a `.docx` that is not a zip, or a zip without `word/document.xml` | refused, saying which |
+| a `.docx` holding `word/vbaProject.bin`, or a `.docm` | refused: it carries macros |
+| a `.docx` whose `word/document.xml` unzips past the limit | refused: too large to read; no more than the limit was read |
+| a file with no text | refused: nothing to read |
+| a file that is neither `.docx` nor `.txt` | refused: a Word document or plain text |
+| any refusal | nothing of the file is kept in staging |
+
+The import:
+
 | Given | When | Then |
 |---|---|---|
-| a `.docx` with a heading, two paragraphs and a footnote | Import an account | the title is the file's name; Read shows the heading, the paragraphs, note 1 at the foot, and the count of words and notes; the account is a scan of the batch, numbered among them |
-| a `.txt` of three blocks parted by blank lines | Import an account | Read shows three paragraphs, no notes |
-| a `.docx` that is not a Word document, or a file with no text | Import an account | refused with the reading's reason; nothing kept in staging |
-| a file that is neither `.docx` nor `.txt` | Import an account | refused: a Word document or plain text |
+| a `.docx` with a heading, two paragraphs, a footnote and a picture | Import an account | the title is the file's name; Read shows the page with note 1 at the foot, the count of words and notes, and *1 picture left out*; the account is a scan of the batch, numbered among them |
 | the title blank | confirm | refused: an account has a title |
 | a finished batch | Import an account | refused, as a scan or an import is |
 | a role with no person picked | Describe, confirm | refused: a part needs its person |
@@ -92,43 +149,57 @@ file: {name: Recollections.docx, format: docx, size: 48213}
 | a transmission row with a person picked and a name typed | Describe, confirm | refused: one or the other |
 | a transmission row with a name, no date and no note | Describe, confirm | accepted |
 | no people, no `written`, no transmission | Describe, confirm | accepted |
-| author 0, subject 1, typed by 2 in 1998, sent by *Jane Smith* on 2026-11-02, the rows in that order | Package | account.yaml as *The record*, the transmission in the order given, `by: 2` an id and `by: Jane Smith` a name |
-| described | Package | the bag holds the file byte for byte as received (its sha256 in the manifest that of the file sent) as `account.docx` or `account.txt`, and account.yaml; no renditions; the upload is gone from the import |
+| author 0, subject 1, typed by 2 in 1998, sent by *Jane Smith* on 2026-11-02, the rows in that order | Package | account.yaml as *The record*: the transmission in the order given, `by: 2` an id and `by: Jane Smith` a name; `received` the file's name, format, size, its sha256 as received, and what was left out |
+| described | Package | the bag's payload is `account.md` and `account.yaml` and nothing else; no renditions; the received file is gone from staging and no copy of it is anywhere under the batch |
+| the same file imported twice | Package, both | the two `account.md` are byte for byte the same |
 | packaged | Deposit | the archive receipts it `kind: account`; the bag's checksums match; verify passes |
-| the archive already holds the same file | Deposit | rejected, naming the item it duplicates; the account ends as a rejected photo does |
+| the archive already holds the same Markdown | Deposit | rejected, naming the item it duplicates; the account ends as a rejected photo does |
 | a batch holding an account, closed and past its grace | purge | the account's work files go as a scan's do |
 | a batch with one account receipted | `/status`, *Statistics* | one more item counted held, among the photos as a film is |
 
 ## Out of scope
 
-- The account's page, its footnotes and provenance note, and where it
-  shows on a person's page: life-weaver story 288.
+- The account's page, its notes and provenance note, and where it shows
+  on a person's page: life-weaver story 288. Its renderer passes no raw
+  HTML, picture or unsafe link whatever the Markdown holds, so the page
+  does not rest on this converter alone.
 - The search by person: life-weaver#289.
+- Keeping the Word document, purified or not, and OpenDocument: a
+  cleaned container is still a container, and `.odt` carries macros
+  too.
+- The document's pictures brought in as photos, and its tables as
+  tables: counted and said, not carried.
+- Editing the Markdown before deposit, and importing a `.md` written by
+  hand.
 - Pre-filling from the document's own properties (its author, its
-  dates): a Word file's author is whoever's copy of Word saved it, and
-  its dates are the typing's.
+  dates): they are the typing's, and `docProps` is not read.
 - People, dates and events proposed from the text by a model: the
-  reading-letters work, which this gives a second kind of item to read.
-- Other formats (`.doc`, `.odt`, `.rtf`, `.pdf`): as life-weaver reads
-  them.
+  reading-letters work.
+- Other formats (`.doc`, `.odt`, `.rtf`, `.pdf`): each a converter of
+  its own when one arrives.
 - A name typed in the transmission becoming a person in the register
   (#172).
-- Changing an account's people or transmission once it is held:
-  bytestone-editor's, when the archive service takes such a change.
 
 ## Decisions
 
 The format statement, *Accounts received*; no ADR expected.
 
+The master is Markdown and the Word document is not kept, the one
+import where *kept as received* gives way: what is received is a
+program's container, not the text. Convert is an allowlist, not a
+cleaner: it names what it carries, so a thing it has never heard of is
+left out, where a blocklist would let it through. Macros are refused,
+not stripped, because a document with macros was not what the sender
+said it was. The same file converts to the same bytes, so the archive's
+duplicate rule works on the Markdown; a later converter may write other
+bytes for it, and then the rule will not see the two as one.
+
 An account import is a scan of a batch, as a film import is: the batch
 carries home, provenance and credit once.
 
-The scanner takes life-weaver's module for the reading, where until now
-it has spoken to life-weaver only through the archive service. The
-alternative, a route on the service that returns the reading of an
-uploaded file, keeps the one client boundary but sends the file twice
-and makes Read fail when the service is slow. The package is small and
-has no dependency on the archive.
+The scanner takes life-weaver's module for the rendering, where until
+now it has spoken to life-weaver only through the archive service, so
+that Read shows the very page the site will make.
 
 The transmission is a list the operator orders, not a fixed set of
 fields: one text was written, kept and sent; another dictated,
@@ -136,7 +207,7 @@ transcribed, typed, edited and sent on twice.
 
 ## Done when
 
-- [ ] tests express the acceptance table and pass
+- [ ] tests express the acceptance tables and pass
 - [ ] spec updated (the format statement's *Accounts received*; glossary; README)
 - [ ] ADR written if a fork was resolved
 - [ ] changelog fragment
