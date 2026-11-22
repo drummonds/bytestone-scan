@@ -46,7 +46,7 @@ func TestTheBatchPageShowsItsStepsAndGates(t *testing.T) {
 	page(t, h, "/batches/20261020-1",
 		`<td>`+failed,
 		`Finish scanning waits for scan 1: `+failed,
-		`<a href="photos/`+ids[1].String()+`"><img src="photos/`+ids[1].String()+`/renditions/2/tiny.jpg"`)
+		`<a href="photos/`+ids[1].String()+`"><img src="photos/`+ids[1].String()+`/renditions/3/tiny.jpg"`)
 	if w := post(t, h, "/batches/20261020-1/finish", nil); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), failed) {
 		t.Errorf("finish: %d %s, want the photo named", w.Code, w.Body)
 	}

@@ -25,7 +25,11 @@ tasks:
     cmds:
       - go mod tidy
   serve:
-    desc: Run the web UI for the UAT archive instance on http://localhost:8081 (-- -instance NAME for another)
+    desc: 'Run the web UI on http://localhost:8081 for the hosted archive service, UAT on the NAS (-- -archive URL for another service)'
+    cmds:
+      - go run ./cmd/bytestone-scan serve -archive https://bytestone-uat.lan.drummonds.net {{.CLI_ARGS}}
+  serve:local:
+    desc: Run the web UI for the UAT archive instance served on this machine, task serve in life-weaver (-- -instance NAME for another)
     cmds:
       - go run ./cmd/bytestone-scan serve {{.CLI_ARGS}}
   diagrams:

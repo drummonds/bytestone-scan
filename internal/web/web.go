@@ -1072,14 +1072,19 @@ func histogram(h quality.Histogram) string {
 	return b.String()
 }
 
-// renditionDir is where the photo's renditions at the latest recipe made
-// for it are kept: the current recipe's, or, until the photo is
-// re-developed, an earlier recipe's.
+// renditionDir is where the item's renditions at the latest recipe made
+// for it are kept: the current recipe's, or, until the item is
+// re-developed, an earlier recipe's. A photo's recipe sits in the
+// directory itself, a letter's one in each side's set under it.
 func (a *App) renditionDir(id pid.ID) string {
 	root := filepath.Join(a.Staging, "renditions", id.String())
 	latest := rendition.Version
 	for v := rendition.Version; v >= 1; v-- {
-		if _, err := os.Stat(filepath.Join(root, strconv.Itoa(v), "recipe.yaml")); err == nil {
+		dir := filepath.Join(root, strconv.Itoa(v))
+		_, err := os.Stat(filepath.Join(dir, "recipe.yaml"))
+		// a photo's back has a set of its own, which does not stand for the photo
+		sides, _ := filepath.Glob(filepath.Join(dir, "sheet-*", "recipe.yaml"))
+		if err == nil || len(sides) > 0 {
 			latest = v
 			break
 		}
