@@ -144,11 +144,38 @@ type Sheet struct {
 // SheetSide is one side of a sheet: its master's file under data/ and
 // the turn its renditions are given, quarter turns clockwise in degrees;
 // or, for a side the operator found blank and left out, that it was
-// blank, with no file (story 181).
+// blank, with no file (story 181). Its pages are the letter pages cut
+// from it, left to right as turned: one, or two for a side folded in
+// half (story 202).
 type SheetSide struct {
-	File  string `yaml:"file,omitempty"`
-	Turn  int    `yaml:"turn,omitempty"`
-	Blank bool   `yaml:"blank,omitempty"`
+	File  string       `yaml:"file,omitempty"`
+	Turn  int          `yaml:"turn,omitempty"`
+	Blank bool         `yaml:"blank,omitempty"`
+	Pages []LetterPage `yaml:"pages,omitempty"`
+}
+
+// LetterPage is one face of a letter as it is read, cut from a side: its
+// number in the letter's reading order, from 1, or that it is blank and
+// has none.
+type LetterPage struct {
+	N     int  `yaml:"number,omitempty"`
+	Blank bool `yaml:"blank,omitempty"`
+}
+
+// Folded reports whether the side is folded in half: two pages, left
+// and right of its middle as turned.
+func (s SheetSide) Folded() bool { return len(s.Pages) == 2 }
+
+// pageNumbers are the numbers of the side's pages, left to right, 0 for
+// a blank one: what its renditions are cut by.
+func (s SheetSide) pageNumbers() []int {
+	numbers := make([]int, len(s.Pages))
+	for i, p := range s.Pages {
+		if !p.Blank {
+			numbers[i] = p.N
+		}
+	}
+	return numbers
 }
 
 // Stem is the side's name without its extension: where its renditions
@@ -174,11 +201,12 @@ func (r Letter) Sides() []LetterSide {
 // blank among them, for the pages to name.
 func (r Letter) EverySide() []LetterSide {
 	var sides []LetterSide
-	for i, s := range r.Sheets {
+	for i, s := range r.paged().Sheets {
 		for _, side := range []struct {
 			SheetSide
-			name string
-		}{{s.Front, "front"}, {s.Back, "back"}} {
+			name  string
+			other SheetSide
+		}{{s.Front, "front", s.Back}, {s.Back, "back", s.Front}} {
 			if side.File == "" && !side.Blank {
 				continue
 			}
@@ -186,29 +214,132 @@ func (r Letter) EverySide() []LetterSide {
 			if s.Role == "envelope" {
 				caption = "Envelope, " + side.name
 			}
-			sides = append(sides, LetterSide{SheetSide: side.SheetSide, Caption: caption, Role: s.Role})
+			sides = append(sides, LetterSide{SheetSide: side.SheetSide, Caption: caption, Role: s.Role, Coupled: side.File != "" && side.other.File != ""})
 		}
 	}
 	return sides
 }
 
-// LetterSide is one side of a letter as the pages show it.
+// LetterSide is one side of a letter as the pages show it. Coupled says
+// its sheet's other side has a master too, so the two turn and fold
+// together.
 type LetterSide struct {
 	SheetSide
 	Caption string
 	Role    string
+	Coupled bool
 }
 
-// side is the letter's side named by stem, or nil.
-func (r *Letter) side(stem string) *SheetSide {
+// PlacedPage is a numbered letter page where it lies: the side it is
+// cut from and, on a folded side, which half, "left" or "right".
+type PlacedPage struct {
+	N     int
+	Side  LetterSide
+	Place string
+}
+
+// Pages are the letter's numbered pages in reading order. A letter that
+// records no pages, written before story 202, is one page a side in
+// sheet order.
+func (r Letter) Pages() []PlacedPage {
+	var pages []PlacedPage
+	for _, s := range r.Sides() {
+		for i, p := range s.Pages {
+			if p.Blank {
+				continue
+			}
+			place := ""
+			if s.Folded() {
+				place = []string{"left", "right"}[i]
+			}
+			pages = append(pages, PlacedPage{N: p.N, Side: s, Place: place})
+		}
+	}
+	sort.SliceStable(pages, func(i, j int) bool { return pages[i].N < pages[j].N })
+	return pages
+}
+
+// paged is the letter with its pages: itself when any side records
+// them, else a copy numbered one page a side in sheet order.
+func (r Letter) paged() Letter {
+	for _, s := range r.Sheets {
+		if len(s.Front.Pages) > 0 || len(s.Back.Pages) > 0 {
+			return r
+		}
+	}
+	r.Sheets = slices.Clone(r.Sheets)
+	r.numberPages()
+	return r
+}
+
+// numberPages numbers the letter's pages afresh in sheet order, front
+// before back, left before right: each side with a master keeps as many
+// pages as it has, one if none is recorded, and no page is blank.
+func (r *Letter) numberPages() {
+	n := 0
 	for i := range r.Sheets {
 		for _, sd := range []*SheetSide{&r.Sheets[i].Front, &r.Sheets[i].Back} {
-			if sd.File != "" && sd.Stem() == stem {
-				return sd
+			if sd.File == "" {
+				continue
+			}
+			pages := make([]LetterPage, max(1, len(sd.Pages)))
+			for k := range pages {
+				n++
+				pages[k].N = n
+			}
+			sd.Pages = pages
+		}
+	}
+}
+
+// checkPages refuses a numbering that is not a reading order: the
+// numbers run from 1 with no gap and none twice, and a letter needs a
+// page.
+func (r Letter) checkPages() error {
+	count := map[int]int{}
+	pages := 0
+	for _, s := range r.Sides() {
+		for _, p := range s.Pages {
+			switch {
+			case p.Blank:
+			case p.N < 1:
+				return fmt.Errorf("%s: a page has neither a number nor the blank mark", s.Caption)
+			default:
+				count[p.N]++
+				pages++
 			}
 		}
 	}
+	if pages == 0 {
+		return errors.New("every page is marked blank, and a letter needs a page")
+	}
+	for n := 1; n <= pages; n++ {
+		switch {
+		case count[n] > 1:
+			return fmt.Errorf("page %d is given twice: the %d pages are numbered from 1, each once", n, pages)
+		case count[n] == 0:
+			return fmt.Errorf("page %d is missing: the %d pages are numbered from 1 with no gap", n, pages)
+		}
+	}
 	return nil
+}
+
+// side is the letter's side named by stem and its sheet's other side,
+// if that has a master; nil for no such side.
+func (r *Letter) side(stem string) (sd, other *SheetSide) {
+	for i := range r.Sheets {
+		front, back := &r.Sheets[i].Front, &r.Sheets[i].Back
+		for _, pair := range [][2]*SheetSide{{front, back}, {back, front}} {
+			if pair[0].File == "" || pair[0].Stem() != stem {
+				continue
+			}
+			if pair[1].File == "" {
+				return pair[0], nil
+			}
+			return pair[0], pair[1]
+		}
+	}
+	return nil, nil
 }
 
 // NewFeed adds the next feed to the batch, numbered among its scans: one
@@ -533,6 +664,7 @@ func (l *Scan) writeLetters() error {
 			}
 			rec.Sheets = append(rec.Sheets, sheet)
 		}
+		rec.numberPages()
 		if err := os.MkdirAll(l.letterDir(id), 0o755); err != nil {
 			return err
 		}
@@ -657,12 +789,18 @@ func (l *Scan) developLetter(id pid.ID) error {
 }
 
 // developSide makes one side's renditions: the whole side fit to the
-// screen, turned as the operator said, nothing cut or levelled, since
-// the sheet is kept whole and its pages are cut later from these.
+// screen, turned as the operator said, not levelled, since the sheet is
+// kept whole; and a picture of each of its numbered pages, cut from the
+// side as turned (story 202). Renditions made for another turn or other
+// pages are thrown away first.
 func (l *Scan) developSide(id pid.ID, sd SheetSide) error {
 	dir := filepath.Join(l.Renditions(id), sd.Stem())
-	if r, err := rendition.Load(dir); err == nil && r.Turn == sd.Turn {
+	numbers := sd.pageNumbers()
+	if r, err := rendition.Load(dir); err == nil && r.Turn == sd.Turn && slices.Equal(r.Pages, numbers) {
 		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
 	}
 	tif, err := os.ReadFile(l.letterFileOf(id, sd.File))
 	if err != nil {
@@ -672,8 +810,10 @@ func (l *Scan) developSide(id pid.ID, sd SheetSide) error {
 	if err != nil {
 		return fmt.Errorf("letter %s %s: %w", id, sd.Stem(), err)
 	}
-	r, imgs := rendition.Whole(quarterTurned(sideRGBA(img), sd.Turn))
+	side := quarterTurned(sideRGBA(img), sd.Turn)
+	r, imgs := rendition.Whole(side)
 	r.Turn = ((sd.Turn % 360) + 360) % 360
+	r.Pages, imgs.Pages = numbers, rendition.Pages(side, numbers)
 	sum := sha256.Sum256(tif)
 	r.Master = hex.EncodeToString(sum[:])
 	if err := rendition.Save(dir, r, imgs); err != nil {
@@ -698,15 +838,12 @@ func sideRGBA(m *master.Image) *image.RGBA {
 	return out
 }
 
-// TurnSide adds by, a quarter turn clockwise (90) or anticlockwise
-// (-90), to the turn of letter id's side named by stem, and makes that
-// side's renditions again. The turn is the operator's word on which way
-// up the side is, said before the feed is accepted: once accepted the
-// letter's record is packaged, so it is refused from then.
-func (l *Scan) TurnSide(id pid.ID, stem string, by int) error {
-	if by != 90 && by != -90 {
-		return fmt.Errorf("turn by %d°: a turn is a quarter turn, 90 or -90", by)
-	}
+// layOut changes letter id's layout, its sides' turns and pages, as
+// change says, and makes again the renditions it leaves out of date. The
+// layout is the operator's word on how the letter reads, said before the
+// feed is accepted: once accepted the letter's record is packaged, so it
+// is refused from then. A change refused changes nothing.
+func (l *Scan) layOut(id pid.ID, change func(rec *Letter) error) error {
 	if _, err := os.Stat(l.path("accepted")); err == nil || bag.Complete(l.bags(), id) {
 		return fmt.Errorf("letter %s is accepted; its record is no longer the feed's to change", id)
 	}
@@ -714,18 +851,89 @@ func (l *Scan) TurnSide(id pid.ID, stem string, by int) error {
 	if err != nil {
 		return err
 	}
-	sd := rec.side(stem)
-	if stem == "" || sd == nil {
-		return fmt.Errorf("letter %s has no side %q", id, stem)
+	rec = rec.paged()
+	for i, s := range rec.Sheets { // the change is made to a copy
+		rec.Sheets[i].Front.Pages, rec.Sheets[i].Back.Pages = slices.Clone(s.Front.Pages), slices.Clone(s.Back.Pages)
 	}
-	sd.Turn = turned(sd.Turn, by)
+	if err := change(&rec); err != nil {
+		return err
+	}
+	if err := rec.checkPages(); err != nil {
+		return fmt.Errorf("letter %s: %w", id, err)
+	}
 	if err := writeYAML(l.letterFileOf(id, "letter.yaml"), rec); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(filepath.Join(l.Renditions(id), stem)); err != nil {
-		return err
+	return l.developLetter(id)
+}
+
+// TurnSide adds by, a quarter turn clockwise (90) or anticlockwise
+// (-90), to the turn of letter id's side named by stem. The feeder sees
+// a sheet's back flipped about the way the sheet travels, so the
+// sheet's other side is turned the opposite way by as much, unless
+// alone says this side only or the other side was left out.
+func (l *Scan) TurnSide(id pid.ID, stem string, by int, alone bool) error {
+	if by != 90 && by != -90 {
+		return fmt.Errorf("turn by %d°: a turn is a quarter turn, 90 or -90", by)
 	}
-	return l.developSide(id, *sd)
+	return l.layOut(id, func(rec *Letter) error {
+		sd, other := rec.side(stem)
+		if stem == "" || sd == nil {
+			return fmt.Errorf("letter %s has no side %q", id, stem)
+		}
+		sd.Turn = turned(sd.Turn, by)
+		if other != nil && !alone {
+			other.Turn = turned(other.Turn, -by)
+		}
+		return nil
+	})
+}
+
+// FoldSide marks letter id's side named by stem folded in half, two
+// pages left and right of its middle as turned, or takes the fold off;
+// its sheet's other side with it, a sheet being folded through both.
+// The letter's pages are then numbered afresh in sheet order.
+func (l *Scan) FoldSide(id pid.ID, stem string, folded bool) error {
+	return l.layOut(id, func(rec *Letter) error {
+		sd, other := rec.side(stem)
+		if stem == "" || sd == nil {
+			return fmt.Errorf("letter %s has no side %q", id, stem)
+		}
+		pages := 1
+		if folded {
+			pages = 2
+		}
+		sd.Pages = make([]LetterPage, pages)
+		if other != nil {
+			other.Pages = make([]LetterPage, pages)
+		}
+		rec.numberPages()
+		return nil
+	})
+}
+
+// NumberPages gives the pages of letter id's sides named, by stem, their
+// numbers, left to right as turned, or marks them blank: the order the
+// letter is read in. Each side named takes as many pages as it has.
+func (l *Scan) NumberPages(id pid.ID, pages map[string][]LetterPage) error {
+	return l.layOut(id, func(rec *Letter) error {
+		for stem, given := range pages {
+			sd, _ := rec.side(stem)
+			if stem == "" || sd == nil {
+				return fmt.Errorf("letter %s has no side %q", id, stem)
+			}
+			if len(given) != len(sd.Pages) {
+				return fmt.Errorf("letter %s: %s: %d given for a side of %d pages", id, stem, len(given), len(sd.Pages))
+			}
+			for i, p := range given {
+				if p.Blank {
+					p.N = 0
+				}
+				sd.Pages[i] = p
+			}
+		}
+		return nil
+	})
 }
 
 // packLetter archives the letter's masters and letter.yaml, unless it is

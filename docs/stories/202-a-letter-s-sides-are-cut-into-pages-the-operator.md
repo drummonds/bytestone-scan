@@ -100,14 +100,20 @@ show them later.
   only reading it tells them apart.
 - The term is *Letter page*, since *Page* is taken. Mine; say if you
   would rather rename the received *Page*.
+- Built: a page's number is `number:` in `letter.yaml` (the YAML
+  encoder quotes a key `n`). A page picture is fit to a long edge of
+  2400 pixels, never scaled up: it is for reading, so larger than the
+  display. Fold and turn are buttons, the numbers one form under
+  *Pages*; folding or unfolding numbers the whole letter again and
+  clears its blank marks. Mine; say if any should be otherwise.
 - No ADR.
 
 ## Done when
 
 - [ ] the statement's *Letters* section changed
-- [ ] tests express the acceptance tables and pass
-- [ ] glossary and README updated
-- [ ] changelog fragment
+- [x] tests express the acceptance tables and pass
+- [x] glossary and README updated
+- [x] changelog fragment
 - [ ] a folded letter laid out, deposited with the UAT archive and
       looked at
 - [ ] issue closed with a link to the release

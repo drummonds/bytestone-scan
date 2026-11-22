@@ -140,11 +140,11 @@ func TestQualityPage(t *testing.T) {
 	)
 	page(t, h, "/photos/1?at.x=50&at.y=40", `src="photos/1/crop.png?`, "1:1, master pixels")
 	// Story 003: the rendition beside the master
-	page(t, h, "/photos/1", `src="photos/1/renditions/2/display.jpg"`, "Rendition, recipe 2", "Rendition")
-	if _, err := jpeg.Decode(get(t, h, "/photos/1/renditions/2/display.jpg").Body); err != nil {
+	page(t, h, "/photos/1", `src="photos/1/renditions/3/display.jpg"`, "Rendition, recipe 3", "Rendition")
+	if _, err := jpeg.Decode(get(t, h, "/photos/1/renditions/3/display.jpg").Body); err != nil {
 		t.Errorf("display.jpg: %v", err)
 	}
-	if w := get(t, h, "/photos/1/renditions/2/recipe.yaml"); w.Code != http.StatusNotFound {
+	if w := get(t, h, "/photos/1/renditions/3/recipe.yaml"); w.Code != http.StatusNotFound {
 		t.Errorf("only the images are served: %d", w.Code)
 	}
 	page(t, h, "/photos/1", "Corners at 1:1", `src="photos/1/crop.png?x=0&amp;y=0&amp;size=256"`)

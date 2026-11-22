@@ -200,7 +200,7 @@ func TestImportAFilmToTheArchive(t *testing.T) {
 	if err != nil || d == nil || d.Status != "held" || d.Kind != "film" || d.Home != 10 || d.Payload["data/film.m4v"] != sent {
 		t.Errorf("deposit %+v, %v", d, err)
 	}
-	if got := strings.Join(service(root).Renditions[id], " "); got != "2/display.jpg 2/play.mp4 2/recipe.yaml 2/thumb.jpg 2/tiny.jpg" {
+	if got := strings.Join(service(root).Renditions[id], " "); got != "3/display.jpg 3/play.mp4 3/recipe.yaml 3/thumb.jpg 3/tiny.jpg" {
 		t.Errorf("renditions deposited: %s", got)
 	}
 	checks, err := l.Verify(service(root))
