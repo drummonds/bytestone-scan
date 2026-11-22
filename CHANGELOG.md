@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-11-22
+
+- A blank side is left out of a letter (story 181): at *arrange* each side has a *blank: leave out* mark, off unless the operator sets it. A side marked has no master and no renditions and `letter.yaml` records it as `blank: true`; a sheet blank on both sides is left out whole and the sheets after it close the gap; a letter whose every side is marked is refused. The letter's page names a side left out and the feed's page counts them, where before every side fed was kept; Research (story 193): the note of a first look at the cost and quality of reading a letter with Claude, `docs/research/2026-11-18-reading-letters-with-claude.md`, and the spike that made its figures, `spike/reading/`, a module of its own outside the scanner's build. Nothing in the scanner changes
+
+### Added
+
+- Research (story 193): the note of a first look at the cost and quality of reading a letter with Claude, `docs/research/2026-11-18-reading-letters-with-claude.md`, and the spike that made its figures, `spike/reading/`, a module of its own outside the scanner's build. Nothing in the scanner changes (#193)
+
+### Changed
+
+- A blank side is left out of a letter (story 181): at *arrange* each side has a *blank: leave out* mark, off unless the operator sets it. A side marked has no master and no renditions and `letter.yaml` records it as `blank: true`; a sheet blank on both sides is left out whole and the sheets after it close the gap; a letter whose every side is marked is refused. The letter's page names a side left out and the feed's page counts them, where before every side fed was kept (#181)
+
 ## [0.37.0] - 2026-11-18
 
 - A scan or a feed is not begun when its scanner is not connected (story 185): *New batch*, *Do one more scan* and *Scan letters* look for the 4990 or the FF-680W first and, without it, record nothing and show the form again with the reason, where before a batch was left in the Queue with a failed scan that had to be deleted; a batch's page says *Prints scanned at* its ppi and *Letters fed at* 600 ppi, 8 bits, where before it said *Scanned at* the bed's ppi for a batch of letters; the batch's workflow is named *Archive a batch*; The scanner has its own icon on its pages' tab (story 186): a flatbed scanner with its lid up over a picture, where before it showed the stock lofigui icon
