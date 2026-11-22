@@ -8,8 +8,9 @@
 //	bytestone-scan verify [-instance NAME] [-staging DIR] [-archive URL] BATCH[/SCAN]
 //
 // serve runs for one archive instance, UAT unless -instance names
-// another, found among the life-weaver services on localhost:8321-8330;
-// its own port and staging root follow from the instance's slot. capture
+// another, found among the life-weaver services on localhost:8321-8330,
+// or the one serving at -archive, a service elsewhere; its own port and
+// staging root follow from the instance's slot. capture
 // records the one print on the bed into <staging>/fixtures/NAME, and
 // serve -recorded NAME runs the UI on that recording instead of the
 // scanner. verify asks the archive afresh whether it holds each photo of
@@ -63,11 +64,11 @@ func main() {
 	case "serve":
 		instance := fs.String("instance", "", "the archive instance to scan for, as life-weaver names it (default the UAT instance), found among those serving on localhost:8321-8330")
 		addr := fs.String("addr", "", "address to listen on (default localhost:8080, or 8080+slot for an instance other than production; a port in use is stepped past to the next free one)")
-		service := fs.String("archive", "", "the archive service's URL, instead of finding the instance (life-weaver serve): the register of people, item ids and deposits")
+		service := fs.String("archive", "", "the archive service's URL, a service elsewhere than this machine (life-weaver serve): the scanner runs for the instance it serves; the register of people, item ids and deposits")
 		name := fs.String("recorded", "", "run on the recording of this print under <staging>/fixtures instead of the scanner")
 		fs.Parse(os.Args[2:])
 		var cfg settings
-		cfg, err = settings{Instance: *instance, Archive: *service, Addr: *addr, Staging: *staging}.resolve(root, func() []archive.Serving { return archive.Discover(archive.Addresses()) })
+		cfg, err = settings{Instance: *instance, Archive: *service, Addr: *addr, Staging: *staging}.resolve(root, func() []archive.Serving { return archive.Discover(archive.Addresses()) }, archive.At)
 		if err != nil {
 			break
 		}
@@ -78,14 +79,14 @@ func main() {
 		err = serve(ctx, cfg, s)
 	case "verify":
 		instance := fs.String("instance", "", "the archive instance to verify against, as life-weaver names it (default the UAT instance), found among those serving on localhost:8321-8330")
-		service := fs.String("archive", "", "the archive service's URL, instead of finding the instance")
+		service := fs.String("archive", "", "the archive service's URL, a service elsewhere than this machine: the instance it serves is the one verified against")
 		fs.Parse(os.Args[2:])
 		if fs.NArg() != 1 {
 			fmt.Fprintln(os.Stderr, usage)
 			os.Exit(2)
 		}
 		var cfg settings
-		cfg, err = settings{Instance: *instance, Archive: *service, Staging: *staging}.resolve(root, func() []archive.Serving { return archive.Discover(archive.Addresses()) })
+		cfg, err = settings{Instance: *instance, Archive: *service, Staging: *staging}.resolve(root, func() []archive.Serving { return archive.Discover(archive.Addresses()) }, archive.At)
 		if err != nil {
 			break
 		}
@@ -121,28 +122,36 @@ type settings struct {
 	Instance, Archive, Addr, Staging string
 }
 
-// resolve fills the settings in from the instance the scanner is run for,
-// found among those serving: UAT unless -instance names another.
-// An -archive given explicitly is taken as it is, no instance sought. The
-// staging root is root for production and root-<instance> for any other,
-// so a scratch batch's masters never land in production's staging.
-func (s settings) resolve(root string, discover func() []archive.Serving) (settings, error) {
-	slot := 0
-	if s.Archive == "" {
-		found, err := archive.Choose(s.Instance, discover())
-		if err != nil {
-			return settings{}, err
+// resolve fills the settings in from the instance the scanner is run for:
+// the one serving at -archive when that is given, asked with at, and
+// otherwise the one found among those serving on this machine, UAT
+// unless -instance names another. An -instance beside -archive must name
+// the instance found there. The staging root is root for production and
+// root-<instance> for any other, so a scratch batch's masters never land
+// in production's staging.
+func (s settings) resolve(root string, discover func() []archive.Serving, at func(url string) (archive.Serving, error)) (settings, error) {
+	var found archive.Serving
+	var err error
+	if s.Archive != "" {
+		found, err = at(s.Archive)
+		if err == nil && s.Instance != "" && s.Instance != found.Instance.Name {
+			err = fmt.Errorf("the archive service at %s serves %s, not %s as -instance names", s.Archive, found.Instance, s.Instance)
 		}
-		s.Archive, slot = found.URL, found.Instance.Slot
-		if !found.Instance.Production() && s.Staging == "" {
-			s.Staging = root + "-" + found.Instance.Name
-		}
+	} else {
+		found, err = archive.Choose(s.Instance, discover())
 	}
+	if err != nil {
+		return settings{}, err
+	}
+	s.Archive = found.URL
 	if s.Addr == "" {
-		s.Addr = fmt.Sprintf("localhost:%d", 8080+slot)
+		s.Addr = fmt.Sprintf("localhost:%d", 8080+found.Instance.Slot)
 	}
 	if s.Staging == "" {
 		s.Staging = root
+		if !found.Instance.Production() {
+			s.Staging = root + "-" + found.Instance.Name
+		}
 	}
 	return s, nil
 }

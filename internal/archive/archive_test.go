@@ -273,15 +273,48 @@ func TestDiscoverAndChoose(t *testing.T) {
 		t.Errorf("production by name: %+v, %v", got, err)
 	}
 	_, err := Choose("geni", found)
-	if err == nil || !strings.Contains(err.Error(), "geni") || !strings.Contains(err.Error(), "h3 (scale)") || !strings.Contains(err.Error(), "life-weaver serve") {
+	if err == nil || !strings.Contains(err.Error(), "geni") || !strings.Contains(err.Error(), "h3 (scale)") || !strings.Contains(err.Error(), "life-weaver serve") || !strings.Contains(err.Error(), "-archive URL") {
 		t.Errorf("an instance not serving: %v, want a refusal naming it, what was found and how to start it", err)
 	}
 	_, err = Choose("", found[:2])
-	if err == nil || !strings.Contains(err.Error(), "UAT") || !strings.Contains(err.Error(), "h3 (scale)") || !strings.Contains(err.Error(), "bytestone on") {
+	if err == nil || !strings.Contains(err.Error(), "UAT") || !strings.Contains(err.Error(), "h3 (scale)") || !strings.Contains(err.Error(), "bytestone on") || !strings.Contains(err.Error(), "-archive URL") {
 		t.Errorf("no UAT serving: %v, want a refusal naming what was found", err)
 	}
 	_, err = Choose("", nil)
 	if err == nil || !strings.Contains(err.Error(), "none") {
 		t.Errorf("nothing serving: %v", err)
+	}
+}
+
+// #196: At asks the service at a URL which instance it serves. One that
+// does not answer, or that answers without naming an instance (a
+// life-weaver from before instances), is refused by its URL: the scanner
+// has nothing to take its port and staging from.
+func TestAt(t *testing.T) {
+	answering := func(body string) string {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) })
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	uat := answering(`{"version":"v0.58.0","instance":{"name":"bytestone-uat","purpose":"uat","slot":1}}`)
+	got, err := At(uat)
+	if want := (Serving{URL: uat, Instance: Instance{Name: "bytestone-uat", Purpose: "uat", Slot: 1}}); err != nil || got != want {
+		t.Errorf("At = %+v, %v, want %+v", got, err, want)
+	}
+	old := answering(`{"version":"v0.9.0"}`)
+	if _, err := At(old); err == nil || !strings.Contains(err.Error(), old) || !strings.Contains(err.Error(), "which instance") {
+		t.Errorf("no instance named: %v, want a refusal naming the URL", err)
+	}
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	if _, err := At(down.URL); err == nil || !strings.Contains(err.Error(), down.URL) || !strings.Contains(err.Error(), "not answering") {
+		t.Errorf("down: %v, want a refusal naming the URL", err)
+	}
+	notOne := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(notOne.Close)
+	if _, err := At(notOne.URL); err == nil || !strings.Contains(err.Error(), notOne.URL) {
+		t.Errorf("not an archive service: %v, want a refusal naming the URL", err)
 	}
 }

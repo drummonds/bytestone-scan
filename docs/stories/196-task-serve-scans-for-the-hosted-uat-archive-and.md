@@ -84,7 +84,7 @@ None.
 
 ## Done when
 
-- [ ] tests express the acceptance tables and pass (the tasks by hand)
-- [ ] README, `index.md` and glossary updated
-- [ ] changelog fragment
+- [x] tests express the acceptance tables and pass (the tasks by hand)
+- [x] README, `index.md` and glossary updated
+- [x] changelog fragment
 - [ ] issue closed with a link to the release
