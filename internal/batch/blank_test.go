@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -73,11 +74,11 @@ func TestBlankSidesAreLeftOutOfALetter(t *testing.T) {
 	}
 	rec := readLetter(t, filepath.Join(dir, "letter.yaml"))
 	want := []Sheet{
-		{Role: "sheet", Front: SheetSide{File: "sheet-01-front.tif"}, Back: SheetSide{Blank: true}},
-		{Role: "sheet", Front: SheetSide{Blank: true}, Back: SheetSide{File: "sheet-02-back.tif"}},
-		{Role: "envelope", Front: SheetSide{File: "sheet-03-front.tif"}, Back: SheetSide{Blank: true}},
+		{Role: "sheet", Front: SheetSide{File: "sheet-01-front.tif", Pages: []LetterPage{{N: 1}}}, Back: SheetSide{Blank: true}},
+		{Role: "sheet", Front: SheetSide{Blank: true}, Back: SheetSide{File: "sheet-02-back.tif", Pages: []LetterPage{{N: 2}}}},
+		{Role: "envelope", Front: SheetSide{File: "sheet-03-front.tif", Pages: []LetterPage{{N: 3}}}, Back: SheetSide{Blank: true}},
 	}
-	if len(rec.Sheets) != 3 || rec.Sheets[0] != want[0] || rec.Sheets[1] != want[1] || rec.Sheets[2] != want[2] {
+	if !reflect.DeepEqual(rec.Sheets, want) {
 		t.Errorf("letter.yaml sheets %+v\nwant %+v", rec.Sheets, want)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "letter.yaml"))
@@ -107,7 +108,7 @@ func TestBlankSidesAreLeftOutOfALetter(t *testing.T) {
 	if got, want := strings.Join(captions, "; "), "Sheet 1, front; Sheet 1, back (blank); Sheet 2, front (blank); Sheet 2, back; Envelope, front; Envelope, back (blank)"; got != want {
 		t.Errorf("every side: %s\nwant: %s", got, want)
 	}
-	if err := l.TurnSide(0, "", 90); err == nil {
+	if err := l.TurnSide(0, "", 90, false); err == nil {
 		t.Error("a side left out was turned")
 	}
 

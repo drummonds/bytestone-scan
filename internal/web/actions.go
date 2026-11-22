@@ -393,30 +393,50 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		http.Redirect(w, r, "/"+scanURL(l.Key()), http.StatusSeeOther)
 	})
-	// a letter's side is turned on its page, before the feed is accepted
-	mux.HandleFunc("POST /letters/{id}/turn", func(w http.ResponseWriter, r *http.Request) {
-		id, err := pid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.NotFound(w, r)
-			return
+	// a letter is laid out on its page, before the feed is accepted: its
+	// sides turned and folded, its pages numbered (story 202)
+	layOut := func(change func(l *batch.Scan, id pid.ID, rec batch.Letter, r *http.Request) error) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			id, err := pid.Parse(r.PathValue("id"))
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			rec, _, err := batch.FindLetter(a.Staging, id)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			l, err := a.feedOf(rec)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			if err := change(l, id, rec, r); err != nil {
+				fail(w, err, http.StatusUnprocessableEntity)
+				return
+			}
+			http.Redirect(w, r, "/letters/"+id.String(), http.StatusSeeOther)
 		}
-		rec, _, err := batch.FindLetter(a.Staging, id)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		l, err := a.feedOf(rec)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
+	}
+	mux.HandleFunc("POST /letters/{id}/turn", layOut(func(l *batch.Scan, id pid.ID, _ batch.Letter, r *http.Request) error {
 		by, _ := strconv.Atoi(r.FormValue("by"))
-		if err := l.TurnSide(id, r.FormValue("side"), by); err != nil {
-			fail(w, err, http.StatusUnprocessableEntity)
-			return
+		return l.TurnSide(id, r.FormValue("side"), by, r.FormValue("alone") != "")
+	}))
+	mux.HandleFunc("POST /letters/{id}/fold", layOut(func(l *batch.Scan, id pid.ID, _ batch.Letter, r *http.Request) error {
+		return l.FoldSide(id, r.FormValue("side"), r.FormValue("folded") == "1")
+	}))
+	mux.HandleFunc("POST /letters/{id}/pages", layOut(func(l *batch.Scan, id pid.ID, rec batch.Letter, r *http.Request) error {
+		pages := map[string][]batch.LetterPage{}
+		for _, s := range rec.Sides() {
+			for i := range s.Pages {
+				field := fmt.Sprintf("%s-%d", s.Stem(), i+1)
+				n, _ := strconv.Atoi(r.FormValue("page-" + field))
+				pages[s.Stem()] = append(pages[s.Stem()], batch.LetterPage{N: n, Blank: r.FormValue("blank-"+field) != ""})
+			}
 		}
-		http.Redirect(w, r, "/letters/"+id.String(), http.StatusSeeOther)
-	})
+		return l.NumberPages(id, pages)
+	}))
 	// a letter's retry ticks its feed, which runs every letter of it as
 	// far as it goes, and returns to the letter
 	mux.HandleFunc("POST /letters/{id}/retry", func(w http.ResponseWriter, r *http.Request) {

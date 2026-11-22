@@ -132,12 +132,13 @@ func TestFeedOneLetterWithItsEnvelope(t *testing.T) {
 	}
 
 	// the operator turns sheet 1's back a quarter turn clockwise: its
-	// renditions are made again, turned
-	if err := l.TurnSide(0, "sheet-01-back", 90); err != nil {
+	// renditions are made again, turned, and the front's the other way
+	// (story 202)
+	if err := l.TurnSide(0, "sheet-01-back", 90, false); err != nil {
 		t.Fatal(err)
 	}
 	rec0 = readLetter(t, filepath.Join(l.Dir(), "masters", "0", "letter.yaml"))
-	if rec0.Sheets[0].Back.Turn != 90 || rec0.Sheets[0].Front.Turn != 0 {
+	if rec0.Sheets[0].Back.Turn != 90 || rec0.Sheets[0].Front.Turn != 270 {
 		t.Errorf("turns %+v", rec0.Sheets[0])
 	}
 	if turned, err := rendition.Load(filepath.Join(l.Renditions(0), "sheet-01-back")); err != nil || turned.Turn != 90 || turned.Display.W != back.Display.H || turned.Display.H != back.Display.W {
@@ -175,7 +176,7 @@ func TestFeedOneLetterWithItsEnvelope(t *testing.T) {
 	if s, err := l.Standing(t.Context(), store); err != nil || !s.Through() {
 		t.Errorf("standing %+v, %v, want through", s, err)
 	}
-	if err := l.TurnSide(0, "sheet-01-back", 90); err == nil {
+	if err := l.TurnSide(0, "sheet-01-back", 90, false); err == nil {
 		t.Error("a turn after accepting was allowed")
 	}
 	if st, err := Statistics(root); err != nil || st.Scans != 1 || st.Photos.Held != 1 {
@@ -290,11 +291,11 @@ func TestTurnSideRefusals(t *testing.T) {
 		side string
 		by   int
 	}{"not a quarter": {0, "sheet-01-front", 45}, "no such side": {0, "sheet-02-front", 90}, "no such letter": {7, "sheet-01-front", 90}} {
-		if err := l.TurnSide(c.id, c.side, c.by); err == nil {
+		if err := l.TurnSide(c.id, c.side, c.by, false); err == nil {
 			t.Errorf("%s: turned", name)
 		}
 	}
-	if err := l.TurnSide(0, "sheet-01-front", -90); err != nil {
+	if err := l.TurnSide(0, "sheet-01-front", -90, false); err != nil {
 		t.Errorf("anticlockwise: %v", err)
 	}
 	if rec := readLetter(t, filepath.Join(l.Dir(), "masters", "0", "letter.yaml")); rec.Sheets[0].Front.Turn != 270 {

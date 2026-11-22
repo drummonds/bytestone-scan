@@ -95,9 +95,22 @@ whole, and a letter needs at least one side (story
 Nothing is marked for the operator. Each letter is an item of kind
 `letter`: every side kept, whole, as a master, `sheet-01-front.tif`,
 `sheet-01-back.tif`, …, with `letter.yaml`, a set of renditions per kept
-side, turned as the operator says on the letter's page before accepting. Cutting the pages
-out of a sheet, the reading-order PDF and the transcription are later,
-on renditions. The feeder is found among `scanimage -L` as the `epsonds`
+side, turned as the operator says on the letter's page before accepting.
+
+A sheet is not a page, so on the letter's page, before accepting, the
+operator also lays the letter out as it is read (story
+[202](docs/stories/202-a-letter-s-sides-are-cut-into-pages-the-operator.md);
+experimental). A side is one *letter page*, or two when marked *Folded
+in half*, left and right of the middle of the side as turned; each page
+is given its number in the reading order, from 1 with no gap, or marked
+blank. A sheet's two sides turn and fold together, the back the opposite
+way, since the feeder sees it flipped; *This side only* turns one.
+`letter.yaml` lists each side's pages left to right, and each numbered
+page is a rendition, `page-NN.jpg` in its side's set, cut from the
+master, which is untouched; *Pages* on the letter's page shows them in
+reading order. The cut is at the middle, not at the fold found. A letter
+accepted before this is one page a side in sheet order. The text of each
+page and a reading-order PDF are later. The feeder is found among `scanimage -L` as the `epsonds`
 device, USB first; without it a feed fails at its first step and says so.
 
 A film received, one file digitised by someone else, is imported
