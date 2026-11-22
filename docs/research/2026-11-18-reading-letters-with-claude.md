@@ -111,5 +111,6 @@ it read the dates at about half Fable's price. That is a starting point
 to be checked against harder letters once readings are being made in
 earnest, not a finding.
 
-The spike's code and reference are in `spike/reading/` (its own module);
+The spike's code and reference are in the repo's history, `spike/reading/`
+at v0.40.0 (its own module; spikes are not kept in the tree since story 206);
 its readings were written under `staging/spike-reading/2j/`.
