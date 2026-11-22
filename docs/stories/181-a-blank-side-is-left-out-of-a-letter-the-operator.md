@@ -70,10 +70,10 @@ ADR.
 
 ## Done when
 
-- [ ] the statement's *Letters* section changed
-- [ ] tests express the acceptance tables and pass
-- [ ] README updated
-- [ ] changelog fragment
+- [x] the statement's *Letters* section changed
+- [x] tests express the acceptance tables and pass
+- [x] README updated
+- [x] changelog fragment
 - [ ] a letter with a side left out deposited with the UAT archive and
       looked at on its site
 - [ ] issue closed with a link to the release

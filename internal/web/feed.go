@@ -42,8 +42,12 @@ func (a *App) feedPage(r *http.Request, l *batch.Scan) string {
 	b := l.Sitting()
 	capture := fmt.Sprintf(`<tr><th>Fed at</th><td>%d ppi, %d bits</td></tr>`, l.Feed.PPI, batch.FeedDepth)
 	if fed, err := l.Fed(); err == nil {
-		capture += fmt.Sprintf(`<tr><th>Feeder</th><td>%s</td></tr><tr><th>Sides</th><td>%d, %d sheets, fed %s</td></tr>`,
-			html.EscapeString(fed.Scanner), fed.Sides, fed.Sides/2, fed.Captured.Local().Format("2 Jan 2006 15:04"))
+		leftOut := ""
+		if _, n, err := l.SidesLeftOut(); err == nil && n > 0 {
+			leftOut = fmt.Sprintf("; %d left out as blank", n)
+		}
+		capture += fmt.Sprintf(`<tr><th>Feeder</th><td>%s</td></tr><tr><th>Sides</th><td>%d, %d sheets, fed %s%s</td></tr>`,
+			html.EscapeString(fed.Scanner), fed.Sides, fed.Sides/2, fed.Captured.Local().Format("2 Jan 2006 15:04"), leftOut)
 	}
 	c.HTML(fmt.Sprintf(`<h1 class="title">Feed %d of <a href="batches/%s">batch %s</a></h1>
 <p class="subtitle">%s</p>
@@ -92,12 +96,13 @@ func (a *App) feedPage(r *http.Request, l *batch.Scan) string {
 			}
 			role = fmt.Sprintf(`<div class="select is-small"><select name="role-%d">%s</select></div>`, n, opts.String())
 		}
-		fmt.Fprintf(&t, `<tr><td>Sheet %d</td><td><img src="%s/sides/%d" alt="Sheet %d, front" style="height:160px"></td><td><img src="%s/sides/%d" alt="Sheet %d, back" style="height:160px"></td><td>%s</td><td>%s</td></tr>`,
-			n, scanURL(l.Key()), 2*n-1, n, scanURL(l.Key()), 2*n, n, letter, role)
+		fmt.Fprintf(&t, `<tr><td>Sheet %d</td><td><img src="%s/sides/%d" alt="Sheet %d, front" style="height:160px">%s</td><td><img src="%s/sides/%d" alt="Sheet %d, back" style="height:160px">%s</td><td>%s</td><td>%s</td></tr>`,
+			n, scanURL(l.Key()), 2*n-1, n, blankMark(arranging, n, "front", s.BlankFront),
+			scanURL(l.Key()), 2*n, n, blankMark(arranging, n, "back", s.BlankBack), letter, role)
 	}
 	t.WriteString(`</tbody></table>`)
 	if arranging {
-		t.WriteString(`<p class="help">Which letter each sheet is part of, counted from 1, and whether it is a sheet of the letter or its envelope. One load is usually one letter.</p>` +
+		t.WriteString(`<p class="help">Which letter each sheet is part of, counted from 1, and whether it is a sheet of the letter or its envelope. One load is usually one letter. A side marked blank is left out of the letter and recorded as blank; look at each before marking it, since faint pencil and show-through are easy to miss.</p>` +
 			`<div class="buttons"><button class="button is-primary" type="submit">Arrange into letters ›</button></div></form>`)
 	}
 	c.HTML(t.String())
@@ -114,10 +119,47 @@ func (a *App) feedPage(r *http.Request, l *batch.Scan) string {
 			fmt.Fprintf(&u, `<li>%s: %s %s</li>`, name, sheetList(lt.Sheets), thumbs)
 		}
 		u.WriteString(`</ul>`)
+		if out := leftOutList(sheets); out != "" {
+			u.WriteString(`<p class="help">Left out as blank: ` + out + `. The sides as fed are kept with the feed until the batch is purged.</p>`)
+		}
 		c.HTML(u.String())
 	}
 	c.HTML(a.feedSteps(ctx, l))
 	return c.Buffer()
+}
+
+// blankMark is one side's blank mark under its picture: a checkbox
+// while the operator arranges, off unless they set it; after, the word
+// for a side left out.
+func blankMark(arranging bool, sheet int, side string, blank bool) string {
+	if arranging {
+		checked := ""
+		if blank {
+			checked = " checked"
+		}
+		return fmt.Sprintf(`<br><label class="checkbox is-size-7"><input type="checkbox" name="blank-%d-%s"%s> blank: leave out</label>`, sheet, side, checked)
+	}
+	if blank {
+		return `<br><span class="tag is-light">blank: left out</span>`
+	}
+	return ""
+}
+
+// leftOutList names the sides left out as blank by their sheet in the
+// feed: "Sheet 1's back, both sides of sheet 3"; "" for none.
+func leftOutList(sheets []batch.SheetChoice) string {
+	var parts []string
+	for i, s := range sheets {
+		switch {
+		case s.BlankFront && s.BlankBack:
+			parts = append(parts, fmt.Sprintf("both sides of sheet %d", i+1))
+		case s.BlankFront:
+			parts = append(parts, fmt.Sprintf("Sheet %d's front", i+1))
+		case s.BlankBack:
+			parts = append(parts, fmt.Sprintf("Sheet %d's back", i+1))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // sheetList names a letter's sheets by their number in the feed: "sheets
@@ -184,7 +226,8 @@ func (a *App) letterThumbnails(ids []pid.ID) string {
 }
 
 // letterPage is a letter's details: every side at display size in sheet
-// order, each turnable until the feed is accepted, the record, the
+// order, each turnable until the feed is accepted, a side left out as
+// blank named and said to be so, the record, the
 // archive's answer and its steps.
 func (a *App) letterPage(r *http.Request, id pid.ID, rec batch.Letter, dir string, l *batch.Scan) string {
 	ctx := r.Context()
@@ -219,7 +262,11 @@ func (a *App) letterPage(r *http.Request, id pid.ID, rec batch.Letter, dir strin
 	}
 	v := filepath.Base(a.renditionDir(id))
 	var t strings.Builder
-	for _, s := range rec.Sides() {
+	for _, s := range rec.EverySide() {
+		if s.Blank {
+			fmt.Fprintf(&t, `<h2 class="title is-6 mt-4">%s</h2><p class="help">Blank: left out of the letter.</p>`, html.EscapeString(s.Caption))
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(a.renditionDir(id), s.Stem(), "display.jpg")); err != nil {
 			fmt.Fprintf(&t, `<h2 class="title is-6 mt-4">%s</h2><p class="help">Not developed yet.</p>`, html.EscapeString(s.Caption))
 			continue

@@ -87,10 +87,15 @@ the driver fills below the paper's end is left off (story
 the feeder hands its pictures over as JPEG, quality 90, which the master
 holds decoded. The operator then arranges the sheets into letters,
 saying which sheet is which letter's and which is an envelope; one load
-is usually one letter. Each letter is an item of kind `letter`: every
-side kept whole as a master, `sheet-01-front.tif`, `sheet-01-back.tif`,
-…, with `letter.yaml`, a set of renditions per side, turned as the
-operator says on the letter's page before accepting. Cutting the pages
+is usually one letter, and marking any side that is blank: a side so
+marked is left out of the letter and `letter.yaml` records it as
+`blank: true` with no file, a sheet blank on both sides is left out
+whole, and a letter needs at least one side (story
+[181](docs/stories/181-a-blank-side-is-left-out-of-a-letter-the-operator.md)).
+Nothing is marked for the operator. Each letter is an item of kind
+`letter`: every side kept, whole, as a master, `sheet-01-front.tif`,
+`sheet-01-back.tif`, …, with `letter.yaml`, a set of renditions per kept
+side, turned as the operator says on the letter's page before accepting. Cutting the pages
 out of a sheet, the reading-order PDF and the transcription are later,
 on renditions. The feeder is found among `scanimage -L` as the `epsonds`
 device, USB first; without it a feed fails at its first step and says so.
