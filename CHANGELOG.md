@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-11-22
+
+- The local store is as sent, and the archive is asked for what is true now (story 191): Verify no longer calls an item *differs* because the archive has corrected or renumbered its record since the deposit; the item is verified and says its record has changed, a master with another checksum being *differs* as before, and the bag in staging is compared by its masters alone. Verify and an item's page show and link the home the archive gives now, with *deposited under* the other when the person has since been given another id. An open batch whose person the register no longer holds refuses a new scan, import, feed or film import and offers *Re-home*, which names the person chosen and writes what is not yet deposited again with that home; a deposit is not sent for a home the archive does not give the id. 0 is no id: never offered or taken as a home, shown as *0, no longer an id* where an older batch names it, and a deposit answer no longer writes `duplicate_of` for an item that is no duplicate; A letter's sides are cut into pages (story 202, experimental): on the letter's page, before the feed is accepted, a side can be marked *Folded in half*, two pages left and right of its middle as turned, and each page is given its number in the order the letter is read, or marked blank. `letter.yaml` lists each side's pages, and each numbered page is a rendition, `page-NN.jpg` in its side's set, shown in reading order under *Pages*; the masters are untouched. A sheet's two sides now turn together, the other the opposite way, where a turn used to move its own side only; *This side only* turns one. Renditions are at recipe 3
+
+### Added
+
+- A letter's sides are cut into pages (story 202, experimental): on the letter's page, before the feed is accepted, a side can be marked *Folded in half*, two pages left and right of its middle as turned, and each page is given its number in the order the letter is read, or marked blank. `letter.yaml` lists each side's pages, and each numbered page is a rendition, `page-NN.jpg` in its side's set, shown in reading order under *Pages*; the masters are untouched. A sheet's two sides now turn together, the other the opposite way, where a turn used to move its own side only; *This side only* turns one. Renditions are at recipe 3 (#202)
+
+### Fixed
+
+- The local store is as sent, and the archive is asked for what is true now (story 191): Verify no longer calls an item *differs* because the archive has corrected or renumbered its record since the deposit; the item is verified and says its record has changed, a master with another checksum being *differs* as before, and the bag in staging is compared by its masters alone. Verify and an item's page show and link the home the archive gives now, with *deposited under* the other when the person has since been given another id. An open batch whose person the register no longer holds refuses a new scan, import, feed or film import and offers *Re-home*, which names the person chosen and writes what is not yet deposited again with that home; a deposit is not sent for a home the archive does not give the id. 0 is no id: never offered or taken as a home, shown as *0, no longer an id* where an older batch names it, and a deposit answer no longer writes `duplicate_of` for an item that is no duplicate (#191)
+
 ## [0.39.1] - 2026-11-22
 
 - When the archive service is not answering, the refusal advises starting it with life-weaver only for a service on this machine; for one elsewhere, the hosted service above all, it says to check it is up and can be reached (story 198). `task serve` is described as for the hosted archive service, UAT on the NAS
