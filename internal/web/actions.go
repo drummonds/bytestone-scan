@@ -569,7 +569,8 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		return l.Redo(r.Context(), a.Store, "confirm", 0)
 	})
 	act("confirm", func(r *http.Request, l *batch.Scan) error { return l.Confirm() })
-	// the arrange form: a letter number and a role per sheet fed
+	// the arrange form: a letter number and a role per sheet fed, and a
+	// blank mark per side
 	act("arrange", func(r *http.Request, l *batch.Scan) error {
 		sheets, err := l.Sheets()
 		if err != nil {
@@ -581,7 +582,9 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			if err != nil {
 				return fmt.Errorf("sheet %d: letter %q, want a number from 1", i+1, r.FormValue(fmt.Sprintf("letter-%d", i+1)))
 			}
-			choices[i] = batch.SheetChoice{Letter: n, Role: r.FormValue(fmt.Sprintf("role-%d", i+1))}
+			choices[i] = batch.SheetChoice{Letter: n, Role: r.FormValue(fmt.Sprintf("role-%d", i+1)),
+				BlankFront: r.FormValue(fmt.Sprintf("blank-%d-front", i+1)) != "",
+				BlankBack:  r.FormValue(fmt.Sprintf("blank-%d-back", i+1)) != ""}
 		}
 		return l.Arrange(choices)
 	})

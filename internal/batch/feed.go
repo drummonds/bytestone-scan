@@ -69,19 +69,32 @@ type Fed struct {
 }
 
 // SheetChoice is what the operator says of one sheet at arrange: which
-// letter it is part of, counted from 1, and its role, sheet or envelope.
+// letter it is part of, counted from 1, its role, sheet or envelope, and
+// which of its sides are blank and to be left out (story 181).
 type SheetChoice struct {
-	Letter int    `yaml:"letter"`
-	Role   string `yaml:"role"`
+	Letter     int    `yaml:"letter"`
+	Role       string `yaml:"role"`
+	BlankFront bool   `yaml:"blank_front,omitempty"`
+	BlankBack  bool   `yaml:"blank_back,omitempty"`
 }
 
 // Roles a sheet may have.
 var Roles = []string{"sheet", "envelope"}
 
 // Arranged is letters.yaml: the letters the feed's sheets make, in letter
-// order, each sheet by its number in the feed.
+// order, each sheet by its number in the feed, and the sheets left out
+// whole, blank on both sides.
 type Arranged struct {
 	Letters []ArrangedLetter `yaml:"letters"`
+	LeftOut []LeftOutSheet   `yaml:"left_out,omitempty"`
+}
+
+// LeftOutSheet is a sheet of the feed in no letter, both its sides
+// marked blank: its number in the feed and what the operator said of it.
+type LeftOutSheet struct {
+	N      int    `yaml:"n"`
+	Letter int    `yaml:"letter"`
+	Role   string `yaml:"role"`
 }
 
 // ArrangedLetter is one letter of a feed: its id once reserved and its
@@ -92,10 +105,12 @@ type ArrangedLetter struct {
 }
 
 // ArrangedSheet is one sheet of a letter: its number in the feed, from
-// 1, and its role.
+// 1, its role, and the one side of it, if either, left out as blank.
 type ArrangedSheet struct {
-	N    int    `yaml:"n"`
-	Role string `yaml:"role"`
+	N          int    `yaml:"n"`
+	Role       string `yaml:"role"`
+	BlankFront bool   `yaml:"blank_front,omitempty"`
+	BlankBack  bool   `yaml:"blank_back,omitempty"`
 }
 
 // Letter is letter.yaml: the record of a letter as an item (life-weaver
@@ -127,10 +142,13 @@ type Sheet struct {
 }
 
 // SheetSide is one side of a sheet: its master's file under data/ and
-// the turn its renditions are given, quarter turns clockwise in degrees.
+// the turn its renditions are given, quarter turns clockwise in degrees;
+// or, for a side the operator found blank and left out, that it was
+// blank, with no file (story 181).
 type SheetSide struct {
-	File string `yaml:"file"`
-	Turn int    `yaml:"turn,omitempty"`
+	File  string `yaml:"file,omitempty"`
+	Turn  int    `yaml:"turn,omitempty"`
+	Blank bool   `yaml:"blank,omitempty"`
 }
 
 // Stem is the side's name without its extension: where its renditions
@@ -139,16 +157,29 @@ func (s SheetSide) Stem() string { return stem(s.File) }
 
 func stem(file string) string { return strings.TrimSuffix(file, filepath.Ext(file)) }
 
-// Sides are the letter's sides in sheet order, each with the caption the
-// pages give it: "Sheet 1, front", "Envelope, back".
+// Sides are the letter's sides that have a master, in sheet order, each
+// with the caption the pages give it: "Sheet 1, front", "Envelope,
+// back". A side left out as blank is not among them.
 func (r Letter) Sides() []LetterSide {
+	var sides []LetterSide
+	for _, s := range r.EverySide() {
+		if s.File != "" {
+			sides = append(sides, s)
+		}
+	}
+	return sides
+}
+
+// EverySide is the letter's sides in sheet order, those left out as
+// blank among them, for the pages to name.
+func (r Letter) EverySide() []LetterSide {
 	var sides []LetterSide
 	for i, s := range r.Sheets {
 		for _, side := range []struct {
 			SheetSide
 			name string
 		}{{s.Front, "front"}, {s.Back, "back"}} {
-			if side.File == "" {
+			if side.File == "" && !side.Blank {
 				continue
 			}
 			caption := fmt.Sprintf("Sheet %d, %s", i+1, side.name)
@@ -314,17 +345,42 @@ func (l *Scan) Sheets() ([]SheetChoice, error) {
 		for i, lt := range a.Letters {
 			for _, s := range lt.Sheets {
 				if s.N >= 1 && s.N <= len(choices) {
-					choices[s.N-1] = SheetChoice{Letter: i + 1, Role: s.Role}
+					choices[s.N-1] = SheetChoice{Letter: i + 1, Role: s.Role, BlankFront: s.BlankFront, BlankBack: s.BlankBack}
 				}
+			}
+		}
+		for _, s := range a.LeftOut {
+			if s.N >= 1 && s.N <= len(choices) {
+				choices[s.N-1] = SheetChoice{Letter: s.Letter, Role: s.Role, BlankFront: true, BlankBack: true}
 			}
 		}
 	}
 	return choices, nil
 }
 
+// SidesLeftOut is how many sides were fed and how many of them the
+// operator has marked blank and left out; none before arranging.
+func (l *Scan) SidesLeftOut() (fed, leftOut int, err error) {
+	choices, err := l.Sheets()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, c := range choices {
+		if c.BlankFront {
+			leftOut++
+		}
+		if c.BlankBack {
+			leftOut++
+		}
+	}
+	return 2 * len(choices), leftOut, nil
+}
+
 // Arrange records which sheets make which letter, and each sheet's
 // role: one choice per sheet fed, the letters numbered from 1 without a
-// gap. Once the letters have their ids the arrangement is final: a
+// gap. A side marked blank is left out of its letter, and a sheet blank
+// on both sides is in no letter; a letter needs a side, so one whose
+// every side is marked is refused. Once the letters have their ids the arrangement is final: a
 // mistake means cancelling the feed and feeding again.
 func (l *Scan) Arrange(choices []SheetChoice) error {
 	fed, err := l.Fed()
@@ -342,6 +398,7 @@ func (l *Scan) Arrange(choices []SheetChoice) error {
 		return fmt.Errorf("feed %s: %d choices for %d sheets", l.Key(), len(choices), fed.Sides/2)
 	}
 	byLetter := map[int][]ArrangedSheet{}
+	var leftOut []LeftOutSheet
 	for i, c := range choices {
 		if !slicesContains(Roles, c.Role) {
 			return fmt.Errorf("sheet %d: role %q, want sheet or envelope", i+1, c.Role)
@@ -349,17 +406,27 @@ func (l *Scan) Arrange(choices []SheetChoice) error {
 		if c.Letter < 1 {
 			return fmt.Errorf("sheet %d: letter %d, want 1 or more", i+1, c.Letter)
 		}
-		byLetter[c.Letter] = append(byLetter[c.Letter], ArrangedSheet{N: i + 1, Role: c.Role})
+		if c.BlankFront && c.BlankBack {
+			leftOut = append(leftOut, LeftOutSheet{N: i + 1, Letter: c.Letter, Role: c.Role})
+			if _, spoken := byLetter[c.Letter]; !spoken {
+				byLetter[c.Letter] = nil // the letter is spoken of, though this sheet is not in it
+			}
+			continue
+		}
+		byLetter[c.Letter] = append(byLetter[c.Letter], ArrangedSheet{N: i + 1, Role: c.Role, BlankFront: c.BlankFront, BlankBack: c.BlankBack})
 	}
 	numbers := make([]int, 0, len(byLetter))
 	for n := range byLetter {
 		numbers = append(numbers, n)
 	}
 	sort.Ints(numbers)
-	var a Arranged
+	a := Arranged{LeftOut: leftOut}
 	for i, n := range numbers {
 		if n != i+1 {
 			return fmt.Errorf("feed %s: the letters are numbered %v, want 1 to %d without a gap", l.Key(), numbers, len(numbers))
+		}
+		if len(byLetter[n]) == 0 {
+			return fmt.Errorf("feed %s: letter %d: every side of it is marked blank, and a letter needs a side", l.Key(), n)
 		}
 		a.Letters = append(a.Letters, ArrangedLetter{Sheets: byLetter[n]})
 	}
@@ -455,9 +522,16 @@ func (l *Scan) writeLetters() error {
 			Scanner: fed.Scanner, Settings: fed.Settings, PPI: fed.PPI, Depth: fed.Depth, Scanned: fed.Captured,
 		}
 		for i, s := range lt.Sheets {
-			rec.Sheets = append(rec.Sheets, Sheet{Role: s.Role,
+			sheet := Sheet{Role: s.Role,
 				Front: SheetSide{File: fmt.Sprintf("sheet-%02d-front.tif", i+1)},
-				Back:  SheetSide{File: fmt.Sprintf("sheet-%02d-back.tif", i+1)}})
+				Back:  SheetSide{File: fmt.Sprintf("sheet-%02d-back.tif", i+1)}}
+			if s.BlankFront {
+				sheet.Front = SheetSide{Blank: true}
+			}
+			if s.BlankBack {
+				sheet.Back = SheetSide{Blank: true}
+			}
+			rec.Sheets = append(rec.Sheets, sheet)
 		}
 		if err := os.MkdirAll(l.letterDir(id), 0o755); err != nil {
 			return err
@@ -467,6 +541,9 @@ func (l *Scan) writeLetters() error {
 				n    int
 				file string
 			}{{2*s.N - 1, rec.Sheets[i].Front.File}, {2 * s.N, rec.Sheets[i].Back.File}} {
+				if side.file == "" {
+					continue // left out as blank
+				}
 				raw, err := os.ReadFile(l.sidePath(side.n))
 				if err != nil {
 					return err
@@ -638,7 +715,7 @@ func (l *Scan) TurnSide(id pid.ID, stem string, by int) error {
 		return err
 	}
 	sd := rec.side(stem)
-	if sd == nil {
+	if stem == "" || sd == nil {
 		return fmt.Errorf("letter %s has no side %q", id, stem)
 	}
 	sd.Turn = turned(sd.Turn, by)
