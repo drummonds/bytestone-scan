@@ -375,7 +375,7 @@ func (a *App) feedOf(rec batch.Letter) (*batch.Scan, error) {
 }
 
 // pagePicture matches the name of a letter page's picture.
-var pagePicture = regexp.MustCompile(`^page-\d\d\.jpg$`)
+var pagePicture = regexp.MustCompile(`^page-\d{2,}\.jpg$`)
 
 // letterRendition serves one file of a letter side's renditions: its
 // display images or the picture of one of its pages.

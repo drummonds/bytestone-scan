@@ -225,6 +225,14 @@ func TestALetterAcceptedBeforePagesShowsASideAsAPage(t *testing.T) {
 		t.Errorf("Pages: %s, want %s", got, want)
 	}
 	page(t, h, "/letters/0", "Page 1: Sheet 1, front", "Page 2: Sheet 1, back")
+	// the pictures are the ones made at the old recipe, and are there
+	page(t, h, "/letters/0", `letters/0/renditions/2/sheet-01-front/display.jpg`)
+	if body := get(t, h, "/letters/0").Body.String(); strings.Contains(body, "Not developed yet") || strings.Contains(body, "renditions/"+strconv.Itoa(rendition.Version)+"/") {
+		t.Error("the letter's renditions at recipe 2 are not found: its page looks for the current recipe's")
+	}
+	if w := get(t, h, "/letters/0/renditions/2/sheet-01-back/display.jpg"); w.Code != http.StatusOK {
+		t.Errorf("the side's picture at recipe 2: %d", w.Code)
+	}
 	if now, _ := os.ReadFile(path); string(now) != string(old) {
 		t.Errorf("letter.yaml was rewritten:\n%s", now)
 	}
