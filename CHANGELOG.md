@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-11-22
+
+- `-archive URL` runs the scanner for the instance serving at the URL (story 196): the service is asked which instance it is, and the scanner's port and staging root follow from it as they do for one found on localhost, where before an `-archive` given left the scanner on `localhost:8080` with production's staging whatever it served. A service that does not answer or does not say which instance it serves is refused, and so is an `-instance` naming another than the one found there. `task serve` names the hosted archive service, UAT at `https://bytestone-uat.lan.drummonds.net`, so nothing is started to scan; `task serve:local` is the old `task serve`, an instance found on this machine
+
+### Changed
+
+- `-archive URL` runs the scanner for the instance serving at the URL (story 196): the service is asked which instance it is, and the scanner's port and staging root follow from it as they do for one found on localhost, where before an `-archive` given left the scanner on `localhost:8080` with production's staging whatever it served. A service that does not answer or does not say which instance it serves is refused, and so is an `-instance` naming another than the one found there. `task serve` names the hosted archive service, UAT at `https://bytestone-uat.lan.drummonds.net`, so nothing is started to scan; `task serve:local` is the old `task serve`, an instance found on this machine (#196)
+
 ## [0.38.0] - 2026-11-22
 
 - A blank side is left out of a letter (story 181): at *arrange* each side has a *blank: leave out* mark, off unless the operator sets it. A side marked has no master and no renditions and `letter.yaml` records it as `blank: true`; a sheet blank on both sides is left out whole and the sheets after it close the gap; a letter whose every side is marked is refused. The letter's page names a side left out and the feed's page counts them, where before every side fed was kept; Research (story 193): the note of a first look at the cost and quality of reading a letter with Claude, `docs/research/2026-11-18-reading-letters-with-claude.md`, and the spike that made its figures, `spike/reading/`, a module of its own outside the scanner's build. Nothing in the scanner changes
