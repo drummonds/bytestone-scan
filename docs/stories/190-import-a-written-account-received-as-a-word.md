@@ -158,7 +158,7 @@ The import:
 | packaged | Deposit | the archive receipts it `kind: account`; the bag's checksums match; verify passes |
 | receipted, `account.yaml` another checksum at the archive since | Verify | verified: the record has changed since (story 191) |
 | packaged and not deposited, the batch's person gone | Re-home | `account.yaml` written again with the home chosen; `account.dj` byte for byte the same |
-| the archive already holds the same Markdown | Deposit | rejected, naming the item it duplicates; the account ends as a rejected photo does |
+| the archive already holds the same djot | Deposit | rejected, naming the item it duplicates; the account ends as a rejected photo does |
 | a batch holding an account, closed and past its grace | purge | the account's work files go as a scan's do |
 | a batch with one account receipted | `/status`, *Statistics* | one more item counted held, among the photos as a film is |
 
