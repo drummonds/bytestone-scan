@@ -6,6 +6,7 @@ package web
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"errors"
 	"fmt"
 	"html"
@@ -62,12 +63,18 @@ type App struct {
 	views *view.Views // the engine's pages, set by Handler; its Progress draws the dots
 }
 
+// icon is a flatbed scanner, its lid up over a picture.
+//
+//go:embed icon.svg
+var icon []byte
+
 const layout = `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="/">
 <title>{{.title}} — bytestone-scan</title>
 <link rel="stylesheet" href="assets/bulma.min.css">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
 </head><body>
 <nav class="navbar is-primary"><div class="navbar-brand">
 <a class="navbar-item has-text-weight-bold" href="workflows/">bytestone-scan</a>
@@ -109,7 +116,13 @@ func (a *App) Handler() http.Handler {
 		http.Redirect(w, r, "/workflows/", http.StatusSeeOther)
 	})
 	mux.HandleFunc("GET /assets/bulma.min.css", lofigui.ServeBulma)
-	mux.HandleFunc("GET /favicon.ico", lofigui.ServeFavicon)
+	// the scanner's own icon (story 186); browsers ask for /favicon.ico unprompted
+	serveIcon := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Write(icon)
+	}
+	mux.HandleFunc("GET /assets/icon.svg", serveIcon)
+	mux.HandleFunc("GET /favicon.ico", serveIcon)
 	mux.Handle("/workflows/", http.StripPrefix("/workflows", a.views.Handler()))
 	// the workflow database, browsed read-only through go-dbexplorer in
 	// the app's own layout; its links are relative to db/
@@ -357,12 +370,13 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 <tr><th>Home</th><td>%s (%s)</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
-<tr><th>Scanned at</th><td>%d ppi</td></tr>
+<tr><th>Prints scanned at</th><td>%d ppi</td></tr>
+<tr><th>Letters fed at</th><td>%d ppi, %d bits</td></tr>
 <tr><th>Started</th><td>%s</td></tr>
 <tr><th>Files</th><td><code>%s</code></td></tr>
 </tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Title),
 		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
-		b.ScanPPI, b.Created.Local().Format("2 Jan 2006 15:04"), html.EscapeString(b.Dir())))
+		b.ScanPPI, batch.FeedPPI, batch.FeedDepth, b.Created.Local().Format("2 Jan 2006 15:04"), html.EscapeString(b.Dir())))
 	scans, err := b.Scans()
 	if err != nil {
 		c.HTML(`<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`)

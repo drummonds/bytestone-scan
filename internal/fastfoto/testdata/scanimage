@@ -14,10 +14,17 @@ case "$*" in
 	exit 0 ;;
 esac
 pattern=""
+prev=""
 for arg in "$@"; do
 	case "$arg" in
 	--batch=*) pattern="${arg#--batch=}" ;;
 	esac
+	# the FF-680W's sources, each one argument, as the real scanimage wants
+	if [ "$prev" = "--source" ] && [ "$arg" != "ADF Duplex" ] && [ "$arg" != "ADF Front" ]; then
+		echo "scanimage: setting of option --source failed (Invalid argument)" >&2
+		exit 1
+	fi
+	prev="$arg"
 done
 n=0
 while [ "$n" -lt "${FAKE_SIDES:-0}" ]; do

@@ -36,7 +36,10 @@ A batch is one sitting of scanning, over as many scans of the bed as the
 shoebox needs. Start one from *New batch*: a title, the home person
 (chosen by name from the register), the prints' provenance and credit
 (copied into every photo, and pre-filled from the last batch) and the
-scan ppi. Its first scan starts at once; each scan's page leads through
+scan ppi. Its first scan starts at once, unless the scanner it needs is
+not connected (the 4990 for a bed scan, the FF-680W for letters): then
+nothing is recorded and the form comes back saying so, as it does for
+one more scan or feed in a batch; each scan's page leads through
 the steps: check the prints found on the preview (or rescan it), confirm,
 turn the prints over where they lie and scan the backs, check each photo's
 quality and its renditions, front and back (or rescan either side, or go

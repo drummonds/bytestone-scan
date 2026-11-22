@@ -277,6 +277,25 @@ func ppiOptions(selected int) string {
 	return s.String()
 }
 
+// connected looks for the scanner a scan or a feed is about to be begun
+// on, so that nothing is recorded for one that is not there (story 185).
+// A scanner that is not looked for, as a recording, or none at all, is
+// no error here: the scan's own step says what it lacks.
+func connected(ctx context.Context, scanner any) error {
+	if f, ok := scanner.(interface {
+		Find(context.Context) (string, error)
+	}); ok {
+		_, err := f.Find(ctx)
+		return err
+	}
+	return nil
+}
+
+// danger is err as the notice a form is shown again under.
+func danger(err error) string {
+	return `<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`
+}
+
 func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, string, string)) {
 	fail := func(w http.ResponseWriter, err error, code int) {
 		if errors.Is(err, errBusy) {
@@ -301,6 +320,15 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		person, err := pid.Parse(e.person)
 		if e.person == "" {
 			err = errors.New("choose the home person")
+		}
+		// nor one whose first scan or feed has no scanner to run on (story 185)
+		if err == nil {
+			switch r.FormValue("then") {
+			case "":
+				err = connected(r.Context(), a.Scanner)
+			case "feed":
+				err = connected(r.Context(), a.Feeder)
+			}
 		}
 		var b *batch.Batch
 		if err == nil {
@@ -347,6 +375,11 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		if key := a.running(); key != "" {
 			fail(w, fmt.Errorf("%w: the scanner is busy with scan %s", errBusy, key), http.StatusConflict)
+			return
+		}
+		if err := connected(r.Context(), a.Feeder); err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			render(w, "Scan letters", newFeed(b, danger(err), r.FormValue("description")))
 			return
 		}
 		l, err := b.NewFeed(r.FormValue("description"), a.Now())
@@ -492,6 +525,11 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		}
 		if key := a.running(); key != "" {
 			fail(w, fmt.Errorf("%w: the scanner is busy with scan %s", errBusy, key), http.StatusConflict)
+			return
+		}
+		if err := connected(r.Context(), a.Scanner); err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			render(w, "One more scan", newScan(b, danger(err), r.FormValue("description")))
 			return
 		}
 		a.startScan(w, r, b, r.FormValue("description"), fail)

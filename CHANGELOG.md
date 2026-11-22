@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-18
+
+- A scan or a feed is not begun when its scanner is not connected (story 185): *New batch*, *Do one more scan* and *Scan letters* look for the 4990 or the FF-680W first and, without it, record nothing and show the form again with the reason, where before a batch was left in the Queue with a failed scan that had to be deleted; a batch's page says *Prints scanned at* its ppi and *Letters fed at* 600 ppi, 8 bits, where before it said *Scanned at* the bed's ppi for a batch of letters; the batch's workflow is named *Archive a batch*; The scanner has its own icon on its pages' tab (story 186): a flatbed scanner with its lid up over a picture, where before it showed the stock lofigui icon
+
+### Added
+
+- The scanner has its own icon on its pages' tab (story 186): a flatbed scanner with its lid up over a picture, where before it showed the stock lofigui icon (#186)
+
+### Changed
+
+- A scan or a feed is not begun when its scanner is not connected (story 185): *New batch*, *Do one more scan* and *Scan letters* look for the 4990 or the FF-680W first and, without it, record nothing and show the form again with the reason, where before a batch was left in the Queue with a failed scan that had to be deleted; a batch's page says *Prints scanned at* its ppi and *Letters fed at* 600 ppi, 8 bits, where before it said *Scanned at* the bed's ppi for a batch of letters; the batch's workflow is named *Archive a batch* (#185)
+
+## [0.36.2] - 2026-11-17
+
+- *Scan letters* runs on the real FF-680W (story 182): the source `ADF Duplex` is sent to `scanimage` as one argument, where before it was split at the space and every real feed failed with "setting of option --source failed (Invalid argument)"
+
+### Fixed
+
+- *Scan letters* runs on the real FF-680W (story 182): the source `ADF Duplex` is sent to `scanimage` as one argument, where before it was split at the space and every real feed failed with "setting of option --source failed (Invalid argument)" (#182)
+
 ## [0.36.1] - 2026-11-17
 
 - A feed on the real FF-680W works (story 177): the comment line `scanimage` writes in each side's header is read past, where before every real feed failed with "PNM header: expected integer"; each side is cut at capture to the sheet and 3 mm of the feed path either side, and the white the driver fills below the paper's end is left off, where before a master would have been the whole 215.9 × 393.7 mm path; the settings recorded with a master name the cut and the feeder's JPEG quality 90 transfer

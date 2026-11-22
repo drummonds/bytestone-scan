@@ -27,8 +27,8 @@ var Definitions = []wf.Definition{
 	{
 		Type: Workflow,
 		Purpose: wf.Purpose{
-			Name:        "Archive photographs",
-			Description: "Capture prints as archival masters, each archived as a photo in the collection of the person it belongs to.",
+			Name:        "Archive a batch",
+			Description: "Capture prints, letters and films as archival masters, each archived as an item in the collection of the person it belongs to.",
 		},
 		Description: "One sitting of scanning: one home person, provenance, credit and scan ppi, over as many scans of the bed as the shoebox needs. " +
 			"Each scan is a workflow of its own under the batch; the batch waits until the operator finishes scanning and every scan is through, then closes.",
