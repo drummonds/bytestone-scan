@@ -14,6 +14,7 @@ import (
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/batch/batchtest"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/rendition"
 )
 
@@ -235,5 +236,30 @@ func TestALetterAcceptedBeforePagesShowsASideAsAPage(t *testing.T) {
 	}
 	if now, _ := os.ReadFile(path); string(now) != string(old) {
 		t.Errorf("letter.yaml was rewritten:\n%s", now)
+	}
+}
+
+// The renditions shown are the latest recipe's made for the item: a
+// letter's are found by its sides' recipes, and a photo whose back alone
+// is at a newer recipe is still shown by its front's.
+func TestTheRenditionsShownAreTheLatestMadeForTheItem(t *testing.T) {
+	a := &App{Staging: t.TempDir()}
+	made := func(id, path string) {
+		t.Helper()
+		file := filepath.Join(a.Staging, "renditions", id, path, "recipe.yaml")
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	made("0", "2/sheet-01-front") // a letter developed at recipe 2
+	made("1", "2")                // a photo at recipe 2, its back made since at 3
+	made("1", "3/back")
+	for id, want := range map[int]string{0: "2", 1: "2", 2: strconv.Itoa(rendition.Version)} {
+		if got := filepath.Base(a.renditionDir(pid.ID(id))); got != want {
+			t.Errorf("item %d: renditions shown at recipe %s, want %s", id, got, want)
+		}
 	}
 }

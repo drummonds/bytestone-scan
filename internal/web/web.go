@@ -1082,7 +1082,9 @@ func (a *App) renditionDir(id pid.ID) string {
 	for v := rendition.Version; v >= 1; v-- {
 		dir := filepath.Join(root, strconv.Itoa(v))
 		_, err := os.Stat(filepath.Join(dir, "recipe.yaml"))
-		if sides, _ := filepath.Glob(filepath.Join(dir, "*", "recipe.yaml")); err == nil || len(sides) > 0 {
+		// a photo's back has a set of its own, which does not stand for the photo
+		sides, _ := filepath.Glob(filepath.Join(dir, "sheet-*", "recipe.yaml"))
+		if err == nil || len(sides) > 0 {
 			latest = v
 			break
 		}
