@@ -43,6 +43,6 @@ None.
 
 ## Done when
 
-- [ ] tests express the first table and pass (the task's description by hand)
-- [ ] changelog fragment
+- [x] tests express the first table and pass (the task's description by hand)
+- [x] changelog fragment
 - [ ] issue closed with a link to the release

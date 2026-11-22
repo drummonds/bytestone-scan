@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -366,7 +368,11 @@ func (c Client) call(method, path string, body io.Reader, v any) error {
 	}
 	resp, err := (&http.Client{Timeout: c.Timeout}).Do(req)
 	if err != nil {
-		return fmt.Errorf("the archive service at %s is not answering (start it with life-weaver serve, or task serve in life-weaver): %w", c.URL, err)
+		advice := "check it is up and can be reached from this machine"
+		if u, perr := url.Parse(c.URL); perr == nil && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback()) {
+			advice = "start it with life-weaver serve, or task serve in life-weaver"
+		}
+		return fmt.Errorf("the archive service at %s is not answering (%s): %w", c.URL, advice, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {
