@@ -321,6 +321,9 @@ func (l *Scan) DescribeFilm(ctx context.Context, svc archive.Service, d FilmDesc
 		if err != nil {
 			return fmt.Errorf("the %s: %w", role, err)
 		}
+		if id == 0 {
+			return fmt.Errorf("the %s: %w", role, ErrNoID)
+		}
 		if _, err := svc.Person(id); err != nil {
 			return fmt.Errorf("the %s: %w", role, err)
 		}

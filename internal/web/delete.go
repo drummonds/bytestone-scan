@@ -91,7 +91,7 @@ func (a *App) batchesPage() string {
 	for _, b := range batches {
 		scans, _ := b.Scans()
 		fmt.Fprintf(&t, `<tr><td><a href="batches/%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td></tr>`,
-			html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.Title), html.EscapeString(b.PersonName),
+			html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(b.Title), batchHome(b),
 			b.Created.Local().Format("2 Jan 2006 15:04"), len(scans), where(b), deleteButton(b.ID, "is-small"))
 	}
 	t.WriteString(`</tbody></table>`)

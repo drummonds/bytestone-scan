@@ -123,7 +123,7 @@ func (a *App) verifyPage(l *batch.Scan) string {
 		return c.Buffer()
 	}
 	var t strings.Builder
-	t.WriteString(`<table class="table is-striped"><thead><tr><th>Item</th><th>Verdict</th><th>Files</th><th>Detail</th><th>Published</th></tr></thead><tbody>`)
+	t.WriteString(`<table class="table is-striped"><thead><tr><th>Item</th><th>Home</th><th>Verdict</th><th>Files</th><th>Detail</th><th>Published</th></tr></thead><tbody>`)
 	for i, ch := range checks {
 		item := fmt.Sprintf(`<a href="photos/%s">%s</a>`, ch.Photo, ch.Photo)
 		if l.IsFilm() {
@@ -136,11 +136,19 @@ func (a *App) verifyPage(l *batch.Scan) string {
 		if ch.Files > 0 {
 			files = fmt.Sprint(ch.Files)
 		}
-		fmt.Fprintf(&t, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, item, ch.Verdict, files, html.EscapeString(ch.Detail), cells[i])
+		// #191: the home the archive gives now, beside the one it was sent under
+		home := ""
+		if ch.Verdict != batch.Pending {
+			home = ch.Home.String()
+			if ch.Sent != ch.Home {
+				home += ", " + depositedUnder(ch.Sent)
+			}
+		}
+		fmt.Fprintf(&t, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, item, home, ch.Verdict, files, html.EscapeString(ch.Detail), cells[i])
 	}
 	t.WriteString(`</tbody></table>`)
 	c.HTML(t.String())
-	c.HTML(fmt.Sprintf(`<p class="help">The archive is asked to recompute each item's checksums from its disk (or for its receipt, when it is too old to), and the answer is compared, checksum for checksum, with the receipt taken at deposit and with the bag while it is still in staging; nothing is downloaded.
+	c.HTML(fmt.Sprintf(`<p class="help">The archive is asked to recompute each item's checksums from its disk (or for its receipt, when it is too old to), and the answer is compared, checksum for checksum, with the receipt taken at deposit and, for the masters, with the bag while it is still in staging; nothing is downloaded. A record the archive has corrected or renumbered since the deposit is no fault: the item is verified, and says its record has changed. The home is the one the archive gives now.
 Each site is asked for the item's page, nothing downloaded: life-weaver's <code>task publish</code> puts an item on i.bytestone.uk and <code>task promote</code> then on i.bytestone.org.</p>
 <div class="buttons"><a class="button" href="%s">‹ Back to the scan</a></div>`, scanURL(l.Key())))
 	return c.Buffer()
@@ -153,8 +161,11 @@ func verdictText(checks []batch.Check) (msg, class string) {
 	if len(checks) == 0 {
 		return "Nothing to verify: the scan has no items yet.", "is-warning"
 	}
-	var verified, failed, pending, rejected int
+	var verified, failed, pending, rejected, changed int
 	for _, c := range checks {
+		if c.Verdict == batch.Verified && c.Changed {
+			changed++
+		}
 		switch c.Verdict {
 		case batch.Verified:
 			verified++
@@ -176,6 +187,9 @@ func verdictText(checks []batch.Check) (msg, class string) {
 		return fmt.Sprintf("Not verified: %d of %d %s not held by the archive as receipted.", failed, len(checks), noun), "is-danger"
 	}
 	msg, class = fmt.Sprintf("Verified: %d %s held by the archive, every checksum as receipted", verified, noun), "is-success"
+	if changed > 0 {
+		msg = fmt.Sprintf("Verified: %d %s held by the archive, every master as receipted; the record of %d has changed at the archive since the deposit", verified, noun, changed)
+	}
 	if rejected > 0 {
 		msg += fmt.Sprintf("; %d rejected as a duplicate, no item to verify", rejected)
 		class = "is-warning"
