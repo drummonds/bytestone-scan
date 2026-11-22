@@ -17,7 +17,7 @@ run from a web UI: stories [001](docs/stories/001-capture-fronts.md) and
 ## Use
 
 ```sh
-task serve      # or: bytestone-scan serve, then open http://localhost:8080
+task serve      # for the hosted UAT archive; then open http://localhost:8081
 ```
 
 At startup it says where it serves, then which scanners it found:
@@ -129,11 +129,18 @@ another (`bytestone-scan serve -instance h3`): every depositor writes UAT,
 and items are promoted to production from there. It finds the instance
 among the life-weaver services on `localhost:8321-8330`, one port per
 slot, and refuses to start when it is not serving, saying what it found.
+`-archive URL` names a service elsewhere instead, and the scanner runs
+for the instance serving there: `task serve` names the hosted service,
+UAT on the NAS at `https://bytestone-uat.lan.drummonds.net` (life-weaver
+story 188), so nothing is started to scan; `task serve:local` looks on
+this machine. A service that does not answer or does not say which
+instance it serves is refused, and so is an `-instance` that names
+another than the one found there.
 Its own address and staging root follow from the slot: production on
 `localhost:8080` with the default staging, any other on `8080+slot` with
 `~/.local/share/bytestone-scan-<instance>` (UAT on `8081`), so a scratch
-batch's masters never land in production's staging. `-archive URL`,
-`-addr` and `-staging` each override their part. The navbar names the
+batch's masters never land in production's staging. `-addr` and
+`-staging` each override their part. The navbar names the
 instance in use, in warning colours when it is not UAT. The archive service (`life-weaver
 serve`, or `task serve` in life-weaver) is where people come from, where
 photo ids are reserved and where bags are deposited. An id it gives out
