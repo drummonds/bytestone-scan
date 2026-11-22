@@ -158,8 +158,8 @@ otherwise to change one.
 
 ## Done when
 
-- [ ] tests express the acceptance tables and pass
-- [ ] spec updated (glossary, README); the format statement needs none: it says nothing of the local store
+- [x] tests express the acceptance tables and pass
+- [x] spec updated (glossary, README); the format statement needs none: it says nothing of the local store
 - [ ] ADR written if a fork was resolved
-- [ ] changelog fragment
+- [x] changelog fragment
 - [ ] issue closed with a link to the release

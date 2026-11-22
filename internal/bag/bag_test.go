@@ -175,3 +175,50 @@ func TestManifestIsSorted(t *testing.T) {
 		t.Errorf("manifest not sorted by path: %v", lines)
 	}
 }
+
+// Story 191: a payload file of a complete bag is written again, and the
+// bag's manifests and Payload-Oxum follow it; the other files are as
+// they were.
+func TestReplaceWritesARecordAgain(t *testing.T) {
+	root := t.TempDir()
+	ph, err := Create(root, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"front.tif": "pixels", "photo.yaml": "home: a\n"} {
+		if err := ph.Add(name, func(w io.Writer) error { _, err := io.WriteString(w, body); return err }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ph.Close(Info{Batch: "20261122-1", Scan: 1, Description: "a print", Bagged: time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := Manifest(filepath.Join(root, "5"))
+	body := []byte("home: bb\n")
+	if err := Replace(root, 5, "photo.yaml", body); err != nil {
+		t.Fatal(err)
+	}
+	after, err := Manifest(filepath.Join(root, "5"))
+	sum := sha256.Sum256(body)
+	if err != nil || after["data/photo.yaml"] != hex.EncodeToString(sum[:]) || after["data/front.tif"] != before["data/front.tif"] || len(after) != 2 {
+		t.Errorf("manifest %v %v, want the record's new checksum, the master's as it was", after, err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(root, "5", "data", "photo.yaml")); string(raw) != string(body) {
+		t.Errorf("the record holds %q", raw)
+	}
+	info, _ := os.ReadFile(filepath.Join(root, "5", "bag-info.txt"))
+	if !strings.Contains(string(info), "Payload-Oxum: 15.2\n") || !strings.Contains(string(info), "External-Identifier: 5\n") {
+		t.Errorf("bag-info:\n%s", info)
+	}
+	tags, _ := os.ReadFile(filepath.Join(root, "5", "tagmanifest-sha256.txt"))
+	for _, name := range []string{"bagit.txt", "bag-info.txt", "manifest-sha256.txt"} {
+		raw, _ := os.ReadFile(filepath.Join(root, "5", name))
+		s := sha256.Sum256(raw)
+		if !strings.Contains(string(tags), hex.EncodeToString(s[:])+"  "+name+"\n") {
+			t.Errorf("the tag manifest does not carry %s as it is", name)
+		}
+	}
+	if err := Replace(root, 5, "page.yaml", body); err == nil {
+		t.Error("replaced a file the bag does not hold")
+	}
+}

@@ -285,7 +285,7 @@ func (c Client) Person(id pid.ID) (string, error) {
 	var e entry
 	err := c.call(http.MethodGet, "/people/"+id.String(), nil, &e)
 	if errors.Is(err, errNotFound) {
-		return "", fmt.Errorf("person %s is not in the register at %s", id, c.URL)
+		return "", fmt.Errorf("person %s is %w at %s", id, ErrNotRegistered, c.URL)
 	}
 	if err != nil {
 		return "", fmt.Errorf("person %s: %w", id, err)
@@ -350,6 +350,10 @@ func (c Client) Fixity(item pid.ID) (Fixity, error) {
 }
 
 var errNotFound = errors.New("not found")
+
+// ErrNotRegistered is the register's answer for a person it does not
+// hold: one never there, or since given another id. Person wraps it.
+var ErrNotRegistered = errors.New("not in the register")
 
 // ErrUnknown is the archive's answer for an item id it has never given
 // out, or has lost: Receipt wraps it, and Fixity, which an archive from

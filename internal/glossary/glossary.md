@@ -49,6 +49,11 @@ The words bytestone-scan uses, in its code, its pages and its docs.
 | Deposit | The photo step that hands its bag to the archive service, which gave out its id; the answer is kept beside the bag |
 | Receipt | The archive's answer that it holds a photo, the bag's checksums matching; read back from the service and checked against the bag |
 | Reject | The archive's answer that it will not take a photo because it already holds the same picture, naming the item it duplicates; ends the photo, its bag left in staging |
+| As sent | What the local store holds of a deposited item: its bag and the archive's answer at the time. Never rewritten; gone at purge but for the answer |
+| Changed since | Of a record (`photo.yaml`, `page.yaml`, `film.yaml`, `letter.yaml`): the archive holds it sound, with another checksum than the one receipted. The archive's doing, a correction or a renumber, and no fault: Verify says so and the item is verified. A master is never changed since: another checksum there is *differs* |
+| Home now | The person the archive says an item is homed with when asked, against the home as sent; Verify and the item's page show it, with *deposited under* the other when they differ |
+| Re-home | Giving an open batch its home person again, when the register no longer holds the one it names: the batch names the person chosen, what is not yet deposited is written again with that home, what is deposited is left as sent. Until then the batch begins no scan, import, feed or film import, and deposits nothing |
+| No id | 0: never offered, chosen or written as a person's id, nor as the item a photo duplicates; read from an older file, it means none was given or the id is gone |
 | Work files | What a batch keeps under staging to do its job: previews, prints, masters, renditions, bags |
 | Close | The batch step reached when scanning is finished and every photo is held by the archive or rejected by it: its work files are redundant from then |
 | Purge | Deleting a closed batch's work files, 30 days after it closes or sooner when staging is short of space, oldest closed first; never an open batch's, and never a rejected photo's bag |

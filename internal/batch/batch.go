@@ -274,6 +274,9 @@ func Describe(root string, svc archive.Service, store wf.Store, d Description, n
 	if d.ScanPPI != 600 && d.ScanPPI != 1200 && d.ScanPPI != 2400 {
 		return nil, fmt.Errorf("scan ppi %d, want 600, 1200 or 2400", d.ScanPPI)
 	}
+	if d.Person == 0 {
+		return nil, fmt.Errorf("the home person: %w", ErrNoID)
+	}
 	name, err := svc.Person(d.Person)
 	if err != nil {
 		return nil, err
@@ -1279,13 +1282,16 @@ func (b *Scan) photoStages(id pid.ID, env Env) []wf.Stage {
 
 // Deposit is the archive's answer for a photo's bag, kept beside the bag.
 type Deposit struct {
-	Status      string            `yaml:"status"`         // held, or duplicate
-	Kind        string            `yaml:"kind,omitempty"` // what the archive holds it as, when it says
-	Home        pid.ID            `yaml:"home"`
-	Payload     map[string]string `yaml:"payload,omitempty"` // the checksums the archive holds
-	DuplicateOf pid.ID            `yaml:"duplicate_of"`      // when a duplicate: the item that holds the picture
-	File        string            `yaml:"file,omitempty"`    // when a duplicate: which picture
-	At          time.Time         `yaml:"at"`
+	Status  string            `yaml:"status"`         // held, or duplicate
+	Kind    string            `yaml:"kind,omitempty"` // what the archive holds it as, when it says
+	Home    pid.ID            `yaml:"home"`
+	Payload map[string]string `yaml:"payload,omitempty"` // the checksums the archive holds
+	// DuplicateOf, when a duplicate, is the item that holds the picture;
+	// not written otherwise. An older answer wrote 0 for a held item, and
+	// 0 on a duplicate is an item whose id is gone (#191).
+	DuplicateOf pid.ID    `yaml:"duplicate_of,omitempty"`
+	File        string    `yaml:"file,omitempty"` // when a duplicate: which picture
+	At          time.Time `yaml:"at"`
 }
 
 // DepositOf is the archive's answer for photo id under root, or nil when
@@ -1383,6 +1389,19 @@ func (b *Scan) depositItem(id pid.ID, env Env, develop func(again bool) error) e
 	}
 	if err := develop(false); err != nil {
 		return err
+	}
+	// not sent for a home the archive does not give the id (#191): the
+	// archive does not read the record, so a stale home would be held
+	reserved, err := env.Archive.Receipt(id)
+	if err != nil {
+		return err
+	}
+	home, err := bagHome(filepath.Join(b.bags(), id.String()))
+	if err != nil {
+		return err
+	}
+	if home != reserved.Home {
+		return fmt.Errorf("not sent: the batch names %s, the archive %s as the home of item %s: %w", home, reserved.Home, id, ErrRehome)
 	}
 	pr, pw := io.Pipe()
 	go func() {
@@ -1614,6 +1633,9 @@ func (b *Scan) bags() string { return filepath.Join(b.root, "bags") }
 // taken for this item's (#165). The id stays reserved with the archive
 // and is given to nothing; the next attempt takes the next.
 func reserve(svc archive.Service, root string, home pid.ID) (pid.ID, error) {
+	if home == 0 {
+		return 0, fmt.Errorf("the batch's home person: %w: %w", ErrNoID, ErrRehome)
+	}
 	id, err := svc.Reserve(home)
 	if err != nil {
 		return 0, err

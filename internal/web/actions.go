@@ -256,6 +256,9 @@ func personOptions(people []archive.Person, selected string) string {
 	var s strings.Builder
 	s.WriteString(`<option value="">Choose…</option>`)
 	for _, p := range people {
+		if p.ID == 0 {
+			continue // no id (#191): never offered
+		}
 		sel := ""
 		if p.ID.String() == selected {
 			sel = " selected"
@@ -354,6 +357,7 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		a.startScan(w, r, b, "", fail)
 	})
 	a.filmRoutes(mux, render, fail)
+	a.rehomeRoutes(mux, render, fail)
 	mux.HandleFunc("GET /batches/{id}/feeds/new", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
 		if err != nil {
@@ -364,6 +368,9 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			fail(w, fmt.Errorf("batch %s: scanning is finished", b.ID), http.StatusUnprocessableEntity)
 			return
 		}
+		if !a.homed(w, b, render) {
+			return
+		}
 		render(w, "Scan letters", newFeed(b, "", b.Title))
 	})
 	// a feed is started as a scan is: the sheets are fed on its first tick
@@ -371,6 +378,9 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
 		if err != nil {
 			http.NotFound(w, r)
+			return
+		}
+		if !a.homed(w, b, render) {
 			return
 		}
 		if key := a.running(); key != "" {
@@ -468,6 +478,9 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			fail(w, fmt.Errorf("batch %s: scanning is finished", b.ID), http.StatusUnprocessableEntity)
 			return
 		}
+		if !a.homed(w, b, render) {
+			return
+		}
 		render(w, "Import pages", newImport(b, "", importEntered{description: b.Title, received: a.Now().Format("2006-01-02")}))
 	})
 	// Each file is one import among the batch's scans; the first runs
@@ -476,6 +489,9 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
 		if err != nil {
 			http.NotFound(w, r)
+			return
+		}
+		if !a.homed(w, b, render) {
 			return
 		}
 		if err := r.ParseMultipartForm(256 << 20); err != nil {
@@ -535,12 +551,18 @@ func (a *App) actions(mux *http.ServeMux, render func(http.ResponseWriter, strin
 			fail(w, fmt.Errorf("batch %s: scanning is finished", b.ID), http.StatusUnprocessableEntity)
 			return
 		}
+		if !a.homed(w, b, render) {
+			return
+		}
 		render(w, "One more scan", newScan(b, "", b.Title))
 	})
 	mux.HandleFunc("POST /batches/{id}/scans", func(w http.ResponseWriter, r *http.Request) {
 		b, err := batch.Open(a.Staging, r.PathValue("id"))
 		if err != nil {
 			http.NotFound(w, r)
+			return
+		}
+		if !a.homed(w, b, render) {
 			return
 		}
 		if key := a.running(); key != "" {

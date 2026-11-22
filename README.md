@@ -165,12 +165,24 @@ item, move the files away, and Retry takes the next id.
 `bytestone-scan verify BATCH[/SCAN]` asks the archive afresh whether it
 still holds each photo of the scan, or of every scan of the batch, as it
 was receipted: each item's receipt is compared, checksum for checksum,
-with the one taken at deposit and with the bag while it is still in
-staging, nothing being downloaded. A completed scan's page offers the
+with the one taken at deposit and, for the masters, with the bag while
+it is still in staging, nothing being downloaded. A record the archive
+has corrected or renumbered since the deposit is no fault: the item is
+verified, and says its record has changed. A completed scan's page offers the
 same as *Verify against the archive*, and asks i.bytestone.uk and
 i.bytestone.org as well whether each held item's page is there: an item
 reaches the first at life-weaver's `task publish` and the second at its
 `task promote`.
+
+What the local store holds of a deposited item is as sent, and is never
+rewritten to follow the archive: Verify and the item's page ask the
+archive for the home now, and say *deposited under* the other when the
+person has since been given another id. An open batch whose person the
+register no longer holds begins nothing new and deposits nothing until
+it is re-homed, on its page: *Re-home* asks for the person, and what is
+not yet deposited is written again with that home. 0 is no id: it is
+never offered or taken as a home (story
+[191](docs/stories/191-the-scanner-s-local-store-still-names-person-0-as.md)).
 
 Without the scanner, run the UI on a recorded print: `bytestone-scan
 capture -print <name>` records the one print on the bed (its preview and

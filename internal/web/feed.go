@@ -54,13 +54,13 @@ func (a *App) feedPage(r *http.Request, l *batch.Scan) string {
 <p class="subtitle">%s</p>
 <table class="table"><tbody>
 <tr><th>Batch</th><td>%s</td></tr>
-<tr><th>Home</th><td>%s (%s)</td></tr>
+<tr><th>Home</th><td>%s</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
 %s
 <tr><th>Started</th><td>%s</td></tr>
 </tbody></table>`, l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), html.EscapeString(b.Title),
-		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
+		homeText(b.PersonName, b.Person), orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		capture, l.Created.Local().Format("2 Jan 2006 15:04")))
 	if dots := a.runDots(ctx, batch.FeedWorkflow, l.Key()); dots != "" {
 		c.HTML(`<p>` + dots + ` ` + a.scanDots(ctx, l) + `</p>`)
@@ -248,13 +248,13 @@ func (a *App) letterPage(r *http.Request, id pid.ID, rec batch.Letter, dir strin
 <table class="table"><tbody>
 <tr><th>Batch</th><td><a href="batches/%s">%s</a></td></tr>
 <tr><th>Feed</th><td><a href="%s">Feed %d</a></td></tr>
-<tr><th>Home</th><td>%s (%s)</td></tr>
+<tr><th>Home</th><td>%s</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
 <tr><th>Scanned</th><td>%s on %s at %d ppi, %d bits</td></tr>
 <tr><th>Sheets</th><td>%s</td></tr>
 </tbody></table>`, id, html.EscapeString(rec.Description), html.EscapeString(rec.Batch), html.EscapeString(rec.Batch),
-		scanURL(l.Key()), rec.Feed, html.EscapeString(rec.Home.Name), rec.Home.ID, orUnknown(rec.Provenance), html.EscapeString(rec.Credit),
+		scanURL(l.Key()), rec.Feed, a.homeNow(id, rec.Home), orUnknown(rec.Provenance), html.EscapeString(rec.Credit),
 		rec.Scanned.Local().Format("2 Jan 2006 15:04"), html.EscapeString(rec.Scanner), rec.PPI, rec.Depth, sheets))
 	bagged := strings.HasPrefix(dir, filepath.Join(a.Staging, "bags")+string(filepath.Separator))
 	turnable := !l.Accepted() && !bagged

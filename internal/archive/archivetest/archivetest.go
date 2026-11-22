@@ -97,7 +97,7 @@ func (f *Fake) Person(id pid.ID) (string, error) {
 			return p.Name, nil
 		}
 	}
-	return "", fmt.Errorf("person %s is not in the register (a stand-in)", id)
+	return "", fmt.Errorf("person %s is %w (a stand-in)", id, archive.ErrNotRegistered)
 }
 
 func (f *Fake) Reserve(home pid.ID) (pid.ID, error) {
@@ -399,4 +399,36 @@ func (f *Fake) Forget(id pid.ID) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.items, id)
+}
+
+// Renumber moves the person from one id to another, as life-weaver's
+// story 313 did: the register names them by the new id, their items are
+// homed with it, and each record held is rewritten, so its checksum is
+// no longer the one receipted. The masters are as they were.
+func (f *Fake) Renumber(from, to pid.ID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.Register {
+		if f.Register[i].ID == from {
+			f.Register[i].ID = to
+		}
+	}
+	for _, it := range f.items {
+		if it.home != from {
+			continue
+		}
+		it.home = to
+		if it.payload == nil {
+			continue
+		}
+		rewritten := map[string]string{}
+		for file, sum := range it.payload {
+			if strings.HasSuffix(file, ".yaml") {
+				h := sha256.Sum256([]byte(sum + " renumbered"))
+				sum = hex.EncodeToString(h[:])
+			}
+			rewritten[file] = sum
+		}
+		it.payload = rewritten
+	}
 }
