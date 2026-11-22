@@ -28,6 +28,12 @@ show them later.
   number for each of its pages. A side not folded is one page; a side
   folded in half is two, left and right of the middle of the side as
   turned. A page may be marked blank in place of a number.
+- The two sides of a sheet are coupled, since the feeder sees the back
+  flipped about the way the sheet travels. Turning a side turns the
+  sheet's other side the opposite way by as much, and marking a side
+  folded, or taking the fold off, does the same to the other. *This side
+  only* beside the Turn buttons turns one side alone, for a back written
+  the other way up. Until now a turn moved its own side only.
 - `letter.yaml` (`internal/batch`): each side lists its pages, left to
   right as turned, each with its number or `blank: true`. The numbers of
   a letter run from 1 with no gap and none twice; that is its reading
@@ -48,11 +54,16 @@ show them later.
 | On the letter's page, before accepting, the operator | Outcome |
 |---|---|
 | does nothing | each side is one page, numbered in sheet order, front before back; *Pages* shows them so |
-| marks a side folded in half | that side has two pages; the letter's pages are numbered again in sheet order, left before right |
+| turns a sheet's front a quarter turn clockwise | the front is turned clockwise and the back a quarter turn anticlockwise; both `turn`s recorded |
+| turns a sheet's back half a turn | the front is turned half a turn too |
+| turns a side with *This side only* | that side alone is turned; the other is as it was, and later turns of either still move both by as much |
+| turns a side whose other side was left out as blank | that side alone is turned |
+| marks a side folded in half | both sides of that sheet have two pages; the letter's pages are numbered again in sheet order, front before back, left before right |
 | on one folded sheet, numbers the front 4 and 1 and the back 2 and 3 | *Pages* shows 1, 2, 3, 4 in that order: front right, back left, back right, front left |
 | marks page 4 blank | *Pages* shows 1, 2, 3; `letter.yaml` has the front's left page as `blank: true`; no picture is made of it |
 | turns a side after folding it | its pages are cut left and right of the side as now turned, each upright |
-| takes the fold off a side | it is one page again, and the letter's pages are numbered again in sheet order |
+| takes the fold off a side | both sides of that sheet are one page again, and the letter's pages are numbered again in sheet order |
+| marks folded a side whose other side was left out as blank | that side has two pages; the side left out has none |
 | gives two pages the same number, or leaves a gap | refused, saying which number is twice or missing; nothing is changed |
 | marks every page of the letter blank | refused: a letter needs a page |
 | looks at a side left out as blank (story 181) | no fold or numbers offered; it has no pages |
@@ -83,6 +94,10 @@ show them later.
 - The layout is a record on the side in `letter.yaml`, not a property of
   the master: it says how to cut, and the cut is a rendition (user,
   22 Nov 2026: experimental, lives in the scanner for now).
+- A sheet's sides are coupled in turn and fold (user, 22 Nov 2026).
+  Which way is up and which side is the outside are still the
+  operator's: they are the four ways a folded sheet can be fed, and
+  only reading it tells them apart.
 - The term is *Letter page*, since *Page* is taken. Mine; say if you
   would rather rename the received *Page*.
 - No ADR.
