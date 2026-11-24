@@ -218,8 +218,8 @@ transcribed, typed, edited and sent on twice.
 
 ## Done when
 
-- [ ] tests express the acceptance tables and pass
+- [x] tests express the acceptance tables and pass
 - [ ] spec updated (the format statement's *Writings received*; glossary; README)
-- [ ] ADR written if a fork was resolved
-- [ ] changelog fragment
+- [x] ADR written if a fork was resolved (none was)
+- [x] changelog fragment
 - [ ] issue closed with a link to the release

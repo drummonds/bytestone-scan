@@ -36,8 +36,9 @@ var WrittenSources = []string{"family", "writing"}
 // WritingImport is what the operator brings in: one piece of writing as
 // received, a Word document or plain text.
 type WritingImport struct {
-	File string // the name as sent
-	Data io.Reader
+	File  string // the name as sent
+	Title string // blank for the file's name without its extension
+	Data  io.Reader
 }
 
 // ReceivedFile is a writing's file as it came, for the record only: the
@@ -181,7 +182,10 @@ func (b *Batch) NewWriting(in WritingImport, now time.Time) (*Scan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
-	title := oneLine(strings.TrimSuffix(name, filepath.Ext(name)))
+	title := oneLine(in.Title)
+	if title == "" {
+		title = oneLine(strings.TrimSuffix(name, filepath.Ext(name)))
+	}
 	l, err := b.newScan(title, now)
 	if err != nil {
 		return nil, err

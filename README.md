@@ -135,6 +135,39 @@ index at the front, a remux when the file is that already and a
 transcode otherwise. It needs `ffmpeg` and `ffprobe` on the path;
 without them *Import a film* says so and refuses.
 
+A piece of writing received as writing, a memoir typed in Word, a family
+history, a eulogy, is imported too
+(story [190](docs/stories/190-import-a-written-account-received-as-a-word.md);
+the format statement's *Writings received* section). *Import a writing*
+on the batch page (or *Import a writing instead* on New batch) takes one
+`.docx` or `.txt` and a title, the file's name when left blank, as a
+*writing import* among the batch's scans. It is the one import that
+converts: a Word document is a container, not a text, so its words are
+taken out into djot and the djot is the master. *Convert*
+(`internal/writing`) is an allowlist: headings, paragraphs, bold and
+italic, list items, line breaks, links to `http`, `https` and `mailto`,
+footnotes and endnotes are carried, tracked changes read as accepted, and
+what the text holds is escaped so that it means itself in djot; pictures,
+tables (their cells' text kept, as paragraphs) and embedded or linked
+objects are counted as *left out*. The document is read as a zip of XML
+and only for its text, each part up to 32 MiB, never opened with Word or
+any office program; a `.docm`, or a document holding a macro project, is
+refused. Plain text is UTF-8 when its bytes are valid UTF-8 and
+Windows-1252 otherwise, its paragraphs parted at blank lines. The
+operator *reads* the page as the site will make it (life-weaver's
+`writing` package renders it, so it is the very page), with the count of
+words and notes and what was left out, and goes on under the title or
+cancels; the djot is not edited. Then who the writing names, as author
+or subject, each a person of the register; when it was written; and its
+*transmission*, a row a hand: its part (transcribed, typed, edited, kept,
+sent), a person picked or a name typed, a date and a note, the rows
+added, removed and reordered. Nothing known is an answer. The writing is
+an item of kind `writing`: `writing.dj` and `writing.yaml` and no other
+file, with no renditions. The received file is deleted from staging once
+the bag is written; its name, size, sha256 and what was left out stay in
+the record. The same file converts to the same bytes, so the archive
+refuses a second deposit of it as a duplicate.
+
 Batches, the bags awaiting the archive, recordings and the workflow
 database live under `-staging` (default `~/.local/share/bytestone-scan`).
 The scanner runs for one archive instance, UAT unless `-instance` names
@@ -199,8 +232,8 @@ photos by how they stand with the archive, what staging holds and the
 runs in the workflow database. `GET /status` says the same as JSON for
 life-weaver's status page (story 115): `version`, `instance` (the archive
 instance the scanner runs for), `staging` (the root), `batches` by state,
-`scans`, `photos` (`held`, `pending`, `rejected`: every item, a letter
-or a film among them), `usage` (each entry at
+`scans`, `photos` (`held`, `pending`, `rejected`: every item, a letter,
+a film or a writing among them), `usage` (each entry at
 the staging root, `name` and `bytes`), `total` bytes, and `error` when
 the archive is not answering or staging cannot be read; the runs stay
 on the page.

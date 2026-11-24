@@ -338,3 +338,26 @@ func TestConvertRefusesADocumentPastTheLimit(t *testing.T) {
 		t.Errorf("a text past the limit: %v, want refused", err)
 	}
 }
+
+func TestWhatWasLeftOutInALine(t *testing.T) {
+	for want, l := range map[string]writing.LeftOut{
+		"":                                 {},
+		"1 picture left out":               {Pictures: 1},
+		"2 tables left out":                {Tables: 2},
+		"1 picture and 3 objects left out": {Pictures: 1, Objects: 3},
+		"2 pictures, 1 table and 1 object left out": {Pictures: 2, Tables: 1, Objects: 1},
+	} {
+		if got := l.String(); got != want {
+			t.Errorf("%+v: %q, want %q", l, got, want)
+		}
+	}
+}
+
+func TestCountWordsAndNotes(t *testing.T) {
+	if words, notes := writing.Count(convert(t, "a.docx", Sample(t)).Djot); words != 13 || notes != 1 {
+		t.Errorf("%d words, %d notes: want 13 and 1", words, notes)
+	}
+	if words, notes := writing.Count([]byte("One two.\n\nThree.\n")); words != 3 || notes != 0 {
+		t.Errorf("%d words, %d notes: want 3 and none", words, notes)
+	}
+}
