@@ -44,6 +44,8 @@ func (o Orphan) String() string {
 		return "run letter " + o.Run.Key
 	case o.Run.WorkflowType == FilmWorkflow:
 		return "run film " + o.Run.Key
+	case o.Run.WorkflowType == WritingWorkflow:
+		return "run writing " + o.Run.Key
 	default:
 		return "run " + o.Run.Key
 	}
@@ -117,7 +119,7 @@ func orphans(ctx context.Context, root string, store wf.Store, all []*Batch) ([]
 			found = append(found, Orphan{Path: kind + "/" + e.Name()})
 		}
 	}
-	for _, t := range []wf.WorkflowType{Workflow, ScanWorkflow, PhotoWorkflow, FeedWorkflow, LetterWorkflow, FilmImportWorkflow, FilmWorkflow} {
+	for _, t := range []wf.WorkflowType{Workflow, ScanWorkflow, PhotoWorkflow, FeedWorkflow, LetterWorkflow, FilmImportWorkflow, FilmWorkflow, WritingImportWorkflow, WritingWorkflow} {
 		runs, err := store.ListRuns(ctx, wf.RunFilter{Types: []wf.WorkflowType{t}})
 		if err != nil {
 			return nil, err
@@ -126,7 +128,7 @@ func orphans(ctx context.Context, root string, store wf.Store, all []*Batch) ([]
 			r := &runs[i]
 			var orphaned bool
 			switch t {
-			case PhotoWorkflow, LetterWorkflow, FilmWorkflow:
+			case PhotoWorkflow, LetterWorkflow, FilmWorkflow, WritingWorkflow:
 				id, err := pid.Parse(r.Key)
 				orphaned = err == nil && !claimed[id]
 			default:
