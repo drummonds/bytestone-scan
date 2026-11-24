@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-11-22
+
+- The local store is as sent, and the archive is asked for what is true now (story 191): Verify no longer calls an item *differs* because the archive has corrected or renumbered its record since the deposit; the item is verified and says its record has changed, a master with another checksum being *differs* as before, and the bag in staging is compared by its masters alone. Verify and an item's page show and link the home the archive gives now, with *deposited under* the other when the person has since been given another id. An open batch whose person the register no longer holds refuses a new scan, import, feed or film import and offers *Re-home*, which names the person chosen and writes what is not yet deposited again with that home; a deposit is not sent for a home the archive does not give the id. 0 is no id: never offered or taken as a home, shown as *0, no longer an id* where an older batch names it, and a deposit answer no longer writes `duplicate_of` for an item that is no duplicate; A letter's sides are cut into pages (story 202, experimental): on the letter's page, before the feed is accepted, a side can be marked *Folded in half*, two pages left and right of its middle as turned, and each page is given its number in the order the letter is read, or marked blank. `letter.yaml` lists each side's pages, and each numbered page is a rendition, `page-NN.jpg` in its side's set, shown in reading order under *Pages*; the masters are untouched. A sheet's two sides now turn together, the other the opposite way, where a turn used to move its own side only; *This side only* turns one. Renditions are at recipe 3
+
+### Added
+
+- A letter's sides are cut into pages (story 202, experimental): on the letter's page, before the feed is accepted, a side can be marked *Folded in half*, two pages left and right of its middle as turned, and each page is given its number in the order the letter is read, or marked blank. `letter.yaml` lists each side's pages, and each numbered page is a rendition, `page-NN.jpg` in its side's set, shown in reading order under *Pages*; the masters are untouched. A sheet's two sides now turn together, the other the opposite way, where a turn used to move its own side only; *This side only* turns one. Renditions are at recipe 3 (#202)
+
+### Fixed
+
+- The local store is as sent, and the archive is asked for what is true now (story 191): Verify no longer calls an item *differs* because the archive has corrected or renumbered its record since the deposit; the item is verified and says its record has changed, a master with another checksum being *differs* as before, and the bag in staging is compared by its masters alone. Verify and an item's page show and link the home the archive gives now, with *deposited under* the other when the person has since been given another id. An open batch whose person the register no longer holds refuses a new scan, import, feed or film import and offers *Re-home*, which names the person chosen and writes what is not yet deposited again with that home; a deposit is not sent for a home the archive does not give the id. 0 is no id: never offered or taken as a home, shown as *0, no longer an id* where an older batch names it, and a deposit answer no longer writes `duplicate_of` for an item that is no duplicate (#191)
+
+## [0.39.1] - 2026-11-22
+
+- When the archive service is not answering, the refusal advises starting it with life-weaver only for a service on this machine; for one elsewhere, the hosted service above all, it says to check it is up and can be reached (story 198). `task serve` is described as for the hosted archive service, UAT on the NAS
+
+### Fixed
+
+- When the archive service is not answering, the refusal advises starting it with life-weaver only for a service on this machine; for one elsewhere, the hosted service above all, it says to check it is up and can be reached (story 198). `task serve` is described as for the hosted archive service, UAT on the NAS (#198)
+
+## [0.39.0] - 2026-11-22
+
+- `-archive URL` runs the scanner for the instance serving at the URL (story 196): the service is asked which instance it is, and the scanner's port and staging root follow from it as they do for one found on localhost, where before an `-archive` given left the scanner on `localhost:8080` with production's staging whatever it served. A service that does not answer or does not say which instance it serves is refused, and so is an `-instance` naming another than the one found there. `task serve` names the hosted archive service, UAT at `https://bytestone-uat.lan.drummonds.net`, so nothing is started to scan; `task serve:local` is the old `task serve`, an instance found on this machine
+
+### Changed
+
+- `-archive URL` runs the scanner for the instance serving at the URL (story 196): the service is asked which instance it is, and the scanner's port and staging root follow from it as they do for one found on localhost, where before an `-archive` given left the scanner on `localhost:8080` with production's staging whatever it served. A service that does not answer or does not say which instance it serves is refused, and so is an `-instance` naming another than the one found there. `task serve` names the hosted archive service, UAT at `https://bytestone-uat.lan.drummonds.net`, so nothing is started to scan; `task serve:local` is the old `task serve`, an instance found on this machine (#196)
+
+## [0.38.0] - 2026-11-22
+
+- A blank side is left out of a letter (story 181): at *arrange* each side has a *blank: leave out* mark, off unless the operator sets it. A side marked has no master and no renditions and `letter.yaml` records it as `blank: true`; a sheet blank on both sides is left out whole and the sheets after it close the gap; a letter whose every side is marked is refused. The letter's page names a side left out and the feed's page counts them, where before every side fed was kept; Research (story 193): the note of a first look at the cost and quality of reading a letter with Claude, `docs/research/2026-11-18-reading-letters-with-claude.md`, and the spike that made its figures, `spike/reading/`, a module of its own outside the scanner's build. Nothing in the scanner changes
+
+### Added
+
+- Research (story 193): the note of a first look at the cost and quality of reading a letter with Claude, `docs/research/2026-11-18-reading-letters-with-claude.md`, and the spike that made its figures, `spike/reading/`, a module of its own outside the scanner's build. Nothing in the scanner changes (#193)
+
+### Changed
+
+- A blank side is left out of a letter (story 181): at *arrange* each side has a *blank: leave out* mark, off unless the operator sets it. A side marked has no master and no renditions and `letter.yaml` records it as `blank: true`; a sheet blank on both sides is left out whole and the sheets after it close the gap; a letter whose every side is marked is refused. The letter's page names a side left out and the feed's page counts them, where before every side fed was kept (#181)
+
 ## [0.37.0] - 2026-11-18
 
 - A scan or a feed is not begun when its scanner is not connected (story 185): *New batch*, *Do one more scan* and *Scan letters* look for the 4990 or the FF-680W first and, without it, record nothing and show the form again with the reason, where before a batch was left in the Queue with a failed scan that had to be deleted; a batch's page says *Prints scanned at* its ppi and *Letters fed at* 600 ppi, 8 bits, where before it said *Scanned at* the bed's ppi for a batch of letters; the batch's workflow is named *Archive a batch*; The scanner has its own icon on its pages' tab (story 186): a flatbed scanner with its lid up over a picture, where before it showed the stock lofigui icon

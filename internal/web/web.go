@@ -367,7 +367,7 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 	c.HTML(fmt.Sprintf(`<h1 class="title">Batch %s</h1>
 <p class="subtitle">%s</p>
 <table class="table"><tbody>
-<tr><th>Home</th><td>%s (%s)</td></tr>
+<tr><th>Home</th><td>%s</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
 <tr><th>Prints scanned at</th><td>%d ppi</td></tr>
@@ -375,12 +375,16 @@ func (a *App) batchPage(r *http.Request, b *batch.Batch) string {
 <tr><th>Started</th><td>%s</td></tr>
 <tr><th>Files</th><td><code>%s</code></td></tr>
 </tbody></table>`, html.EscapeString(b.ID), html.EscapeString(b.Title),
-		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
+		homeText(b.PersonName, b.Person), orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		b.ScanPPI, batch.FeedPPI, batch.FeedDepth, b.Created.Local().Format("2 Jan 2006 15:04"), html.EscapeString(b.Dir())))
 	scans, err := b.Scans()
 	if err != nil {
 		c.HTML(`<div class="notification is-danger">` + html.EscapeString(err.Error()) + `</div>`)
 		return c.Buffer()
+	}
+	// #191: a person the register no longer holds; nothing new until re-homed
+	if err := b.Homed(a.Archive); err != nil && !b.Finished() {
+		c.HTML(danger(err) + `<div class="buttons">` + rehomeLink(b) + `</div>`)
 	}
 	c.HTML(a.batchSteps(ctx, b, scans))
 	var t strings.Builder
@@ -547,13 +551,13 @@ func (a *App) scanPage(r *http.Request, l *batch.Scan) string {
 <p class="subtitle">%s</p>
 <table class="table"><tbody>
 <tr><th>Batch</th><td>%s</td></tr>
-<tr><th>Home</th><td>%s (%s)</td></tr>
+<tr><th>Home</th><td>%s</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
 %s
 <tr><th>Started</th><td>%s</td></tr>
 </tbody></table>`, kind(l), l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), html.EscapeString(b.Title),
-		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
+		homeText(b.PersonName, b.Person), orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		capture, l.Created.Local().Format("2 Jan 2006 15:04")))
 	if dots := a.runDots(r.Context(), l.Type(), l.Key()); dots != "" {
 		c.HTML(`<p>` + dots + ` ` + a.scanDots(r.Context(), l) + `</p>`)
@@ -867,7 +871,7 @@ func (a *App) qualityPage(r *http.Request, id pid.ID, p batch.Photo, img *master
 		review = `<span class="tag is-danger">yes</span>`
 	}
 	rows := [][2]string{
-		{"Home", html.EscapeString(fmt.Sprintf("%s (%s)", p.Home.Name, p.Home.ID))},
+		{"Home", a.homeNow(id, p.Home)},
 		{"Provenance", orUnknown(p.Provenance)},
 		{"Credit", html.EscapeString(p.Credit)},
 		{"Print", fmt.Sprintf("%.1f × %.1f mm", s.Print.W, s.Print.H)},
@@ -927,10 +931,14 @@ func (a *App) itemArchive(ctx context.Context, id pid.ID, typ wf.WorkflowType, r
 		}
 		return `<h2 class="title is-6 mt-4">Archive</h2><p class="help">Not yet deposited.</p>`
 	case d.Status == "duplicate":
-		return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Rejected by the archive: %s is a duplicate of item <code>%s</code> (home %s). The %s ends here; its bag stays in staging.</p>`,
-			html.EscapeString(d.File), d.DuplicateOf, d.Home, noun)
+		of := fmt.Sprintf("item <code>%s</code> (home %s)", d.DuplicateOf, d.Home)
+		if d.DuplicateOf == 0 {
+			of = "an item whose id is gone" // an older answer: 0 is no id (#191)
+		}
+		return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p class="has-text-danger">Rejected by the archive: %s is a duplicate of %s. The %s ends here; its bag stays in staging.</p>`,
+			html.EscapeString(d.File), of, noun)
 	}
-	return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p>Held by the archive since %s: item <code>%s</code>, home %s, %d files, checksums matching.</p>`,
+	return fmt.Sprintf(`<h2 class="title is-6 mt-4">Archive</h2><p>Held by the archive since %s: item <code>%s</code>, deposited under home %s, %d files, checksums matching.</p>`,
 		d.At.Local().Format("2 Jan 2006 15:04"), id, d.Home, len(d.Payload))
 }
 
@@ -1072,14 +1080,19 @@ func histogram(h quality.Histogram) string {
 	return b.String()
 }
 
-// renditionDir is where the photo's renditions at the latest recipe made
-// for it are kept: the current recipe's, or, until the photo is
-// re-developed, an earlier recipe's.
+// renditionDir is where the item's renditions at the latest recipe made
+// for it are kept: the current recipe's, or, until the item is
+// re-developed, an earlier recipe's. A photo's recipe sits in the
+// directory itself, a letter's one in each side's set under it.
 func (a *App) renditionDir(id pid.ID) string {
 	root := filepath.Join(a.Staging, "renditions", id.String())
 	latest := rendition.Version
 	for v := rendition.Version; v >= 1; v-- {
-		if _, err := os.Stat(filepath.Join(root, strconv.Itoa(v), "recipe.yaml")); err == nil {
+		dir := filepath.Join(root, strconv.Itoa(v))
+		_, err := os.Stat(filepath.Join(dir, "recipe.yaml"))
+		// a photo's back has a set of its own, which does not stand for the photo
+		sides, _ := filepath.Glob(filepath.Join(dir, "sheet-*", "recipe.yaml"))
+		if err == nil || len(sides) > 0 {
 			latest = v
 			break
 		}

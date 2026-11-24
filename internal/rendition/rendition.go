@@ -25,13 +25,14 @@ import (
 // Version is the recipe: how renditions are made. A change to what this
 // package does to a master is a new version, so renditions made before it
 // are told apart from those made after.
-const Version = 2
+const Version = 3
 
 // The renditions' sizes, in pixels.
 const (
 	DisplayW, DisplayH = 1920, 1080 // the display image fits within this
 	ThumbEdge          = 200        // the thumbnail's long edge
 	TinyEdge           = 64         // the tiny thumbnail's long edge
+	PageEdge           = 2400       // a letter page's long edge: it is read, so larger than the display
 )
 
 // maxDeskew is the most a print is turned to square, in degrees: beyond
@@ -68,12 +69,45 @@ type Recipe struct {
 	Black      uint16   `yaml:"black"`       // the master level shown as black
 	White      uint16   `yaml:"white"`       // the master level shown as white
 	Display    Size     `yaml:"display"`
+	Pages      []int    `yaml:"pages,omitempty"` // a letter's side: the number of each page cut from it, left to right; 0 for a blank one, not pictured
 	Flags      []string `yaml:"flags,omitempty"` // what the operator should look at
 }
 
 // Images are the renditions of one master.
 type Images struct {
 	Display, Thumb, Tiny image.Image
+	Pages                []PageImage // a letter's side: its numbered pages
+}
+
+// PageImage is the picture of one letter page: its number in the letter
+// and the page cut from its side.
+type PageImage struct {
+	N     int
+	Image image.Image
+}
+
+// PageFile is the name of page n's picture in its side's renditions.
+func PageFile(n int) string { return fmt.Sprintf("page-%02d.jpg", n) }
+
+// Pages cuts a side's letter pages from side, the side as turned:
+// numbers has one entry for each page, left to right, so one page is the
+// whole side and two are the halves left and right of its middle. A page
+// numbered 0 is blank and not pictured. Each picture is scaled to a long
+// edge of PageEdge, never up.
+func Pages(side image.Image, numbers []int) []PageImage {
+	b := side.Bounds()
+	var pages []PageImage
+	for i, n := range numbers {
+		if n == 0 {
+			continue
+		}
+		cut := image.Rect(b.Min.X+b.Dx()*i/len(numbers), b.Min.Y, b.Min.X+b.Dx()*(i+1)/len(numbers), b.Max.Y)
+		scale := min(float64(PageEdge)/float64(max(cut.Dx(), cut.Dy())), 1)
+		out := image.NewRGBA(image.Rect(0, 0, max(1, int(math.Round(float64(cut.Dx())*scale))), max(1, int(math.Round(float64(cut.Dy())*scale)))))
+		draw.CatmullRom.Scale(out, out.Bounds(), side, cut, draw.Src, nil)
+		pages = append(pages, PageImage{N: n, Image: out})
+	}
+	return pages
 }
 
 // Measurement is the print as measured on the master.
@@ -507,7 +541,8 @@ func fitLongEdge(img *image.RGBA, edge int) image.Image {
 	return out
 }
 
-// Save writes the renditions and recipe.yaml under dir.
+// Save writes the renditions, a letter side's page pictures among them,
+// and recipe.yaml under dir.
 func Save(dir string, r Recipe, img Images) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -519,6 +554,13 @@ func Save(dir string, r Recipe, img Images) error {
 	}{{"display.jpg", img.Display, 90}, {"thumb.jpg", img.Thumb, 85}, {"tiny.jpg", img.Tiny, 80}} {
 		if err := writeAtomic(filepath.Join(dir, f.name), func(w io.Writer) error {
 			return jpeg.Encode(w, f.img, &jpeg.Options{Quality: f.quality})
+		}); err != nil {
+			return err
+		}
+	}
+	for _, p := range img.Pages {
+		if err := writeAtomic(filepath.Join(dir, PageFile(p.N)), func(w io.Writer) error {
+			return jpeg.Encode(w, p.Image, &jpeg.Options{Quality: 90})
 		}); err != nil {
 			return err
 		}

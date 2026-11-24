@@ -2,6 +2,7 @@ package rendition
 
 import (
 	"image"
+	"image/color"
 	"image/jpeg"
 	"math"
 	"os"
@@ -207,7 +208,7 @@ func TestSaveWritesTheRenditions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"version: 2", "master: abc123", "black:", "white:", "skew:", "print:"} {
+	for _, want := range []string{"version: 3", "master: abc123", "black:", "white:", "skew:", "print:"} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("recipe.yaml lacks %q:\n%s", want, raw)
 		}
@@ -400,5 +401,67 @@ func TestDevelopTurns(t *testing.T) {
 				t.Errorf("angle %v turn %d: display %v, want taller than wide", tc.angle, tc.turn, b)
 			}
 		}
+	}
+}
+
+// Story 202: a side's letter pages are cut from the side as turned: one
+// page the whole of it, two the halves left and right of its middle; a
+// page with no number, a blank one, is not pictured. A page is read, so
+// its picture is larger than the display and never scaled up.
+func TestPagesAreCutAtTheMiddleOfTheSide(t *testing.T) {
+	side := image.NewRGBA(image.Rect(0, 0, 3000, 2000))
+	for y := range 2000 {
+		for x := range 3000 {
+			v := uint8(50)
+			if x >= 1500 {
+				v = 200
+			}
+			side.SetRGBA(x, y, color.RGBA{v, v, v, 255})
+		}
+	}
+	level := func(img image.Image) uint32 {
+		b := img.Bounds()
+		r, _, _, _ := img.At(b.Min.X+b.Dx()/2, b.Min.Y+b.Dy()/2).RGBA()
+		return r >> 8
+	}
+	two := Pages(side, []int{4, 1})
+	if len(two) != 2 || two[0].N != 4 || two[1].N != 1 {
+		t.Fatalf("two pages %+v, want 4 then 1, left to right", two)
+	}
+	for i, want := range []uint32{50, 200} {
+		if got := two[i].Image.Bounds().Size(); got != image.Pt(1500, 2000) {
+			t.Errorf("page %d is %v, want half the side, 1500 × 2000, not scaled up", two[i].N, got)
+		}
+		if got := level(two[i].Image); got < want-3 || got > want+3 {
+			t.Errorf("page %d has level %d, want %d: the left half is the first page listed", two[i].N, got, want)
+		}
+	}
+	if blank := Pages(side, []int{0, 3}); len(blank) != 1 || blank[0].N != 3 || level(blank[0].Image) < 197 {
+		t.Errorf("with the left page blank: %+v, want the right page alone", blank)
+	}
+	one := Pages(side, []int{2})
+	if len(one) != 1 || one[0].N != 2 || one[0].Image.Bounds().Size() != image.Pt(PageEdge, PageEdge*2/3) {
+		t.Errorf("one page %+v, want the whole side fit to a long edge of %d", one, PageEdge)
+	}
+
+	r, imgs := Whole(side)
+	r.Pages, imgs.Pages = []int{0, 3}, Pages(side, []int{0, 3})
+	dir := t.TempDir()
+	if err := Save(dir, r, imgs); err != nil {
+		t.Fatal(err)
+	}
+	if PageFile(3) != "page-03.jpg" {
+		t.Errorf("page 3's file is %s", PageFile(3))
+	}
+	fh, err := os.Open(filepath.Join(dir, "page-03.jpg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fh.Close()
+	if _, err := jpeg.Decode(fh); err != nil {
+		t.Error(err)
+	}
+	if again, err := Load(dir); err != nil || again.Version != 3 || len(again.Pages) != 2 || again.Pages[1] != 3 {
+		t.Errorf("recipe %+v, %v: want version 3 and its pages", again, err)
 	}
 }

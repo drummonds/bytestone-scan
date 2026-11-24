@@ -135,3 +135,75 @@ func (c *counter) Write(p []byte) (int, error) {
 	c.n += int64(n)
 	return n, err
 }
+
+// Replace writes the payload file name of the complete bag again, as
+// body, and brings the bag's manifests and Payload-Oxum after it: how a
+// record is corrected before the bag is deposited. The other payload
+// files are not read. Done again after being cut short, it ends the same.
+func Replace(root string, id pid.ID, name string, body []byte) error {
+	d := dir(root, id)
+	file := filepath.Join(d, "data", name)
+	if _, err := os.Stat(file); err != nil {
+		return fmt.Errorf("photo %s: %w", id, err)
+	}
+	if err := writeFile(file, body); err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(filepath.Join(d, "manifest-sha256.txt"))
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(body)
+	lines := strings.SplitAfter(string(raw), "\n")
+	for i, line := range lines {
+		if f := strings.Fields(line); len(f) == 2 && f[1] == "data/"+name {
+			lines[i] = hex.EncodeToString(sum[:]) + "  data/" + name + "\n"
+		}
+	}
+	manifest := strings.Join(lines, "")
+	entries, err := os.ReadDir(filepath.Join(d, "data"))
+	if err != nil {
+		return err
+	}
+	var octets int64
+	for _, e := range entries {
+		fi, err := e.Info()
+		if err != nil {
+			return err
+		}
+		octets += fi.Size()
+	}
+	raw, err = os.ReadFile(filepath.Join(d, "bag-info.txt"))
+	if err != nil {
+		return err
+	}
+	lines = strings.SplitAfter(string(raw), "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "Payload-Oxum:") {
+			lines[i] = fmt.Sprintf("Payload-Oxum: %d.%d\n", octets, len(entries))
+		}
+	}
+	info := strings.Join(lines, "")
+	bagit, err := os.ReadFile(filepath.Join(d, "bagit.txt"))
+	if err != nil {
+		return err
+	}
+	var tagManifest strings.Builder
+	for _, t := range []struct{ name, body string }{{"bagit.txt", string(bagit)}, {"bag-info.txt", info}, {"manifest-sha256.txt", manifest}} {
+		if err := writeFile(filepath.Join(d, t.name), []byte(t.body)); err != nil {
+			return err
+		}
+		h := sha256.Sum256([]byte(t.body))
+		fmt.Fprintf(&tagManifest, "%s  %s\n", hex.EncodeToString(h[:]), t.name)
+	}
+	return writeFile(filepath.Join(d, "tagmanifest-sha256.txt"), []byte(tagManifest.String()))
+}
+
+// writeFile writes path through a temporary file renamed into place.
+func writeFile(path string, body []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}

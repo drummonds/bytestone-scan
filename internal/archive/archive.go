@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -104,6 +106,25 @@ func Discover(urls []string) []Serving {
 	return out
 }
 
+// At asks the service at url which instance it serves: how the scanner
+// is run for a service that is not on this machine (-archive), the
+// hosted one above all (life-weaver story 188). A service that does not
+// answer, or does not name its instance, is refused: the scanner's port
+// and staging follow from the instance.
+func At(url string) (Serving, error) {
+	in, err := (Client{URL: url, Timeout: 5 * time.Second}).Instance()
+	if errors.Is(err, errNotFound) {
+		return Serving{}, fmt.Errorf("there is no archive service at %s (life-weaver serve)", url)
+	}
+	if err != nil {
+		return Serving{}, err
+	}
+	if in.Name == "" {
+		return Serving{}, fmt.Errorf("the archive service at %s does not say which instance it serves", url)
+	}
+	return Serving{URL: url, Instance: in}, nil
+}
+
 // Choose picks the instance the scanner was started for among those
 // found: the one named, or the UAT instance when none was named, since
 // that is where every depositor writes (life-weaver story 026); production
@@ -122,9 +143,9 @@ func Choose(name string, found []Serving) (Serving, error) {
 		what = strings.Join(names, ", ")
 	}
 	if name == "" {
-		return Serving{}, fmt.Errorf("no UAT archive is serving on localhost:%d-%d (found: %s): start it with task serve in life-weaver, or run the scanner for another with -instance", BasePort, BasePort+Slots-1, what)
+		return Serving{}, fmt.Errorf("no UAT archive is serving on localhost:%d-%d (found: %s): start it with task serve in life-weaver, run the scanner for another with -instance, or name a service elsewhere with -archive URL", BasePort, BasePort+Slots-1, what)
 	}
-	return Serving{}, fmt.Errorf("archive instance %s is not serving on localhost:%d-%d (found: %s): start it with life-weaver serve -archive <its tree>", name, BasePort, BasePort+Slots-1, what)
+	return Serving{}, fmt.Errorf("archive instance %s is not serving on localhost:%d-%d (found: %s): start it with life-weaver serve -archive <its tree>, or name a service elsewhere with -archive URL", name, BasePort, BasePort+Slots-1, what)
 }
 
 // Production says whether the instance is the real archive.
@@ -264,7 +285,7 @@ func (c Client) Person(id pid.ID) (string, error) {
 	var e entry
 	err := c.call(http.MethodGet, "/people/"+id.String(), nil, &e)
 	if errors.Is(err, errNotFound) {
-		return "", fmt.Errorf("person %s is not in the register at %s", id, c.URL)
+		return "", fmt.Errorf("person %s is %w at %s", id, ErrNotRegistered, c.URL)
 	}
 	if err != nil {
 		return "", fmt.Errorf("person %s: %w", id, err)
@@ -330,6 +351,10 @@ func (c Client) Fixity(item pid.ID) (Fixity, error) {
 
 var errNotFound = errors.New("not found")
 
+// ErrNotRegistered is the register's answer for a person it does not
+// hold: one never there, or since given another id. Person wraps it.
+var ErrNotRegistered = errors.New("not in the register")
+
 // ErrUnknown is the archive's answer for an item id it has never given
 // out, or has lost: Receipt wraps it, and Fixity, which an archive from
 // before the call answers the same way.
@@ -347,7 +372,11 @@ func (c Client) call(method, path string, body io.Reader, v any) error {
 	}
 	resp, err := (&http.Client{Timeout: c.Timeout}).Do(req)
 	if err != nil {
-		return fmt.Errorf("the archive service at %s is not answering (start it with life-weaver serve, or task serve in life-weaver): %w", c.URL, err)
+		advice := "check it is up and can be reached from this machine"
+		if u, perr := url.Parse(c.URL); perr == nil && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback()) {
+			advice = "start it with life-weaver serve, or task serve in life-weaver"
+		}
+		return fmt.Errorf("the archive service at %s is not answering (%s): %w", c.URL, advice, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {

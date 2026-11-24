@@ -17,7 +17,7 @@ run from a web UI: stories [001](docs/stories/001-capture-fronts.md) and
 ## Use
 
 ```sh
-task serve      # or: bytestone-scan serve, then open http://localhost:8080
+task serve      # for the hosted UAT archive; then open http://localhost:8081
 ```
 
 At startup it says where it serves, then which scanners it found:
@@ -87,12 +87,30 @@ the driver fills below the paper's end is left off (story
 the feeder hands its pictures over as JPEG, quality 90, which the master
 holds decoded. The operator then arranges the sheets into letters,
 saying which sheet is which letter's and which is an envelope; one load
-is usually one letter. Each letter is an item of kind `letter`: every
-side kept whole as a master, `sheet-01-front.tif`, `sheet-01-back.tif`,
-…, with `letter.yaml`, a set of renditions per side, turned as the
-operator says on the letter's page before accepting. Cutting the pages
-out of a sheet, the reading-order PDF and the transcription are later,
-on renditions. The feeder is found among `scanimage -L` as the `epsonds`
+is usually one letter, and marking any side that is blank: a side so
+marked is left out of the letter and `letter.yaml` records it as
+`blank: true` with no file, a sheet blank on both sides is left out
+whole, and a letter needs at least one side (story
+[181](docs/stories/181-a-blank-side-is-left-out-of-a-letter-the-operator.md)).
+Nothing is marked for the operator. Each letter is an item of kind
+`letter`: every side kept, whole, as a master, `sheet-01-front.tif`,
+`sheet-01-back.tif`, …, with `letter.yaml`, a set of renditions per kept
+side, turned as the operator says on the letter's page before accepting.
+
+A sheet is not a page, so on the letter's page, before accepting, the
+operator also lays the letter out as it is read (story
+[202](docs/stories/202-a-letter-s-sides-are-cut-into-pages-the-operator.md);
+experimental). A side is one *letter page*, or two when marked *Folded
+in half*, left and right of the middle of the side as turned; each page
+is given its number in the reading order, from 1 with no gap, or marked
+blank. A sheet's two sides turn and fold together, the back the opposite
+way, since the feeder sees it flipped; *This side only* turns one.
+`letter.yaml` lists each side's pages left to right, and each numbered
+page is a rendition, `page-NN.jpg` in its side's set, cut from the
+master, which is untouched; *Pages* on the letter's page shows them in
+reading order. The cut is at the middle, not at the fold found. A letter
+accepted before this is one page a side in sheet order. The text of each
+page and a reading-order PDF are later. The feeder is found among `scanimage -L` as the `epsonds`
 device, USB first; without it a feed fails at its first step and says so.
 
 A film received, one file digitised by someone else, is imported
@@ -124,11 +142,18 @@ another (`bytestone-scan serve -instance h3`): every depositor writes UAT,
 and items are promoted to production from there. It finds the instance
 among the life-weaver services on `localhost:8321-8330`, one port per
 slot, and refuses to start when it is not serving, saying what it found.
+`-archive URL` names a service elsewhere instead, and the scanner runs
+for the instance serving there: `task serve` names the hosted service,
+UAT on the NAS at `https://bytestone-uat.lan.drummonds.net` (life-weaver
+story 188), so nothing is started to scan; `task serve:local` looks on
+this machine. A service that does not answer or does not say which
+instance it serves is refused, and so is an `-instance` that names
+another than the one found there.
 Its own address and staging root follow from the slot: production on
 `localhost:8080` with the default staging, any other on `8080+slot` with
 `~/.local/share/bytestone-scan-<instance>` (UAT on `8081`), so a scratch
-batch's masters never land in production's staging. `-archive URL`,
-`-addr` and `-staging` each override their part. The navbar names the
+batch's masters never land in production's staging. `-addr` and
+`-staging` each override their part. The navbar names the
 instance in use, in warning colours when it is not UAT. The archive service (`life-weaver
 serve`, or `task serve` in life-weaver) is where people come from, where
 photo ids are reserved and where bags are deposited. An id it gives out
@@ -140,12 +165,24 @@ item, move the files away, and Retry takes the next id.
 `bytestone-scan verify BATCH[/SCAN]` asks the archive afresh whether it
 still holds each photo of the scan, or of every scan of the batch, as it
 was receipted: each item's receipt is compared, checksum for checksum,
-with the one taken at deposit and with the bag while it is still in
-staging, nothing being downloaded. A completed scan's page offers the
+with the one taken at deposit and, for the masters, with the bag while
+it is still in staging, nothing being downloaded. A record the archive
+has corrected or renumbered since the deposit is no fault: the item is
+verified, and says its record has changed. A completed scan's page offers the
 same as *Verify against the archive*, and asks i.bytestone.uk and
 i.bytestone.org as well whether each held item's page is there: an item
 reaches the first at life-weaver's `task publish` and the second at its
 `task promote`.
+
+What the local store holds of a deposited item is as sent, and is never
+rewritten to follow the archive: Verify and the item's page ask the
+archive for the home now, and say *deposited under* the other when the
+person has since been given another id. An open batch whose person the
+register no longer holds begins nothing new and deposits nothing until
+it is re-homed, on its page: *Re-home* asks for the person, and what is
+not yet deposited is written again with that home. 0 is no id: it is
+never offered or taken as a home (story
+[191](docs/stories/191-the-scanner-s-local-store-still-names-person-0-as.md)).
 
 Without the scanner, run the UI on a recorded print: `bytestone-scan
 capture -print <name>` records the one print on the bed (its preview and

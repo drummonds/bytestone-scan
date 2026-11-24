@@ -45,7 +45,7 @@ func TestTurnARenditionAtTheQualityCheck(t *testing.T) {
 		t.Error("a turn of 45° accepted")
 	}
 	// the rendition is redrawn after a turn: the browser must not keep it
-	if cc := get(t, h, "/photos/0/renditions/2/display.jpg").Header().Get("Cache-Control"); cc != "no-store" {
+	if cc := get(t, h, "/photos/0/renditions/3/display.jpg").Header().Get("Cache-Control"); cc != "no-store" {
 		t.Errorf("display.jpg Cache-Control %q", cc)
 	}
 

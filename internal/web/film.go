@@ -45,6 +45,9 @@ func (a *App) filmRoutes(mux *http.ServeMux, render func(http.ResponseWriter, st
 			fail(w, fmt.Errorf("batch %s: scanning is finished", b.ID), http.StatusUnprocessableEntity)
 			return nil, false
 		}
+		if !a.homed(w, b, render) {
+			return nil, false
+		}
 		return b, true
 	}
 	mux.HandleFunc("GET /batches/{id}/films/new", func(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +271,7 @@ func (a *App) filmImportPage(r *http.Request, l *batch.Scan) string {
 <p class="subtitle">%s</p>
 <table class="table"><tbody>
 <tr><th>Batch</th><td>%s</td></tr>
-<tr><th>Home</th><td>%s (%s)</td></tr>
+<tr><th>Home</th><td>%s</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
 <tr><th>File</th><td><code>%s</code>: %s; %s</td></tr>
@@ -276,7 +279,7 @@ func (a *App) filmImportPage(r *http.Request, l *batch.Scan) string {
 %s
 <tr><th>Imported</th><td>%s</td></tr>
 </tbody></table>`, l.N, html.EscapeString(b.ID), html.EscapeString(b.ID), html.EscapeString(l.Description), html.EscapeString(b.Title),
-		html.EscapeString(b.PersonName), b.Person, orUnknown(b.Provenance), html.EscapeString(b.Credit),
+		homeText(b.PersonName, b.Person), orUnknown(b.Provenance), html.EscapeString(b.Credit),
 		html.EscapeString(f.File), fileLine(p.Duration, p.Container, p.Video, p.Audio, p.FrameRate, p.Size), attached,
 		chapterList(p.Chapters), confirmed, l.Created.Local().Format("2 Jan 2006 15:04")))
 	if dots := a.runDots(ctx, batch.FilmImportWorkflow, l.Key()); dots != "" {
@@ -452,7 +455,7 @@ func (a *App) filmPage(r *http.Request, id pid.ID, rec batch.FilmRecord, l *batc
 <table class="table"><tbody>
 <tr><th>Batch</th><td><a href="batches/%s">%s</a></td></tr>
 <tr><th>Import</th><td><a href="%s">Film %d</a></td></tr>
-<tr><th>Home</th><td>%s (%s)</td></tr>
+<tr><th>Home</th><td>%s</td></tr>
 <tr><th>Provenance</th><td>%s</td></tr>
 <tr><th>Credit</th><td>%s</td></tr>
 <tr><th>Transfer</th><td>%s</td></tr>
@@ -462,7 +465,7 @@ func (a *App) filmPage(r *http.Request, id pid.ID, rec batch.FilmRecord, l *batc
 <tr><th>Chapters</th><td>%s</td></tr>
 <tr><th>Poster</th><td>%s</td></tr>
 </tbody></table>`, id, html.EscapeString(rec.Title), html.EscapeString(rec.Batch), html.EscapeString(rec.Batch),
-		scanURL(l.Key()), rec.Film, html.EscapeString(rec.Home.Name), rec.Home.ID, orUnknown(rec.Provenance), html.EscapeString(rec.Credit),
+		scanURL(l.Key()), rec.Film, a.homeNow(id, rec.Home), orUnknown(rec.Provenance), html.EscapeString(rec.Credit),
 		html.EscapeString(transferText(rec.Transfer)), people, made,
 		html.EscapeString(f.Name), fileLine(f.Duration, f.Container, f.Video, f.Audio, f.FrameRate, f.Size), chapterList(f.Chapters), posterText(rec.Poster)))
 	dir := a.renditionDir(id)
