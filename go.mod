@@ -6,7 +6,7 @@ require (
 	git.bytestone.uk/hum3/go-dbexplorer v0.4.0
 	git.bytestone.uk/hum3/go-postgres v0.11.0
 	git.bytestone.uk/hum3/gobank-workflow v0.17.1
-	git.bytestone.uk/hum3/life-weaver v0.60.1-0.20261124200850-5ee360461b95
+	git.bytestone.uk/hum3/life-weaver v0.61.0
 	git.bytestone.uk/hum3/lofigui v0.18.0
 	github.com/danielledeleo/djot-go v0.3.2
 	golang.org/x/image v0.47.0
