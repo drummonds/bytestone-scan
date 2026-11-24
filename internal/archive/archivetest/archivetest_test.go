@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
+	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
 )
 
 // bagOf is a deposit of a bag holding the payload files given, its
@@ -177,4 +178,51 @@ func oldBag(id string, files map[string]string) *bytes.Buffer {
 	}
 	_ = tw.Close()
 	return &buf
+}
+
+// The fake follows life-weaver's table for a writing (its stories 288,
+// 331, 336): its djot and its record alone, no renditions wanted, the
+// djot checked as the site's renderer will read it, and a duplicate by
+// the djot.
+func TestTheFakeHoldsAWritingAsItsDjotAndItsRecordAlone(t *testing.T) {
+	f := Example()
+	ids := make([]string, 6)
+	for i := range ids {
+		id, err := f.Reserve(10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = id.String()
+	}
+	deposit := func(i int, files map[string]string) (archive.Receipt, error) {
+		return f.Deposit(pid.ID(i), depositOf(ids[i], files, nil))
+	}
+	rec, err := deposit(0, map[string]string{"writing.yaml": "title: A", "writing.dj": "Some words.\n"})
+	if err != nil || rec.Status != archive.Held || rec.Kind != "writing" || len(rec.Payload) != 2 {
+		t.Fatalf("a writing: %+v, %v, want held as a writing", rec, err)
+	}
+	if len(f.Renditions[0]) != 0 {
+		t.Errorf("renditions kept for a writing: %v", f.Renditions[0])
+	}
+	var ref *archive.Refusal
+	for name, files := range map[string]map[string]string{
+		"another file":      {"writing.yaml": "title: B", "writing.dj": "Other words.\n", "writing.docx": "PK"},
+		"no djot":           {"writing.yaml": "title: B", "writing.md": "Other words.\n"},
+		"nothing to read":   {"writing.yaml": "title: B", "writing.dj": "``` =html\n<b>bold</b>\n```\n"},
+		"not UTF-8":         {"writing.yaml": "title: B", "writing.dj": "caf\xe9\n"},
+		"an account's bag":  {"account.yaml": "title: B", "account.dj": "Other words.\n"},
+		"a writing's alone": {"writing.dj": "Other words.\n"},
+	} {
+		if _, err := deposit(1, files); err == nil || errors.As(err, &ref) {
+			t.Errorf("%s: %v, want a plain error", name, err)
+		}
+	}
+	if _, err := deposit(2, map[string]string{"writing.yaml": "title: C", "writing.dj": "Some words.\n"}); !errors.As(err, &ref) ||
+		ref.Status != "duplicate" || ref.DuplicateOf != 0 || ref.File != "data/writing.dj" {
+		t.Errorf("the same djot again: %v, want a duplicate of item 0 by its djot", err)
+	}
+	// a record that reads the same is no duplicate: only the djot is compared
+	if rec, err := deposit(3, map[string]string{"writing.yaml": "title: A", "writing.dj": "Words of another.\n"}); err != nil || rec.Kind != "writing" {
+		t.Errorf("another writing under the same record: %+v, %v", rec, err)
+	}
 }

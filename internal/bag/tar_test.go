@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,5 +64,22 @@ func TestDepositIsTheBagAndItsRenditions(t *testing.T) {
 	}
 	if err := Deposit(&buf, filepath.Join(root, "7"), filepath.Join(root, "renditions", "8", "1"), 1); err == nil {
 		t.Error("a deposit without renditions on disk")
+	}
+	// a writing has no renditions: its deposit is its bag alone (story 190)
+	buf.Reset()
+	if err := Deposit(&buf, filepath.Join(root, "7"), "", 1); err != nil {
+		t.Fatal(err)
+	}
+	for tr, n := tar.NewReader(&buf), 0; ; n++ {
+		h, err := tr.Next()
+		if err == io.EOF {
+			if n != 6 {
+				t.Errorf("%d entries in a deposit of no renditions, want the bag's 6", n)
+			}
+			break
+		}
+		if err != nil || !strings.HasPrefix(h.Name, "bag/") {
+			t.Fatalf("entry %v, %v: want the bag alone", h, err)
+		}
 	}
 }

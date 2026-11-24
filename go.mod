@@ -6,8 +6,11 @@ require (
 	git.bytestone.uk/hum3/go-dbexplorer v0.4.0
 	git.bytestone.uk/hum3/go-postgres v0.11.0
 	git.bytestone.uk/hum3/gobank-workflow v0.17.1
+	git.bytestone.uk/hum3/life-weaver v0.61.0
 	git.bytestone.uk/hum3/lofigui v0.18.0
+	github.com/danielledeleo/djot-go v0.3.2
 	golang.org/x/image v0.47.0
+	golang.org/x/text v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -29,5 +32,4 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
 )

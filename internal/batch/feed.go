@@ -365,6 +365,8 @@ func (l *Scan) Type() wf.WorkflowType {
 		return FeedWorkflow
 	case l.IsFilm():
 		return FilmImportWorkflow
+	case l.IsWriting():
+		return WritingImportWorkflow
 	}
 	return ScanWorkflow
 }
@@ -379,6 +381,8 @@ func (l *Scan) itemType() wf.WorkflowType {
 		return LetterWorkflow
 	case l.IsFilm():
 		return FilmWorkflow
+	case l.IsWriting():
+		return WritingWorkflow
 	}
 	return PhotoWorkflow
 }
@@ -390,6 +394,8 @@ func (l *Scan) itemStages(id pid.ID, env Env) []wf.Stage {
 		return l.letterStages(id, env)
 	case l.IsFilm():
 		return l.filmStages(id, env)
+	case l.IsWriting():
+		return l.writingStages(id, env)
 	}
 	return l.photoStages(id, env)
 }
@@ -988,6 +994,12 @@ func (l *Scan) Items() ([]pid.ID, error) {
 			return nil, nil
 		}
 		return []pid.ID{*l.Film.ID}, nil
+	}
+	if l.IsWriting() {
+		if l.Writing.ID == nil {
+			return nil, nil
+		}
+		return []pid.ID{*l.Writing.ID}, nil
 	}
 	_, ids, err := l.Found()
 	if errors.Is(err, os.ErrNotExist) {

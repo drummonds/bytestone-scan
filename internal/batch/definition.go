@@ -16,6 +16,11 @@ const (
 	// batch's scans, and FilmWorkflow the film's under it (story 116).
 	FilmImportWorkflow wf.WorkflowType = "scan_film_import"
 	FilmWorkflow       wf.WorkflowType = "scan_film"
+	// WritingImportWorkflow is a writing import's, one received piece of
+	// writing among the batch's scans, and WritingWorkflow the writing's
+	// under it (story 190).
+	WritingImportWorkflow wf.WorkflowType = "scan_writing_import"
+	WritingWorkflow       wf.WorkflowType = "scan_writing"
 )
 
 const src = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/batch.go"
@@ -154,8 +159,42 @@ var Definitions = []wf.Definition{
 			{Name: "receipt", Description: "The archive's record of the item is read and checked against the bag, checksum for checksum, and that it is held as a film", Source: filmSrc},
 		},
 	},
+	{
+		Type: WritingImportWorkflow,
+		Purpose: wf.Purpose{
+			Name:        "Import a writing",
+			Description: "Bring one received piece of writing into a batch and archive its words, converted to djot, as a writing of the batch's home person.",
+		},
+		Description: "One piece of writing received as a Word document or plain text, numbered among the batch's scans: its words are converted to djot by allowlist, " +
+			"it waits for the operator to read the page and go on, then for the writing to be described, and starts the writing's own workflow. " +
+			"Nothing is previewed, found or cut, and the djot is not edited. A retry resumes at the first step not done; an import gone wrong is cancelled and imported again.",
+		InstanceKey: "batch id/scan",
+		Steps: []wf.Step{
+			{Name: "import", Description: "The file is held under the import with the djot converted from it: headings, paragraphs, bold and italic, list items, line breaks, links to the web and notes carried; pictures, tables and objects counted and left out; a document with macros refused", Source: writingSrc},
+			{Name: "read", Description: "Waits for the operator to read the page as the site will show it, with what was left out, and to go on under its title", Source: writingSrc},
+			{Name: "describe", Description: "Waits for the operator to say who the writing names and in what part, when it was written and the hands it passed through, nothing known being an answer; then reserves the writing's id", Source: writingSrc},
+			{Name: "writing", Description: "The writing's workflow is started", Source: writingSrc, Child: WritingWorkflow, Mode: wf.AllAtOnce, Given: "the writing's id, from which it finds its import and its djot"},
+		},
+	},
+	{
+		Type: WritingWorkflow,
+		Purpose: wf.Purpose{
+			Name:        "Archive one writing",
+			Description: "Bag one writing's djot with its record and archive it as a writing item.",
+		},
+		Description: "The writing of an import: its djot is bagged with writing.yaml and nothing else, and the file received is let go; " +
+			"it is deposited with the archive, which wants no renditions of it, and receipted. Final once bagged, since a bagged writing is never altered.",
+		InstanceKey: "writing id",
+		Steps: []wf.Step{
+			{Name: "package", Description: "The djot and writing.yaml are bagged as a writing, and the received file is deleted from staging, its name, size and sha256 kept in the record; final, since a bagged writing is never altered", Source: writingSrc},
+			{Name: "deposit", Description: "The bag alone is handed to the archive service; held, or refused as a duplicate of a writing whose djot is the same, which ends the writing", Source: writingSrc},
+			{Name: "receipt", Description: "The archive's record of the item is read and checked against the bag, checksum for checksum, and that it is held as a writing", Source: writingSrc},
+		},
+	},
 }
 
 const feedSrc = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/feed.go"
 
 const filmSrc = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/film.go"
+
+const writingSrc = "https://git.bytestone.uk/hum3/bytestone-scan/src/branch/main/internal/batch/writing.go"

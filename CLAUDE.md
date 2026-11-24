@@ -9,7 +9,8 @@ Read the global instructions first; this file adds only what is repo-specific.
 - The glossary (`internal/glossary/glossary.md`, shown on About) is the
   ubiquitous language: Item, Photo, Home, Album, Batch, Print, Side, Region,
   Preview, Detail pass, Master, Rendition; for a film: Film import, Transfer,
-  Poster, Play copy, Probe. Bag is the format a Photo is kept
+  Poster, Play copy, Probe; for a writing: Writing import, Convert, Left
+  out, Transmission. Bag is the format a Photo is kept
   in, not a term. Archive model: life-weaver#19.
 - The scanner is driven through `scanimage` (SANE `epson2`); letters go
   through the FF-680W's sheet feeder (`internal/fastfoto`, SANE
@@ -19,6 +20,12 @@ Read the global instructions first; this file adds only what is repo-specific.
   (`internal/film`), a film import among a batch's scans. Its tests run
   the real tools on films made at test time (`filmtest`), skipped where
   ffmpeg is absent: a fake cannot tell a remux from a transcode.
+- A writing received as a Word document or plain text is converted to
+  djot by allowlist (`internal/writing`), a writing import among a
+  batch's scans; the document is never opened by an office program and
+  never kept. No document goes in the repo: tests zip theirs from XML
+  (`writingtest`). The page shown is life-weaver's own rendering
+  (its `writing` package, a module dependency).
 - Images never go in the repo. Bags are built under the staging root
   (`staging/` locally, gitignored) and deposited with the archive service;
   staging holds a photo only until the archive receipts it.

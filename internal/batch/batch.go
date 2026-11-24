@@ -119,6 +119,9 @@ type Scan struct {
 	Feed *Feeding `yaml:"feed,omitempty"`
 	// Film makes the scan a film import: one received film (story 116).
 	Film *Filmed `yaml:"film,omitempty"`
+	// Writing makes the scan a writing import: one received piece of
+	// writing, converted to djot (story 190).
+	Writing *Written `yaml:"writing,omitempty"`
 
 	batch *Batch
 	root  string
@@ -1403,9 +1406,13 @@ func (b *Scan) depositItem(id pid.ID, env Env, develop func(again bool) error) e
 	if home != reserved.Home {
 		return fmt.Errorf("not sent: the batch names %s, the archive %s as the home of item %s: %w", home, reserved.Home, id, ErrRehome)
 	}
+	renditions := b.Renditions(id)
+	if b.IsWriting() {
+		renditions = "" // a writing has none: its deposit is its bag alone
+	}
 	pr, pw := io.Pipe()
 	go func() {
-		pw.CloseWithError(bag.Deposit(pw, filepath.Join(b.bags(), id.String()), b.Renditions(id), rendition.Version))
+		pw.CloseWithError(bag.Deposit(pw, filepath.Join(b.bags(), id.String()), renditions, rendition.Version))
 	}()
 	rec, err := env.Archive.Deposit(id, pr)
 	pr.Close()
@@ -1530,6 +1537,9 @@ func (b *Scan) Stages(ctx context.Context, env Env) []wf.Stage {
 	}
 	if b.IsFilm() {
 		return b.filmImportStages(env)
+	}
+	if b.IsWriting() {
+		return b.writingImportStages(env)
 	}
 	store, s, now := env.Store, env.Scanner, env.Now
 	before := []wf.Stage{
@@ -2063,7 +2073,7 @@ func (b *Scan) Found() ([]find.Print, []pid.ID, error) {
 // a feed's letters.
 func (b *Scan) items() ([]pid.ID, error) {
 	ids, err := b.Items()
-	if err != nil || b.IsFeed() || b.IsFilm() {
+	if err != nil || b.IsFeed() || b.IsFilm() || b.IsWriting() {
 		return ids, err
 	}
 	page, err := b.PageItem()

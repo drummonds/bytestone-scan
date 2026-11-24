@@ -57,7 +57,7 @@ type Check struct {
 
 // records are the files of a bag that are its record, which the archive
 // may rewrite; every other file is a master, which it never does.
-var records = []string{"data/photo.yaml", "data/page.yaml", "data/film.yaml", "data/letter.yaml"}
+var records = []string{"data/photo.yaml", "data/page.yaml", "data/film.yaml", "data/letter.yaml", "data/writing.yaml"}
 
 const changedSince = "the record has changed at the archive since the deposit"
 

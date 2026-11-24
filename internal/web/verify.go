@@ -129,6 +129,9 @@ func (a *App) verifyPage(l *batch.Scan) string {
 		if l.IsFilm() {
 			item = fmt.Sprintf(`<a href="films/%s">%s</a>`, ch.Photo, ch.Photo)
 		}
+		if l.IsWriting() {
+			item = fmt.Sprintf(`<a href="writings/%s">%s</a>`, ch.Photo, ch.Photo)
+		}
 		if ch.Page {
 			item = fmt.Sprintf(`page <code>%s</code>`, ch.Photo)
 		}

@@ -43,6 +43,8 @@ func (a *App) scanDots(ctx context.Context, l *batch.Scan) string {
 		href, noun = "letters", "letter"
 	case l.IsFilm():
 		href, noun = "films", "film"
+	case l.IsWriting():
+		href, noun = "writings", "writing"
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `<span class="dots" title="%s">`, html.EscapeString(title))

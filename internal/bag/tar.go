@@ -34,14 +34,17 @@ func Manifest(dir string) (map[string]string, error) {
 // Deposit writes a photo's deposit to w: a tar with two top-level
 // directories, bag/, the bag at bagDir relative to itself, and
 // renditions/<recipe>/, the renditions at renditionsDir (the front's, the
-// back's under back/). How the archive service takes a photo.
+// back's under back/). How the archive service takes a photo. A writing
+// has no renditions: with renditionsDir "" the deposit is the bag alone.
 func Deposit(w io.Writer, bagDir, renditionsDir string, recipe int) error {
 	tw := tar.NewWriter(w)
 	if err := add(tw, bagDir, "bag/"); err != nil {
 		return err
 	}
-	if err := add(tw, renditionsDir, "renditions/"+strconv.Itoa(recipe)+"/"); err != nil {
-		return fmt.Errorf("renditions: %w", err)
+	if renditionsDir != "" {
+		if err := add(tw, renditionsDir, "renditions/"+strconv.Itoa(recipe)+"/"); err != nil {
+			return fmt.Errorf("renditions: %w", err)
+		}
 	}
 	return tw.Close()
 }

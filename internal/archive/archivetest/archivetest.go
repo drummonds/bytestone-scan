@@ -7,6 +7,7 @@ package archivetest
 import (
 	"archive/tar"
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -19,6 +20,7 @@ import (
 
 	"git.bytestone.uk/hum3/bytestone-scan/internal/archive"
 	"git.bytestone.uk/hum3/bytestone-scan/internal/pid"
+	"git.bytestone.uk/hum3/life-weaver/writing"
 )
 
 // Fake is the service over Register, handing out item ids from Next.
@@ -178,7 +180,7 @@ func (f *Fake) Deposit(id pid.ID, deposit io.Reader) (archive.Receipt, error) {
 	if it == nil {
 		return archive.Receipt{}, fmt.Errorf("item %s is not reserved (a stand-in)", id)
 	}
-	payload, renditions, err := readDeposit(id, deposit)
+	payload, renditions, djot, err := readDeposit(id, deposit)
 	if err != nil {
 		return archive.Receipt{}, err
 	}
@@ -187,6 +189,12 @@ func (f *Fake) Deposit(id pid.ID, deposit io.Reader) (archive.Receipt, error) {
 			return archive.Receipt{}, &archive.Refusal{Status: "conflict"}
 		}
 		return receipt(id, it), nil
+	}
+	if _, ok := payload[writingRecord]; ok {
+		return f.holdWriting(id, it, payload, djot)
+	}
+	if !known(payload) {
+		return archive.Receipt{}, errors.New("bad bag: no record the archive knows, and no picture")
 	}
 	if missing := renditionsMissing(payload, renditions); missing != "" {
 		return archive.Receipt{}, &archive.Refusal{Status: "renditions", File: missing}
@@ -213,6 +221,48 @@ func (f *Fake) Deposit(id pid.ID, deposit io.Reader) (archive.Receipt, error) {
 	sort.Strings(names)
 	f.Renditions[id] = names
 	return receipt(id, it), nil
+}
+
+const (
+	writingRecord = "data/writing.yaml"
+	writingText   = "data/writing.dj"
+)
+
+// holdWriting takes a writing as life-weaver does (its stories 288, 331,
+// 336): the bag holds its djot and its record alone; the djot is checked
+// as the site's renderer will read it; one the archive holds already is a
+// duplicate; renditions sent with it are not kept.
+func (f *Fake) holdWriting(id pid.ID, it *item, payload map[string]string, djot []byte) (archive.Receipt, error) {
+	const alone = "bad bag: a writing holds its djot and its record alone: "
+	if _, ok := payload[writingText]; !ok {
+		return archive.Receipt{}, errors.New(alone + "no writing.dj")
+	}
+	for file := range payload {
+		if file != writingRecord && file != writingText {
+			return archive.Receipt{}, errors.New(alone + file + " is neither")
+		}
+	}
+	if err := writing.Check(djot); err != nil {
+		return archive.Receipt{}, fmt.Errorf("writing: %s: %w", writingText, err)
+	}
+	for other, o := range f.items {
+		if o.payload != nil && o.payload[writingText] == payload[writingText] {
+			return archive.Receipt{}, &archive.Refusal{Status: "duplicate", DuplicateOf: other, Home: o.home, File: writingText}
+		}
+	}
+	it.payload = payload
+	return receipt(id, it), nil
+}
+
+// known is whether the payload is of a kind the archive knows: it holds
+// a record, or a picture, which with no record is a photo.
+func known(payload map[string]string) bool {
+	for file := range payload {
+		if isPicture(file) || file == "data/photo.yaml" || kindOf(map[string]string{file: ""}) != "photo" {
+			return true
+		}
+	}
+	return false
 }
 
 // renditionsMissing is the first rendition file a deposit lacks, or whose
@@ -276,7 +326,7 @@ func renditionsMissing(payload, renditions map[string]string) string {
 // kindOf is what a held bag is, read off the record it holds, as
 // life-weaver reads it: a photo unless it holds another record.
 func kindOf(payload map[string]string) string {
-	for _, kind := range []string{"letter", "film", "book", "page"} {
+	for _, kind := range []string{"letter", "film", "book", "page", "writing"} {
 		if _, ok := payload["data/"+kind+".yaml"]; ok {
 			return kind
 		}
@@ -318,8 +368,9 @@ func same(a, b map[string]string) bool {
 // readDeposit reads the tar, verifies the bag's manifest over its payload
 // and that the bag is the item's, and returns the payload manifest and
 // the rendition files, relative to renditions/, with their contents.
-func readDeposit(id pid.ID, r io.Reader) (map[string]string, map[string]string, error) {
+func readDeposit(id pid.ID, r io.Reader) (map[string]string, map[string]string, []byte, error) {
 	sums, renditions := map[string]string{}, map[string]string{}
+	var djot []byte
 	var manifest, info string
 	tr := tar.NewReader(r)
 	for {
@@ -328,11 +379,11 @@ func readDeposit(id pid.ID, r io.Reader) (map[string]string, map[string]string, 
 			break
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("bad bag: not a tar: %w", err)
+			return nil, nil, nil, fmt.Errorf("bad bag: not a tar: %w", err)
 		}
 		name := path.Clean(h.Name)
 		if strings.HasPrefix(name, "..") || path.IsAbs(name) {
-			return nil, nil, fmt.Errorf("bad bag: %s is outside the deposit", h.Name)
+			return nil, nil, nil, fmt.Errorf("bad bag: %s is outside the deposit", h.Name)
 		}
 		// read in a stream, as the service does: a film is not held in memory
 		text := func() (string, error) {
@@ -346,7 +397,15 @@ func readDeposit(id pid.ID, r io.Reader) (map[string]string, map[string]string, 
 			info, err = text()
 		case strings.HasPrefix(name, "bag/data/"):
 			h := sha256.New()
-			_, err = io.Copy(h, tr)
+			var body io.Writer = h
+			var text bytes.Buffer
+			if name == "bag/"+writingText { // read, to be checked; small, where a film is not
+				body = io.MultiWriter(h, &text)
+			}
+			_, err = io.Copy(body, tr)
+			if name == "bag/"+writingText {
+				djot = text.Bytes()
+			}
 			sums[strings.TrimPrefix(name, "bag/")] = hex.EncodeToString(h.Sum(nil))
 		case strings.HasPrefix(name, "renditions/") && path.Base(name) == "recipe.yaml":
 			renditions[strings.TrimPrefix(name, "renditions/")], err = text()
@@ -355,31 +414,31 @@ func readDeposit(id pid.ID, r io.Reader) (map[string]string, map[string]string, 
 			renditions[strings.TrimPrefix(name, "renditions/")] = ""
 		}
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 	if manifest == "" {
-		return nil, nil, errors.New("bad bag: no manifest under bag/")
+		return nil, nil, nil, errors.New("bad bag: no manifest under bag/")
 	}
 	if !strings.Contains(info, "External-Identifier: "+id.String()+"\n") {
-		return nil, nil, fmt.Errorf("bad bag: not identified as item %s", id)
+		return nil, nil, nil, fmt.Errorf("bad bag: not identified as item %s", id)
 	}
 	payload := map[string]string{}
 	sc := bufio.NewScanner(strings.NewReader(manifest))
 	for sc.Scan() {
 		fields := strings.Fields(sc.Text())
 		if len(fields) != 2 {
-			return nil, nil, errors.New("bad bag: a manifest line is not <sum> <path>")
+			return nil, nil, nil, errors.New("bad bag: a manifest line is not <sum> <path>")
 		}
 		if sums[fields[1]] != strings.ToLower(fields[0]) {
-			return nil, nil, fmt.Errorf("bad bag: %s does not match its manifest", fields[1])
+			return nil, nil, nil, fmt.Errorf("bad bag: %s does not match its manifest", fields[1])
 		}
 		payload[fields[1]] = strings.ToLower(fields[0])
 	}
 	if len(payload) == 0 || len(payload) != len(sums) {
-		return nil, nil, errors.New("bad bag: the manifest and the payload differ")
+		return nil, nil, nil, errors.New("bad bag: the manifest and the payload differ")
 	}
-	return payload, renditions, nil
+	return payload, renditions, djot, nil
 }
 
 // Hold sets what the fake holds for id, for tests of verifying against
