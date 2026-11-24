@@ -13,8 +13,9 @@ import (
 // all it holds.
 type word struct {
 	styles   map[string]wordStyle
-	links    map[string]string    // a hyperlink's relationship id: its link, when to the web
-	notes    map[string]*wordNote // by kind and id
+	rels     map[string]map[string]string // by part: a hyperlink's relationship id, its link when to the web
+	links    map[string]string            // those of the part being read
+	notes    map[string]*wordNote         // by kind and id
 	blocks   []block
 	referred []note // the notes the text refers to, in the order it first does
 	left     LeftOut
@@ -145,11 +146,12 @@ func (w *word) style(id string) (level int, list bool) {
 	return level, list
 }
 
-// readRels reads a relationships part: a hyperlink to the web is kept by
-// its id; any other target outside the document, an attached template or
-// a linked object, is an object left out. A linked picture is counted
-// where it is drawn.
-func (w *word) readRels(r io.Reader) error {
+// readRels reads the relationships of the part named: a hyperlink to the
+// web is kept by its id, which is the part's own; any other target
+// outside the document, an attached template or the like, is an object
+// left out. A linked picture or object is counted where it stands in the
+// text.
+func (w *word) readRels(part string, r io.Reader) error {
 	var doc struct {
 		Rels []struct {
 			ID     string `xml:"Id,attr"`
@@ -161,21 +163,21 @@ func (w *word) readRels(r io.Reader) error {
 	if err := xml.NewDecoder(r).Decode(&doc); err != nil {
 		return err
 	}
-	first := w.links == nil // the document's own relationships come first
-	if first {
-		w.links = map[string]string{}
-	}
+	links := map[string]string{}
 	for _, rel := range doc.Rels {
-		kind := rel.Type[strings.LastIndexByte(rel.Type, '/')+1:]
-		switch {
+		switch kind := rel.Type[strings.LastIndexByte(rel.Type, '/')+1:]; {
 		case kind == "hyperlink":
-			if link := webLink(rel.Target); first && link != "" && rel.Mode == "External" {
-				w.links[rel.ID] = link
+			if link := webLink(rel.Target); link != "" && rel.Mode == "External" {
+				links[rel.ID] = link
 			}
-		case rel.Mode == "External" && kind != "image":
+		case rel.Mode == "External" && kind != "image" && kind != "oleObject":
 			w.left.Objects++
 		}
 	}
+	if w.rels == nil {
+		w.rels = map[string]map[string]string{}
+	}
+	w.rels[part] = links
 	return nil
 }
 
@@ -186,7 +188,7 @@ func (w *word) readNotes(r io.Reader, kind string) error {
 	if err := root(d); err != nil {
 		return err
 	}
-	w.inNote = true
+	w.inNote, w.links = true, w.rels[kind+"s"]
 	defer func() { w.inNote = false }()
 	return each(d, func(se xml.StartElement) (bool, error) {
 		if t := attr(se, "type"); !wml(se, kind) || t != "" && t != "normal" {
@@ -206,6 +208,7 @@ func (w *word) readDocument(r io.Reader) error {
 	if err := root(d); err != nil {
 		return err
 	}
+	w.links = w.rels["document"]
 	return each(d, func(se xml.StartElement) (bool, error) {
 		if !wml(se, "body") {
 			return false, nil

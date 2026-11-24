@@ -131,7 +131,7 @@ func fromText(r io.ReaderAt, size int64) (Text, error) {
 }
 
 // fromWord is a Word document as djot. Of the zip only the document,
-// its styles, its relationships and its footnotes and endnotes are read.
+// its styles, its footnotes and endnotes and their relationships are read.
 func fromWord(r io.ReaderAt, size int64) (Text, error) {
 	z, err := zip.NewReader(r, size)
 	if err != nil {
@@ -167,13 +167,18 @@ func fromWord(r io.ReaderAt, size int64) (Text, error) {
 		}
 		return nil
 	}
+	rels := func(part string) func(io.Reader) error {
+		return func(r io.Reader) error { return w.readRels(part, r) }
+	}
 	for _, step := range []struct {
 		name string
 		into func(io.Reader) error
 	}{
 		{"word/styles.xml", w.readStyles},
-		{"word/_rels/document.xml.rels", w.readRels},
-		{"word/_rels/settings.xml.rels", w.readRels},
+		{"word/_rels/document.xml.rels", rels("document")},
+		{"word/_rels/settings.xml.rels", rels("settings")},
+		{"word/_rels/footnotes.xml.rels", rels("footnotes")},
+		{"word/_rels/endnotes.xml.rels", rels("endnotes")},
 		{"word/footnotes.xml", func(r io.Reader) error { return w.readNotes(r, "footnote") }},
 		{"word/endnotes.xml", func(r io.Reader) error { return w.readNotes(r, "endnote") }},
 		{document, w.readDocument},

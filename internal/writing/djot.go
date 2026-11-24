@@ -124,6 +124,15 @@ const always = "\\*_`^~{}[]<>$\"'|#"
 // link around what it links, strong within it, emphasis within that.
 func inline(as []atom) string {
 	var b strings.Builder
+	// A line that begins with a brace is read as an attribute, not as
+	// text, so the mark that opens a line is written without one; a mark
+	// within a line keeps its braces, which hold whatever stands beside it.
+	mark := func(m string) (open, shut string) {
+		if s := b.String(); s == "" || strings.HasSuffix(s, "\n") {
+			return m, m
+		}
+		return "{" + m, m + "}"
+	}
 	runs(as, func(a atom) string { return a.link }, func(link string, as []atom) {
 		if link != "" {
 			b.WriteByte('[')
@@ -131,13 +140,15 @@ func inline(as []atom) string {
 		}
 		runs(as, func(a atom) bool { return a.bold }, func(bold bool, as []atom) {
 			if bold {
-				b.WriteString("{*")
-				defer b.WriteString("*}")
+				open, shut := mark("*")
+				b.WriteString(open)
+				defer func() { b.WriteString(shut) }()
 			}
 			runs(as, func(a atom) bool { return a.italic }, func(italic bool, as []atom) {
 				if italic {
-					b.WriteString("{_")
-					defer b.WriteString("_}")
+					open, shut := mark("_")
+					b.WriteString(open)
+					defer func() { b.WriteString(shut) }()
 				}
 				for _, a := range as {
 					b.WriteString(a.out)
@@ -196,7 +207,8 @@ func escaped(as []atom) []atom {
 		case '+', '(', ')':
 			esc = first
 		case ':':
-			esc = first || next != 0 && next != ' '
+			// after a note's reference it would make the line the note itself
+			esc = first || next != 0 && next != ' ' || i > 0 && as[i-1].note != ""
 		}
 		if esc {
 			a.out = "\\" + string(a.r)
