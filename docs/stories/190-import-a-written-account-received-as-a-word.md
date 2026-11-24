@@ -1,11 +1,15 @@
 # 190 — Import a written account received as a Word document or plain text: kept as an item as received, shown as an HTML page with a footnote, the people linked to it and its transmission recorded, and found by a search that starts from a person (#190)
 
-**Roadmap:** none — the format statement's *Accounts received* section is the spec; needs life-weaver story 331 (an account's master is djot) released
+**Roadmap:** none — the format statement's *Writings received* section is the spec; needs life-weaver story 336 (an account is a writing) released
 
 Rewritten 2026-11-20: the Word document is converted at import and not
 kept (the title is the issue's and still says *as received*).
-Rewritten 2026-11-22: the master is djot, `account.dj`, not Markdown;
+Rewritten 2026-11-22: the master is djot, `writing.dj`, not Markdown;
 0 is no id (story 191), so the examples name real people.
+Rewritten 2026-11-24: the item is a *writing*, not an account
+(life-weaver story 336): the kind, `writing.dj`, `writing.yaml` and
+the package follow that name. The title is the issue's and still says
+*account*.
 
 ## Why
 
@@ -29,23 +33,23 @@ as a zip of XML, and only for its text.
 
 | Term | Meaning |
 |---|---|
-| Account import | One received piece of writing brought into a batch, numbered among its scans as an import, a feed and a film import are: the file received, converted, read by the operator, described, then packaged and deposited as one account item. Its home, provenance and credit are its batch's. No preview, prints, regions, backs, develop or renditions |
-| Account | An item of kind `account` (life-weaver story 288): `data/account.dj`, the master, with `account.yaml`, and no other file; deposited and receipted as a photo is |
+| Writing import | One received piece of writing brought into a batch, numbered among its scans as an import, a feed and a film import are: the file received, converted, read by the operator, described, then packaged and deposited as one writing. Its home, provenance and credit are its batch's. No preview, prints, regions, backs, develop or renditions |
+| Writing | An item of kind `writing` (life-weaver stories 288, 336): `data/writing.dj`, the master, with `writing.yaml`, and no other file; deposited and receipted as a photo is |
 | Convert | The import step that writes the master from the received file: an allowlist, so that what is not named here has no way across. From `.docx`: headings, paragraphs, bold and italic, list items, line breaks, links to `http`, `https` and `mailto`, footnotes and endnotes. From `.txt`: its paragraphs. Every character of the text is escaped so that it means itself in djot |
 | Left out | What Convert met and did not carry: counted as pictures, tables (their cells' text is kept, as paragraphs) and objects (anything embedded or linked from outside: OLE objects, attached templates, external targets other than a web link). Shown to the operator and kept in the record |
 | Received | The file as it came, for the record only: its name, format, size and sha256. Held in staging until the bag is written, then deleted |
-| Transmission | The hands the text passed through to reach the archive, in order: each a part (transcribed, typed, edited, kept, sent), by whom, when, with a note. By whom is a person picked from the register, or a name as written. Kept in account.yaml beside the batch's provenance |
-| Written | When the account was written: one claim with its source and how it was read, as a film's made is; never taken from the file's own dates |
+| Transmission | The hands the text passed through to reach the archive, in order: each a part (transcribed, typed, edited, kept, sent), by whom, when, with a note. By whom is a person picked from the register, or a name as written. Kept in writing.yaml beside the batch's provenance |
+| Written | When the writing was written: one claim with its source and how it was read, as a film's made is; never taken from the file's own dates |
 
 ## The record
 
-account.yaml, as life-weaver story 288 reads it, with the scanner's own
+writing.yaml, as life-weaver story 288 reads it, with the scanner's own
 fields as film.yaml has them:
 
 ```yaml
 id: 7
 batch: <batch id>
-account: 1
+writing: 1
 title: Recollections of Megginch
 home: {id: 1, name: …}
 provenance: <the batch's>
@@ -67,11 +71,11 @@ received:
 
 ## What changes
 
-- **The batch page** gains *Import an account* beside *Import*, *Feed*
+- **The batch page** gains *Import a writing* beside *Import*, *Feed*
   and *Import a film*: the file (`.docx`, `.txt`) and the title, which
-  starts as the file's name without its extension. The account lists
+  starts as the file's name without its extension. The writing lists
   among the batch's scans, its one item where a scan has prints.
-- **Convert** (`internal/account`) writes the djot. A `.docx` is
+- **Convert** (`internal/writing`) writes the djot. A `.docx` is
   opened as a zip and only `word/document.xml`, its styles, its
   relationships and its footnotes and endnotes are read, each up to a
   fixed size, so a zip made to swell cannot fill the machine. Tracked
@@ -81,7 +85,7 @@ received:
   outright: it was not sent as a plain document and the operator should
   know.
 - **Read** shows the page as the site will make it from the djot
-  (life-weaver's `account` package, the module a dependency from here
+  (life-weaver's `writing` package, the module a dependency from here
   on), the count of words and notes, and what was left out, so the
   operator sees that the right file came, came whole, and what it has
   lost. The operator goes on or cancels; the djot is not edited
@@ -91,17 +95,17 @@ received:
   optional; and the transmission, a row a hand: the part, a person
   picked or a name typed, a date, a note; rows added, removed and
   reordered. Nothing is required.
-- **Package** writes the bag: `data/account.dj` and
-  `data/account.yaml`, no renditions and no recipe; then deletes the
+- **Package** writes the bag: `data/writing.dj` and
+  `data/writing.yaml`, no renditions and no recipe; then deletes the
   received file from staging.
 - **Deposit**, receipt, reject, close and verify as for a photo; verify
-  looks for the account's page on the site. `account.yaml` is a record
+  looks for the writing's page on the site. `writing.yaml` is a record
   as `photo.yaml` is (story 191): changed since at Verify is no fault,
-  and Re-home writes it again before its deposit. Purge treats the account
+  and Re-home writes it again before its deposit. Purge treats the writing
   as any scan's work files.
-- `/status` and *Statistics* count an account among the items; the
-  glossary gains Account import, Account, Convert, Left out, Received,
-  Transmission, Written; README; `archivetest` is taught the account's
+- `/status` and *Statistics* count a writing among the items; the
+  glossary gains Writing import, Writing, Convert, Left out, Received,
+  Transmission, Written; README; `archivetest` is taught the writing's
   rule. No Word document is kept in the repo: the tests zip theirs from
   XML at test time.
 
@@ -144,27 +148,27 @@ The import:
 
 | Given | When | Then |
 |---|---|---|
-| a `.docx` with a heading, two paragraphs, a footnote and a picture | Import an account | the title is the file's name; Read shows the page with note 1 at the foot, the count of words and notes, and *1 picture left out*; the account is a scan of the batch, numbered among them |
-| the title blank | confirm | refused: an account has a title |
-| a finished batch | Import an account | refused, as a scan or an import is |
+| a `.docx` with a heading, two paragraphs, a footnote and a picture | Import a writing | the title is the file's name; Read shows the page with note 1 at the foot, the count of words and notes, and *1 picture left out*; the writing is a scan of the batch, numbered among them |
+| the title blank | confirm | refused: a writing has a title |
+| a finished batch | Import a writing | refused, as a scan or an import is |
 | a role with no person picked | Describe, confirm | refused: a part needs its person |
 | a transmission row with a part and neither a person nor a name | Describe, confirm | refused: a hand needs a name |
 | a transmission row with a person picked and a name typed | Describe, confirm | refused: one or the other |
 | a transmission row with a name, no date and no note | Describe, confirm | accepted |
 | no people, no `written`, no transmission | Describe, confirm | accepted |
-| author 1, subject 2, typed by 3 in 1998, sent by *Jane Smith* on 2026-11-02, the rows in that order | Package | account.yaml as *The record*: the transmission in the order given, `by: 3` an id and `by: Jane Smith` a name; `received` the file's name, format, size, its sha256 as received, and what was left out |
-| described | Package | the bag's payload is `account.dj` and `account.yaml` and nothing else; no renditions; the received file is gone from staging and no copy of it is anywhere under the batch |
-| the same file imported twice | Package, both | the two `account.dj` are byte for byte the same |
-| packaged | Deposit | the archive receipts it `kind: account`; the bag's checksums match; verify passes |
-| receipted, `account.yaml` another checksum at the archive since | Verify | verified: the record has changed since (story 191) |
-| packaged and not deposited, the batch's person gone | Re-home | `account.yaml` written again with the home chosen; `account.dj` byte for byte the same |
-| the archive already holds the same djot | Deposit | rejected, naming the item it duplicates; the account ends as a rejected photo does |
-| a batch holding an account, closed and past its grace | purge | the account's work files go as a scan's do |
-| a batch with one account receipted | `/status`, *Statistics* | one more item counted held, among the photos as a film is |
+| author 1, subject 2, typed by 3 in 1998, sent by *Jane Smith* on 2026-11-02, the rows in that order | Package | writing.yaml as *The record*: the transmission in the order given, `by: 3` an id and `by: Jane Smith` a name; `received` the file's name, format, size, its sha256 as received, and what was left out |
+| described | Package | the bag's payload is `writing.dj` and `writing.yaml` and nothing else; no renditions; the received file is gone from staging and no copy of it is anywhere under the batch |
+| the same file imported twice | Package, both | the two `writing.dj` are byte for byte the same |
+| packaged | Deposit | the archive receipts it `kind: writing`; the bag's checksums match; verify passes |
+| receipted, `writing.yaml` another checksum at the archive since | Verify | verified: the record has changed since (story 191) |
+| packaged and not deposited, the batch's person gone | Re-home | `writing.yaml` written again with the home chosen; `writing.dj` byte for byte the same |
+| the archive already holds the same djot | Deposit | rejected, naming the item it duplicates; the writing ends as a rejected photo does |
+| a batch holding a writing, closed and past its grace | purge | the writing's work files go as a scan's do |
+| a batch with one writing receipted | `/status`, *Statistics* | one more item counted held, among the photos as a film is |
 
 ## Out of scope
 
-- The account's page, its notes and provenance note, and where it shows
+- The writing's page, its notes and provenance note, and where it shows
   on a person's page: life-weaver story 288. Its renderer passes no raw
   HTML, picture or unsafe link whatever the djot holds, so the page
   does not rest on this converter alone.
@@ -187,11 +191,11 @@ The import:
 
 ## Decisions
 
-The format statement, *Accounts received*; no ADR expected.
+The format statement, *Writings received*; no ADR expected.
 
 The master is djot (decided 2026-11-22: text the archive stores is
 djot, a letter's reading to come as well; life-weaver story 331), and
-no templating: an account is shown as written. The Word document is not kept, the one
+no templating: a writing is shown as written. The Word document is not kept, the one
 import where *kept as received* gives way: what is received is a
 program's container, not the text. Convert is an allowlist, not a
 cleaner: it names what it carries, so a thing it has never heard of is
@@ -201,7 +205,7 @@ said it was. The same file converts to the same bytes, so the archive's
 duplicate rule works on the djot; a later converter may write other
 bytes for it, and then the rule will not see the two as one.
 
-An account import is a scan of a batch, as a film import is: the batch
+A writing import is a scan of a batch, as a film import is: the batch
 carries home, provenance and credit once.
 
 The scanner takes life-weaver's module for the rendering, where until
@@ -215,7 +219,7 @@ transcribed, typed, edited and sent on twice.
 ## Done when
 
 - [ ] tests express the acceptance tables and pass
-- [ ] spec updated (the format statement's *Accounts received*; glossary; README)
+- [ ] spec updated (the format statement's *Writings received*; glossary; README)
 - [ ] ADR written if a fork was resolved
 - [ ] changelog fragment
 - [ ] issue closed with a link to the release
