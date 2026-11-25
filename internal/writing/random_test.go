@@ -45,7 +45,7 @@ func TestConvertRefusesADocumentNestedTooDeep(t *testing.T) {
 	for _, el := range []string{"w:ins", "w:tbl><w:tr><w:tc", "w:sdt><w:sdtContent"} {
 		open := "<" + el + ">"
 		var shut string
-		for _, name := range strings.Split(el, "><") {
+		for name := range strings.SplitSeq(el, "><") {
 			shut = "</" + name + ">" + shut
 		}
 		const n = 200_000
