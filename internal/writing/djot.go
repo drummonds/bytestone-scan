@@ -89,7 +89,11 @@ func atoms(spans []span) []atom {
 		}
 		kept = append(kept, a)
 	}
-	for len(kept) > 0 && (kept[len(kept)-1].space() || kept[len(kept)-1].brk) {
+	// a no-break space at either end is white space there too
+	for len(kept) > 0 && (kept[0].space() || kept[0].r == 0xa0) {
+		kept = kept[1:]
+	}
+	for len(kept) > 0 && (kept[len(kept)-1].space() || kept[len(kept)-1].brk || kept[len(kept)-1].r == 0xa0) {
 		kept = kept[:len(kept)-1]
 	}
 	for i := range kept {
@@ -135,6 +139,18 @@ func inline(as []atom) string {
 	}
 	runs(as, func(a atom) string { return a.link }, func(link string, as []atom) {
 		if link != "" {
+			// What is escaped is not read straight after a link's opening
+			// bracket, so the link begins at the first character that is
+			// not: the text before it is written before the link, and a
+			// link of nothing else is its text alone.
+			n := 0
+			for n < len(as) && strings.HasPrefix(as[n].out, "\\") {
+				b.WriteString(as[n].out)
+				n++
+			}
+			if as = as[n:]; len(as) == 0 {
+				return
+			}
 			b.WriteByte('[')
 			defer func() { b.WriteString("](" + link + ")") }()
 		}
@@ -206,6 +222,9 @@ func escaped(as []atom) []atom {
 			esc = first || next == a.r || prev == a.r
 		case '+', '(', ')':
 			esc = first
+		case '!':
+			// before a link or a note's reference it would make a picture of it
+			esc = i+1 < len(as) && (as[i+1].note != "" || as[i+1].link != "" && as[i+1].link != a.link)
 		case ':':
 			// after a note's reference it would make the line the note itself
 			esc = first || next != 0 && next != ' ' || i > 0 && as[i-1].note != ""
