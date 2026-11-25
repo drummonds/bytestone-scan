@@ -3,6 +3,7 @@ package writing
 import (
 	"net/url"
 	"strings"
+	"unicode"
 )
 
 // A block is one block of the text: a paragraph, a heading at a level,
@@ -65,8 +66,8 @@ func atoms(spans []span) []atom {
 		default:
 			for _, r := range s.text {
 				switch {
-				case r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\f' || r == '\v':
-					r = ' '
+				case r != 0xa0 && unicode.IsSpace(r):
+					r = ' ' // any white space but the no-break space, which is the writer's own
 				case r < 0x20 || r >= 0x7f && r < 0xa0 || r == 0xfeff:
 					continue // a control character is not text
 				}
@@ -89,21 +90,47 @@ func atoms(spans []span) []atom {
 		}
 		kept = append(kept, a)
 	}
-	for len(kept) > 0 && (kept[len(kept)-1].space() || kept[len(kept)-1].brk) {
+	// a no-break space at either end is white space there too
+	for len(kept) > 0 && (kept[0].space() || kept[0].r == 0xa0) {
+		kept = kept[1:]
+	}
+	for len(kept) > 0 && (kept[len(kept)-1].space() || kept[len(kept)-1].brk || kept[len(kept)-1].r == 0xa0) {
 		kept = kept[:len(kept)-1]
+	}
+	// A link begins at a letter, a figure or a character beyond ASCII:
+	// the renderer does not read punctuation straight after a link's
+	// opening bracket, so what a link's text begins with of it stands
+	// before the link, as text; a link of nothing else is its text alone.
+	for i := 0; i < len(kept); {
+		j := i + 1
+		for j < len(kept) && kept[j].link == kept[i].link && kept[j].r != 0 {
+			j++
+		}
+		if kept[i].link != "" && kept[i].r != 0 {
+			for k := i; k < j && (kept[k].space() || kept[k].r < 0x80 && !alnum(kept[k].r)); k++ {
+				kept[k].link = ""
+			}
+		}
+		i = j
 	}
 	for i := range kept {
 		if !kept[i].space() {
 			continue
 		}
 		prev, next := kept[i-1], kept[i+1] // a space is never first or last
-		if prev.bold == next.bold && prev.italic == next.italic && prev.link == next.link {
-			kept[i].bold, kept[i].italic, kept[i].link = prev.bold, prev.italic, prev.link
-		} else {
-			kept[i].bold, kept[i].italic, kept[i].link = false, false, ""
+		kept[i].bold, kept[i].italic, kept[i].link = false, false, ""
+		if prev.link == next.link {
+			kept[i].link = prev.link
+		}
+		if prev.bold == next.bold && prev.italic == next.italic && kept[i].link == prev.link && kept[i].link == next.link {
+			kept[i].bold, kept[i].italic = prev.bold, prev.italic
 		}
 	}
 	return kept
+}
+
+func alnum(r rune) bool {
+	return r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
 }
 
 // hasText is whether any of the atoms is a character to read.
@@ -124,6 +151,15 @@ const always = "\\*_`^~{}[]<>$\"'|#"
 // link around what it links, strong within it, emphasis within that.
 func inline(as []atom) string {
 	var b strings.Builder
+	// A line that begins with a brace is read as an attribute, not as
+	// text, so the mark that opens a line is written without one; a mark
+	// within a line keeps its braces, which hold whatever stands beside it.
+	mark := func(m string) (open, shut string) {
+		if s := b.String(); s == "" || strings.HasSuffix(s, "\n") {
+			return m, m
+		}
+		return "{" + m, m + "}"
+	}
 	runs(as, func(a atom) string { return a.link }, func(link string, as []atom) {
 		if link != "" {
 			b.WriteByte('[')
@@ -131,13 +167,15 @@ func inline(as []atom) string {
 		}
 		runs(as, func(a atom) bool { return a.bold }, func(bold bool, as []atom) {
 			if bold {
-				b.WriteString("{*")
-				defer b.WriteString("*}")
+				open, shut := mark("*")
+				b.WriteString(open)
+				defer func() { b.WriteString(shut) }()
 			}
 			runs(as, func(a atom) bool { return a.italic }, func(italic bool, as []atom) {
 				if italic {
-					b.WriteString("{_")
-					defer b.WriteString("_}")
+					open, shut := mark("_")
+					b.WriteString(open)
+					defer func() { b.WriteString(shut) }()
 				}
 				for _, a := range as {
 					b.WriteString(a.out)
@@ -195,8 +233,12 @@ func escaped(as []atom) []atom {
 			esc = first || next == a.r || prev == a.r
 		case '+', '(', ')':
 			esc = first
+		case '!':
+			// before a link or a note's reference it would make a picture of it
+			esc = i+1 < len(as) && (as[i+1].note != "" || as[i+1].link != "" && as[i+1].link != a.link)
 		case ':':
-			esc = first || next != 0 && next != ' '
+			// after a note's reference it would make the line the note itself
+			esc = first || next != 0 && next != ' ' || i > 0 && as[i-1].note != ""
 		}
 		if esc {
 			a.out = "\\" + string(a.r)

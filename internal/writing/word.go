@@ -13,8 +13,9 @@ import (
 // all it holds.
 type word struct {
 	styles   map[string]wordStyle
-	links    map[string]string    // a hyperlink's relationship id: its link, when to the web
-	notes    map[string]*wordNote // by kind and id
+	rels     map[string]map[string]string // by part: a hyperlink's relationship id, its link when to the web
+	links    map[string]string            // those of the part being read
+	notes    map[string]*wordNote         // by kind and id
 	blocks   []block
 	referred []note // the notes the text refers to, in the order it first does
 	left     LeftOut
@@ -63,7 +64,14 @@ func on(se xml.StartElement) bool {
 // each calls do for every element directly within the one the decoder
 // has just entered; do reads the element to its end, or the element is
 // skipped.
-func each(d *xml.Decoder, do func(xml.StartElement) (bool, error)) error {
+func each(d *reader, do func(xml.StartElement) (bool, error)) error {
+	// The reading goes a level deeper with each element entered, and a
+	// document made to nest without end would run the machine out of
+	// stack, so no part is read deeper than maxDepth.
+	if d.depth++; d.depth > maxDepth {
+		return ErrTooDeep
+	}
+	defer func() { d.depth-- }()
 	for {
 		tok, err := d.Token()
 		if err != nil {
@@ -89,8 +97,18 @@ func each(d *xml.Decoder, do func(xml.StartElement) (bool, error)) error {
 	}
 }
 
+// maxDepth is the deepest Convert reads into a part: a real document
+// nests a few tens deep.
+const maxDepth = 512
+
+// A reader is a part's XML being read, and how deep the reading is.
+type reader struct {
+	*xml.Decoder
+	depth int
+}
+
 // root moves the decoder into the part's root element.
-func root(d *xml.Decoder) error {
+func root(d *reader) error {
 	for {
 		tok, err := d.Token()
 		if err != nil {
@@ -145,11 +163,12 @@ func (w *word) style(id string) (level int, list bool) {
 	return level, list
 }
 
-// readRels reads a relationships part: a hyperlink to the web is kept by
-// its id; any other target outside the document, an attached template or
-// a linked object, is an object left out. A linked picture is counted
-// where it is drawn.
-func (w *word) readRels(r io.Reader) error {
+// readRels reads the relationships of the part named: a hyperlink to the
+// web is kept by its id, which is the part's own; any other target
+// outside the document, an attached template or the like, is an object
+// left out. A linked picture or object is counted where it stands in the
+// text.
+func (w *word) readRels(part string, r io.Reader) error {
 	var doc struct {
 		Rels []struct {
 			ID     string `xml:"Id,attr"`
@@ -161,32 +180,32 @@ func (w *word) readRels(r io.Reader) error {
 	if err := xml.NewDecoder(r).Decode(&doc); err != nil {
 		return err
 	}
-	first := w.links == nil // the document's own relationships come first
-	if first {
-		w.links = map[string]string{}
-	}
+	links := map[string]string{}
 	for _, rel := range doc.Rels {
-		kind := rel.Type[strings.LastIndexByte(rel.Type, '/')+1:]
-		switch {
+		switch kind := rel.Type[strings.LastIndexByte(rel.Type, '/')+1:]; {
 		case kind == "hyperlink":
-			if link := webLink(rel.Target); first && link != "" && rel.Mode == "External" {
-				w.links[rel.ID] = link
+			if link := webLink(rel.Target); link != "" && rel.Mode == "External" {
+				links[rel.ID] = link
 			}
-		case rel.Mode == "External" && kind != "image":
+		case rel.Mode == "External" && kind != "image" && kind != "oleObject":
 			w.left.Objects++
 		}
 	}
+	if w.rels == nil {
+		w.rels = map[string]map[string]string{}
+	}
+	w.rels[part] = links
 	return nil
 }
 
 // readNotes reads the footnotes or the endnotes: each one's blocks, by
 // its id. The separators Word keeps among them are not notes.
 func (w *word) readNotes(r io.Reader, kind string) error {
-	d := xml.NewDecoder(r)
+	d := &reader{Decoder: xml.NewDecoder(r)}
 	if err := root(d); err != nil {
 		return err
 	}
-	w.inNote = true
+	w.inNote, w.links = true, w.rels[kind+"s"]
 	defer func() { w.inNote = false }()
 	return each(d, func(se xml.StartElement) (bool, error) {
 		if t := attr(se, "type"); !wml(se, kind) || t != "" && t != "normal" {
@@ -202,10 +221,11 @@ func (w *word) readNotes(r io.Reader, kind string) error {
 }
 
 func (w *word) readDocument(r io.Reader) error {
-	d := xml.NewDecoder(r)
+	d := &reader{Decoder: xml.NewDecoder(r)}
 	if err := root(d); err != nil {
 		return err
 	}
+	w.links = w.rels["document"]
 	return each(d, func(se xml.StartElement) (bool, error) {
 		if !wml(se, "body") {
 			return false, nil
@@ -215,7 +235,7 @@ func (w *word) readDocument(r io.Reader) error {
 }
 
 // flow reads what holds paragraphs: the body, a table's cell, a note.
-func (w *word) flow(d *xml.Decoder) error {
+func (w *word) flow(d *reader) error {
 	return each(d, func(se xml.StartElement) (bool, error) {
 		switch {
 		case wml(se, "p"):
@@ -235,7 +255,7 @@ func (w *word) flow(d *xml.Decoder) error {
 
 // within reads down through the elements named, one inside the other,
 // and then with read; what else is met on the way is skipped.
-func (w *word) within(d *xml.Decoder, path []string, read func(*xml.Decoder) error) error {
+func (w *word) within(d *reader, path []string, read func(*reader) error) error {
 	if len(path) == 0 {
 		return read(d)
 	}
@@ -249,7 +269,7 @@ func (w *word) within(d *xml.Decoder, path []string, read func(*xml.Decoder) err
 
 // paragraph reads one paragraph into a block: a heading or a list item
 // by its style or its numbering, a paragraph otherwise.
-func (w *word) paragraph(d *xml.Decoder) error {
+func (w *word) paragraph(d *reader) error {
 	bl := block{}
 	err := w.inlines(d, &bl, span{}, func(se xml.StartElement) (bool, error) {
 		if !wml(se, "pPr") {
@@ -289,7 +309,7 @@ func (w *word) paragraph(d *xml.Decoder) error {
 
 // inlines reads what holds runs, in the manner given: a paragraph, a
 // hyperlink, an insertion. other is offered what is not known here.
-func (w *word) inlines(d *xml.Decoder, bl *block, in span, other func(xml.StartElement) (bool, error)) error {
+func (w *word) inlines(d *reader, bl *block, in span, other func(xml.StartElement) (bool, error)) error {
 	return each(d, func(se xml.StartElement) (bool, error) {
 		switch {
 		case wml(se, "r"):
@@ -307,7 +327,7 @@ func (w *word) inlines(d *xml.Decoder, bl *block, in span, other func(xml.StartE
 			// tracked changes are read as accepted: what was inserted or moved here is text
 			return true, w.inlines(d, bl, in, nil)
 		case wml(se, "sdt"):
-			return true, w.within(d, []string{"sdtContent"}, func(d *xml.Decoder) error { return w.inlines(d, bl, in, nil) })
+			return true, w.within(d, []string{"sdtContent"}, func(d *reader) error { return w.inlines(d, bl, in, nil) })
 		}
 		if other != nil {
 			return other(se)
@@ -318,9 +338,9 @@ func (w *word) inlines(d *xml.Decoder, bl *block, in span, other func(xml.StartE
 
 // run reads a run: its text in its manner, its breaks, and a note's
 // reference; a picture or an object in it is counted and left out.
-func (w *word) run(d *xml.Decoder, bl *block, in span) error {
-	var content func(*xml.Decoder) error
-	content = func(d *xml.Decoder) error {
+func (w *word) run(d *reader, bl *block, in span) error {
+	var content func(*reader) error
+	content = func(d *reader) error {
 		return each(d, func(se xml.StartElement) (bool, error) {
 			switch {
 			case wml(se, "rPr"):
@@ -404,7 +424,7 @@ func (w *word) run(d *xml.Decoder, bl *block, in span) error {
 // pictures reads a drawing to its end and reports whether it holds a
 // picture. A text box holds none: it is not counted, and its words are
 // not carried.
-func pictures(d *xml.Decoder) (bool, error) {
+func pictures(d *reader) (bool, error) {
 	found := false
 	for depth := 1; depth > 0; {
 		tok, err := d.Token()
