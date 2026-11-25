@@ -40,6 +40,9 @@ var (
 	ErrMacros = errors.New("it carries macros, and was not sent as a plain document")
 	// ErrTooLarge: the file, or a part of it unzipped, is past Limit.
 	ErrTooLarge = errors.New("too large to read")
+	// ErrTooDeep: a part of the document nests deeper than any real
+	// document does, and was made to.
+	ErrTooDeep = errors.New("nested too deeply to read")
 	// ErrNothingToRead: the file holds no text.
 	ErrNothingToRead = errors.New("nothing to read")
 )
@@ -162,7 +165,9 @@ func fromWord(r io.ReaderAt, size int64) (Text, error) {
 			return fmt.Errorf("%w: %s: %v", ErrNotWord, name, err)
 		}
 		defer rc.Close()
-		if err := into(io.LimitReader(rc, Limit)); err != nil {
+		if err := into(io.LimitReader(rc, Limit)); errors.Is(err, ErrTooDeep) {
+			return fmt.Errorf("%s: %w", name, err)
+		} else if err != nil {
 			return fmt.Errorf("%w: %s: %v", ErrNotWord, name, err)
 		}
 		return nil

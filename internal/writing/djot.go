@@ -3,6 +3,7 @@ package writing
 import (
 	"net/url"
 	"strings"
+	"unicode"
 )
 
 // A block is one block of the text: a paragraph, a heading at a level,
@@ -65,8 +66,8 @@ func atoms(spans []span) []atom {
 		default:
 			for _, r := range s.text {
 				switch {
-				case r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\f' || r == '\v':
-					r = ' '
+				case r != 0xa0 && unicode.IsSpace(r):
+					r = ' ' // any white space but the no-break space, which is the writer's own
 				case r < 0x20 || r >= 0x7f && r < 0xa0 || r == 0xfeff:
 					continue // a control character is not text
 				}
@@ -96,18 +97,40 @@ func atoms(spans []span) []atom {
 	for len(kept) > 0 && (kept[len(kept)-1].space() || kept[len(kept)-1].brk || kept[len(kept)-1].r == 0xa0) {
 		kept = kept[:len(kept)-1]
 	}
+	// A link begins at a letter, a figure or a character beyond ASCII:
+	// the renderer does not read punctuation straight after a link's
+	// opening bracket, so what a link's text begins with of it stands
+	// before the link, as text; a link of nothing else is its text alone.
+	for i := 0; i < len(kept); {
+		j := i + 1
+		for j < len(kept) && kept[j].link == kept[i].link && kept[j].r != 0 {
+			j++
+		}
+		if kept[i].link != "" && kept[i].r != 0 {
+			for k := i; k < j && (kept[k].space() || kept[k].r < 0x80 && !alnum(kept[k].r)); k++ {
+				kept[k].link = ""
+			}
+		}
+		i = j
+	}
 	for i := range kept {
 		if !kept[i].space() {
 			continue
 		}
 		prev, next := kept[i-1], kept[i+1] // a space is never first or last
-		if prev.bold == next.bold && prev.italic == next.italic && prev.link == next.link {
-			kept[i].bold, kept[i].italic, kept[i].link = prev.bold, prev.italic, prev.link
-		} else {
-			kept[i].bold, kept[i].italic, kept[i].link = false, false, ""
+		kept[i].bold, kept[i].italic, kept[i].link = false, false, ""
+		if prev.link == next.link {
+			kept[i].link = prev.link
+		}
+		if prev.bold == next.bold && prev.italic == next.italic && kept[i].link == prev.link && kept[i].link == next.link {
+			kept[i].bold, kept[i].italic = prev.bold, prev.italic
 		}
 	}
 	return kept
+}
+
+func alnum(r rune) bool {
+	return r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
 }
 
 // hasText is whether any of the atoms is a character to read.
@@ -139,18 +162,6 @@ func inline(as []atom) string {
 	}
 	runs(as, func(a atom) string { return a.link }, func(link string, as []atom) {
 		if link != "" {
-			// What is escaped is not read straight after a link's opening
-			// bracket, so the link begins at the first character that is
-			// not: the text before it is written before the link, and a
-			// link of nothing else is its text alone.
-			n := 0
-			for n < len(as) && strings.HasPrefix(as[n].out, "\\") {
-				b.WriteString(as[n].out)
-				n++
-			}
-			if as = as[n:]; len(as) == 0 {
-				return
-			}
 			b.WriteByte('[')
 			defer func() { b.WriteString("](" + link + ")") }()
 		}
