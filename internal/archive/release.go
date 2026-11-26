@@ -14,8 +14,14 @@ const lifeWeaver = "git.bytestone.uk/hum3/life-weaver"
 // one its go.mod names, read from the build; "" when the build does not
 // say.
 func BuiltFor() string {
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
+	bi, _ := debug.ReadBuildInfo()
+	return builtFor(bi)
+}
+
+// builtFor reads the release off a build's dependencies. Built against
+// a copy on disk, the build names no release.
+func builtFor(bi *debug.BuildInfo) string {
+	if bi == nil {
 		return ""
 	}
 	for _, dep := range bi.Deps {

@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +48,28 @@ func TestBehindComparesReleasesAsNumbers(t *testing.T) {
 	} {
 		if got := Behind(c.serves, c.builtFor); got != c.want {
 			t.Errorf("an archive serving %q, a scanner built for %q: behind %v, want %v", c.serves, c.builtFor, got, c.want)
+		}
+	}
+}
+
+// #211: the release the scanner is built for is the life-weaver version
+// its build lists among its dependencies; a build that lists none, or
+// one built against a copy on disk, does not say.
+func TestBuiltForIsTheLifeWeaverTheBuildNames(t *testing.T) {
+	other := &debug.Module{Path: "gopkg.in/yaml.v3", Version: "v3.0.1"}
+	for _, c := range []struct {
+		name string
+		bi   *debug.BuildInfo
+		want string
+	}{
+		{"a release", &debug.BuildInfo{Deps: []*debug.Module{other, {Path: "git.bytestone.uk/hum3/life-weaver", Version: "v0.61.0"}}}, "v0.61.0"},
+		{"no life-weaver", &debug.BuildInfo{Deps: []*debug.Module{other}}, ""},
+		{"a copy on disk", &debug.BuildInfo{Deps: []*debug.Module{{Path: "git.bytestone.uk/hum3/life-weaver", Version: "v0.61.0", Replace: &debug.Module{Path: "../life-weaver"}}}}, ""},
+		{"another release in its place", &debug.BuildInfo{Deps: []*debug.Module{{Path: "git.bytestone.uk/hum3/life-weaver", Version: "v0.61.0", Replace: &debug.Module{Path: "git.bytestone.uk/hum3/life-weaver", Version: "v0.62.0"}}}}, "v0.62.0"},
+		{"no build information", nil, ""},
+	} {
+		if got := builtFor(c.bi); got != c.want {
+			t.Errorf("%s: built for %q, want %q", c.name, got, c.want)
 		}
 	}
 }

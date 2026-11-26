@@ -34,7 +34,7 @@ type Fake struct {
 	Down bool
 	// Serving is the instance the fake says it serves; Example's is a scratch one.
 	Serving archive.Instance
-	// Release is the life-weaver release the fake says it serves; none
+	// Serves is the life-weaver release the fake says it serves; none
 	// unless a test gives one.
 	Serves string
 	// NoWriting makes the fake an archive from before life-weaver v0.61.0:
