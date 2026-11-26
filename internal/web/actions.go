@@ -120,7 +120,7 @@ func (a *App) wait() { a.work.running.Wait() }
 
 // env is what the scans' workflows run with.
 func (a *App) env() batch.Env {
-	return batch.Env{Store: a.Store, Scanner: a.Scanner, Feeder: a.Feeder, Archive: a.Archive, Now: a.Now}
+	return batch.Env{Store: a.Store, Scanner: a.Scanner, Feeder: a.Feeder, Archive: a.Archive, Now: a.Now, BuiltFor: a.BuiltFor}
 }
 
 // running is the key of the scan a step is running for, or empty.
@@ -1032,9 +1032,11 @@ func (a *App) state(r *http.Request, c *lofigui.Context, l *batch.Scan) (bool, s
 			`<div class="buttons">` + button("retry", "Retry", "is-primary") + cancel + `</div>`)
 	case run.Status == wf.StatusCompleted:
 		if s, err := l.Standing(r.Context(), a.Store); err == nil && s.Photo != nil && (s.Status == wf.StatusFailed || s.Status == wf.StatusCancelled) {
-			// a photo the scan is through to, failed: a tick of the
-			// scan runs every photo of it as far as it can go
-			c.HTML(`<div class="notification is-danger">Photo ` + html.EscapeString(strings.TrimPrefix(s.String(), "photo ")) + `</div>` +
+			// an item the scan is through to, failed: a tick of the
+			// scan runs every item of it as far as it can go. The
+			// standing names it by its kind, here beginning a sentence
+			said := s.String()
+			c.HTML(`<div class="notification is-danger">` + html.EscapeString(strings.ToUpper(said[:1])+said[1:]) + `</div>` +
 				`<div class="buttons">` + button("retry", "Retry", "is-primary") + `</div>`)
 			break
 		}

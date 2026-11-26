@@ -173,13 +173,14 @@ func serve(ctx context.Context, cfg settings, s batch.Scanner) error {
 	}
 	feeder := &fastfoto.Feeder{} // the FF-680W
 	app := &web.App{
-		Staging: staging,
-		Store:   store,
-		DB:      db,
-		Scanner: s,
-		Feeder:  feeder,
-		Archive: client,
-		Now:     time.Now,
+		Staging:  staging,
+		Store:    store,
+		DB:       db,
+		Scanner:  s,
+		Feeder:   feeder,
+		Archive:  client,
+		Now:      time.Now,
+		BuiltFor: archive.BuiltFor(),
 	}
 	l, err := listen(addr, portsTried)
 	if err != nil {

@@ -54,6 +54,10 @@ type App struct {
 	Archive archive.Service
 	Sites   []site.Site // where items are published, asked by Verify; nil for site.Defaults
 	Now     func() time.Time
+	// BuiltFor is the life-weaver release the scanner is built against
+	// (archive.BuiltFor): an archive serving an older one is sent no
+	// deposit (story 211). Empty, nothing is refused.
+	BuiltFor string
 
 	mu     sync.Mutex // the last master decoded, since a page and its images all want it
 	cached pid.ID

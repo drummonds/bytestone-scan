@@ -67,6 +67,10 @@ type Env struct {
 	Feeder  Feeder // the sheet feeder, for feeds (story 117); nil without one
 	Archive archive.Service
 	Now     func() time.Time
+	// BuiltFor is the life-weaver release the scanner is built against
+	// (archive.BuiltFor): an archive serving an older one is not sent a
+	// deposit (story 211). Empty, nothing is refused.
+	BuiltFor string
 }
 
 // Turnable is a scanner that can be told which side of the prints the
@@ -1369,7 +1373,8 @@ func (b *Scan) depositPath(id pid.ID) string {
 // deposit hands the photo's deposit to the archive, a tar of its bag and
 // its renditions at the current recipe, and keeps the answer: held, or
 // refused as a duplicate of an item the archive holds already, which
-// ends the photo. A refusal for the renditions redevelops both sides at
+// ends the photo. An archive behind the scanner is not sent it. A
+// refusal for the renditions redevelops both sides at
 // the current recipe and fails the step, a retry depositing again; a
 // conflict or a failure fails the step, to be tried again. The error is
 // the cause as the operator reads it: the step and the item are the
@@ -1389,6 +1394,15 @@ func (b *Scan) deposit(id pid.ID, env Env) error {
 func (b *Scan) depositItem(id pid.ID, env Env, develop func(again bool) error) error {
 	if d, err := DepositOf(b.root, id); err != nil || d != nil {
 		return err
+	}
+	// not sent to an archive behind the scanner (story 211): it may not
+	// know the item's kind, and refuses it for something else
+	serves, err := env.Archive.Release()
+	if err != nil {
+		return err
+	}
+	if archive.Behind(serves, env.BuiltFor) {
+		return fmt.Errorf("not sent: the archive at %s serves life-weaver %s, older than the %s this scanner is built for; deploy %s or later to it, then Retry", env.Archive, serves, env.BuiltFor, env.BuiltFor)
 	}
 	if err := develop(false); err != nil {
 		return err
@@ -1422,7 +1436,8 @@ func (b *Scan) depositItem(id pid.ID, env Env, develop func(again bool) error) e
 		return writeYAML(b.depositPath(id), Deposit{Status: string(rec.Status), Kind: rec.Kind, Home: rec.Home, Payload: rec.Payload, At: env.Now().UTC()})
 	case errors.As(err, &refusal) && refusal.Status == "duplicate":
 		return writeYAML(b.depositPath(id), Deposit{Status: "duplicate", Home: refusal.Home, DuplicateOf: refusal.DuplicateOf, File: refusal.File, At: env.Now().UTC()})
-	case errors.As(err, &refusal) && refusal.Status == "renditions":
+	case errors.As(err, &refusal) && refusal.Status == "renditions" && !b.IsWriting():
+		// a writing has no renditions to remake: the refusal stands alone
 		if rerr := develop(true); rerr != nil {
 			return fmt.Errorf("%w; remaking the renditions: %v", err, rerr)
 		}
