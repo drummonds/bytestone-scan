@@ -34,6 +34,13 @@ type Fake struct {
 	Down bool
 	// Serving is the instance the fake says it serves; Example's is a scratch one.
 	Serving archive.Instance
+	// Release is the life-weaver release the fake says it serves; none
+	// unless a test gives one.
+	Serves string
+	// NoWriting makes the fake an archive from before life-weaver v0.61.0:
+	// it does not know a writing's record, takes the bag for a photo's and
+	// refuses it for its renditions.
+	NoWriting bool
 	// NoFixity makes the fake an archive from before life-weaver#87: the
 	// fixity call is not there, so it answers as for an unknown item.
 	NoFixity bool
@@ -70,6 +77,13 @@ func (f *Fake) Instance() (archive.Instance, error) {
 		return archive.Instance{}, errDown
 	}
 	return f.Serving, nil
+}
+
+func (f *Fake) Release() (string, error) {
+	if f.Down {
+		return "", errDown
+	}
+	return f.Serves, nil
 }
 
 func (f *Fake) String() string {
@@ -190,7 +204,7 @@ func (f *Fake) Deposit(id pid.ID, deposit io.Reader) (archive.Receipt, error) {
 		}
 		return receipt(id, it), nil
 	}
-	if _, ok := payload[writingRecord]; ok {
+	if _, ok := payload[writingRecord]; ok && !f.NoWriting {
 		return f.holdWriting(id, it, payload, djot)
 	}
 	if !known(payload) {

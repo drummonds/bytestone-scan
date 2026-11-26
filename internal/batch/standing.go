@@ -13,12 +13,14 @@ import (
 // until that run is through, then the status of the photo that holds the
 // scan back, if any, since a scan is through only once every photo is
 // held by the archive or rejected by it. Step is the step the status is
-// at, Error why it failed, and Photo the photo whose run it is.
+// at, Error why it failed, and Photo the item whose run it is, of
+// whatever kind: Kind names it, a photo, letter, film or writing.
 type Standing struct {
 	Status wf.RunStatus // empty before the scan's run exists
 	Step   string
 	Error  string
 	Photo  *pid.ID
+	Kind   string
 }
 
 // Through is whether the scan and every photo of it are through.
@@ -29,11 +31,11 @@ func (s Standing) Through() bool { return s.Status == wf.StatusCompleted }
 func (s Standing) Cancelled() bool { return s.Status == wf.StatusCancelled && s.Photo == nil }
 
 // String says the standing as the operator reads it: "not started",
-// "waiting at confirm", "photo 16 failed at deposit: refused …", "through".
+// "waiting at confirm", "writing 16 failed at deposit: refused …", "through".
 func (s Standing) String() string {
 	who := ""
 	if s.Photo != nil {
-		who = "photo " + s.Photo.String() + " "
+		who = s.Kind + " " + s.Photo.String() + " "
 	}
 	at := ""
 	if s.Step != "" {
@@ -94,7 +96,7 @@ func (l *Scan) Standing(ctx context.Context, store wf.Store) (Standing, error) {
 		}
 		if p.rank() > s.rank() {
 			id := id
-			p.Photo = &id
+			p.Photo, p.Kind = &id, l.itemKind()
 			s = p
 		}
 	}

@@ -120,7 +120,7 @@ func (a *App) wait() { a.work.running.Wait() }
 
 // env is what the scans' workflows run with.
 func (a *App) env() batch.Env {
-	return batch.Env{Store: a.Store, Scanner: a.Scanner, Feeder: a.Feeder, Archive: a.Archive, Now: a.Now}
+	return batch.Env{Store: a.Store, Scanner: a.Scanner, Feeder: a.Feeder, Archive: a.Archive, Now: a.Now, BuiltFor: archive.BuiltFor()}
 }
 
 // running is the key of the scan a step is running for, or empty.

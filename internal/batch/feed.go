@@ -387,6 +387,19 @@ func (l *Scan) itemType() wf.WorkflowType {
 	return PhotoWorkflow
 }
 
+// itemKind is what the items the scan archives are called.
+func (l *Scan) itemKind() string {
+	switch {
+	case l.IsFeed():
+		return "letter"
+	case l.IsFilm():
+		return "film"
+	case l.IsWriting():
+		return "writing"
+	}
+	return "photo"
+}
+
 // itemStages are one item's workflow steps, by the scan's kind.
 func (l *Scan) itemStages(id pid.ID, env Env) []wf.Stage {
 	switch {

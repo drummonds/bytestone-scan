@@ -46,6 +46,9 @@ type Service interface {
 	// UAT, scratch or scale instance. A service from before instances were
 	// reported gives an unnamed one.
 	Instance() (Instance, error)
+	// Release is the life-weaver release the service serves, as it says
+	// it: v0.61.0, or what a build that is no release calls itself.
+	Release() (string, error)
 	// String names the service, for About.
 	String() string
 }
@@ -279,6 +282,17 @@ func (c Client) Instance() (Instance, error) {
 		return Instance{}, err
 	}
 	return v.Instance, nil
+}
+
+// Release asks the service which life-weaver release it serves.
+func (c Client) Release() (string, error) {
+	var v struct {
+		Version string `json:"version"`
+	}
+	if err := c.call(http.MethodGet, "/version", nil, &v); err != nil {
+		return "", err
+	}
+	return v.Version, nil
 }
 
 func (c Client) Person(id pid.ID) (string, error) {
